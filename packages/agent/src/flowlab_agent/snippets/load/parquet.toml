@@ -1,0 +1,13 @@
+id = "load.parquet"
+title = "Load a Parquet file"
+description = "Read a columnar Parquet file into a pandas DataFrame."
+tags = ["load", "read", "parquet", "file", "open"]
+provides = ["df"]
+code = '''
+df = pd.read_parquet(DATA_PATH)
+print(f"Loaded {len(df):,} rows x {df.shape[1]} columns from {DATA_PATH.name}")
+'''
+
+[example]
+dataset = "tiny_30"
+file = "parquet"

@@ -1,0 +1,41 @@
+id = "viz.scatter"
+title = "Scatter plot"
+description = "Relationship between two columns, optionally coloured by a category; saved as PNG."
+tags = ["scatter", "relationship", "related", "correlation", "two", "chart", "plot", "viz", "graph"]
+requires = ["df"]
+imports = ["import matplotlib.pyplot as plt"]
+code = '''
+x_column, y_column, hue_column = {{ x }}, {{ y }}, {{ hue }}
+scatter_data = df[[x_column, y_column] + ([hue_column] if hue_column else [])].dropna()
+scatter_data = scatter_data.sample(min(len(scatter_data), 5000), random_state=SEED)
+fig, ax = plt.subplots(figsize=(6, 5))
+if hue_column:
+    for name, group in list(scatter_data.groupby(hue_column))[:10]:
+        ax.scatter(group[x_column], group[y_column], s=12, alpha=0.6, label=str(name))
+    ax.legend(title=hue_column)
+else:
+    ax.scatter(scatter_data[x_column], scatter_data[y_column], s=12, alpha=0.6)
+ax.set(title=f"{y_column} vs {x_column}", xlabel=x_column, ylabel=y_column)
+chart_path = OUTPUT_DIR / ({{ filename }} or f"scatter_{x_column}_{y_column}.png")
+fig.tight_layout()
+fig.savefig(chart_path, dpi=120)
+plt.close(fig)
+print(f"Saved {chart_path}")
+'''
+
+[params.x]
+type = "column"
+
+[params.y]
+type = "column"
+
+[params.hue]
+type = "column"
+optional = true
+
+[params.filename]
+type = "path"
+optional = true
+
+[example]
+with = { x = "tenure_months", y = "monthly_charges", hue = "churned" }

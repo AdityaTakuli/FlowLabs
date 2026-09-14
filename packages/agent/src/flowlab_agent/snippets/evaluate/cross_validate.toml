@@ -1,0 +1,28 @@
+id = "evaluate.cross_validate"
+title = "Cross-validated score"
+description = "K-fold cross-validation of the chosen model on train; shows how stable the score is."
+tags = ["cross", "validation", "kfold", "cv", "stability", "evaluate", "score"]
+requires = ["model", "split", "features_ready"]
+imports = ["from sklearn.base import clone", "from sklearn.model_selection import cross_val_score"]
+code = '''
+cv_scoring = {{ scoring }}
+if cv_scoring == "auto":
+    cv_scoring = "balanced_accuracy" if TASK == "classification" else "r2"
+cv_scores = cross_val_score(clone(model), X_train, y_train, cv={{ folds }}, scoring=cv_scoring, n_jobs=-1)
+print(f"{cv_scoring} over {len(cv_scores)} folds: {cv_scores.mean():.4f} +/- {cv_scores.std():.4f}")
+'''
+
+[params.folds]
+type = "int"
+default = 5
+min = 2
+max = 20
+
+[params.scoring]
+type = "choice"
+choices = ["auto", "accuracy", "balanced_accuracy", "f1", "roc_auc", "r2", "neg_mean_absolute_error"]
+default = "auto"
+
+[example]
+target = "churned"
+with = { folds = 3 }

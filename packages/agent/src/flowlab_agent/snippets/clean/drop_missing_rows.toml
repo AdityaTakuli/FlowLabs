@@ -1,0 +1,23 @@
+id = "clean.drop_missing_rows"
+title = "Drop rows with missing values"
+description = "Remove rows that have missing values in the given columns (or any column)."
+tags = ["missing", "null", "dropna", "drop", "rows", "clean"]
+requires = ["df"]
+provides = ["df"]
+code = '''
+rows_before = len(df)
+df = df.dropna(subset={{ subset }}, how={{ how }}).reset_index(drop=True)
+print(f"Removed {rows_before - len(df)} rows with missing values")
+'''
+
+[params.subset]
+type = "columns"
+optional = true
+
+[params.how]
+type = "choice"
+choices = ["any", "all"]
+default = "any"
+
+[example]
+with = { subset = ["tenure_months"] }

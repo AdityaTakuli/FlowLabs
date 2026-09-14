@@ -1,0 +1,34 @@
+id = "viz.bar_counts"
+title = "Bar chart of category counts"
+description = "Horizontal bar chart of the most frequent values of a column; saved as PNG."
+tags = ["bar", "counts", "frequency", "categorical", "category", "chart", "plot", "viz"]
+requires = ["df"]
+imports = ["import matplotlib.pyplot as plt"]
+code = '''
+bar_column = {{ column }}
+bar_counts = df[bar_column].astype("string").fillna("(missing)").value_counts().head({{ top }})
+fig, ax = plt.subplots(figsize=(7, 0.35 * len(bar_counts) + 1))
+bar_counts.iloc[::-1].plot.barh(ax=ax, color="#4C72B0")
+ax.set(title=f"Most common values of {bar_column}", xlabel="rows")
+chart_path = OUTPUT_DIR / ({{ filename }} or f"bar_{bar_column}.png")
+fig.tight_layout()
+fig.savefig(chart_path, dpi=120)
+plt.close(fig)
+print(f"Saved {chart_path}")
+'''
+
+[params.column]
+type = "column"
+
+[params.top]
+type = "int"
+default = 15
+min = 1
+max = 100
+
+[params.filename]
+type = "path"
+optional = true
+
+[example]
+with = { column = "contract" }

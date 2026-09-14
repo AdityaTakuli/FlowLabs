@@ -1,0 +1,55 @@
+{
+  "spec_version": "1.0",
+  "flow_id": "flw_churn_baseline",
+  "name": "Churn baseline model",
+  "description": "Phase 0 DoD flow: split, impute on train, encode, fit, evaluate, export predictions.",
+  "created_by": "user",
+  "dataset_bindings": { "primary": "churn" },
+  "nodes": [
+    {
+      "id": "n1", "type": "source.dataset", "label": "Customers",
+      "params": { "dataset_ref": "primary", "target": "churned", "role_overrides": { "signup_date": "ignore" } },
+      "position": { "x": 40, "y": 120 }
+    },
+    {
+      "id": "n2", "type": "prep.split", "label": "80/20 stratified",
+      "params": { "test_size": 0.2, "stratify_by": "churned", "seed": 42 },
+      "position": { "x": 300, "y": 120 }
+    },
+    {
+      "id": "n3", "type": "clean.impute", "label": "Median impute",
+      "params": { "columns": ["tenure_months", "monthly_charges"], "strategy": "median" },
+      "position": { "x": 560, "y": 120 }
+    },
+    {
+      "id": "n4", "type": "prep.encode", "label": "One-hot plan & contract",
+      "params": { "columns": ["plan_type", "contract"], "method": "onehot" },
+      "position": { "x": 820, "y": 120 }
+    },
+    {
+      "id": "n5", "type": "model.fit", "label": "Random forest",
+      "params": { "algorithm": "random_forest", "hyperparameters": { "n_estimators": 200, "max_depth": 6 } },
+      "position": { "x": 1080, "y": 60 }
+    },
+    {
+      "id": "n6", "type": "model.evaluate", "label": "Test metrics",
+      "params": { "partition": "test" },
+      "position": { "x": 1340, "y": 120 }
+    },
+    {
+      "id": "n7", "type": "sink.export", "label": "Predictions",
+      "params": { "format": "parquet", "path": "churn_test_predictions" },
+      "position": { "x": 1600, "y": 120 }
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source": "n1", "source_port": "out", "target": "n2", "target_port": "in" },
+    { "id": "e2", "source": "n2", "source_port": "out", "target": "n3", "target_port": "in" },
+    { "id": "e3", "source": "n3", "source_port": "out", "target": "n4", "target_port": "in" },
+    { "id": "e4", "source": "n4", "source_port": "out", "target": "n5", "target_port": "train" },
+    { "id": "e5", "source": "n5", "source_port": "model", "target": "n6", "target_port": "model" },
+    { "id": "e6", "source": "n4", "source_port": "out", "target": "n6", "target_port": "data" },
+    { "id": "e7", "source": "n6", "source_port": "predictions", "target": "n7", "target_port": "in" }
+  ],
+  "meta": { "seed": 42 }
+}

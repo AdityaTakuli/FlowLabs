@@ -1,0 +1,16 @@
+id = "clean.drop_columns"
+title = "Drop columns"
+description = "Remove columns such as identifiers or fields that leak the outcome."
+tags = ["drop", "remove", "columns", "delete", "identifier", "clean"]
+requires = ["df"]
+provides = ["df"]
+code = '''
+df = df.drop(columns={{ columns }})
+print("Dropped columns:", {{ columns }})
+'''
+
+[params.columns]
+type = "columns"
+
+[example]
+with = { columns = ["customer_id"] }

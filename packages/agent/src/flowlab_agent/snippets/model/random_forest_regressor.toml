@@ -1,0 +1,30 @@
+id = "model.random_forest_regressor"
+title = "Random forest regressor"
+description = "Ensemble of regression trees for predicting a numeric target."
+tags = ["model", "random", "forest", "tree", "ensemble", "regression", "predict", "numeric", "train"]
+task = "regression"
+requires = ["split", "features_ready"]
+provides = ["model"]
+imports = ["from sklearn.ensemble import RandomForestRegressor"]
+code = '''
+model = RandomForestRegressor(n_estimators={{ n_estimators }}, max_depth={{ max_depth }}, random_state=SEED, n_jobs=-1)
+model.fit(X_train, y_train)
+print(f"Fitted random forest regressor ({model.n_estimators} trees) on {len(X_train):,} rows")
+'''
+
+[params.n_estimators]
+type = "int"
+default = 300
+min = 10
+max = 5000
+
+[params.max_depth]
+type = "int"
+optional = true
+min = 1
+max = 100
+
+[example]
+dataset = "clean_numeric"
+target = "y"
+with = { n_estimators = 100 }

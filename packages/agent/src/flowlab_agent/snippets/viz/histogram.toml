@@ -1,0 +1,37 @@
+id = "viz.histogram"
+title = "Histogram of a column"
+description = "Distribution of one numeric column with the median marked; saved as PNG."
+tags = ["histogram", "distribution", "chart", "plot", "viz", "graph", "spread", "shape"]
+requires = ["df"]
+imports = ["import matplotlib.pyplot as plt"]
+code = '''
+hist_column = {{ column }}
+hist_values = pd.to_numeric(df[hist_column], errors="coerce").dropna().astype(float)
+fig, ax = plt.subplots(figsize=(7, 4))
+ax.hist(hist_values, bins={{ bins }}, color="#4C72B0", edgecolor="white")
+if len(hist_values):
+    ax.axvline(hist_values.median(), color="black", linestyle="--", label=f"median {hist_values.median():.3g}")
+    ax.legend()
+ax.set(title=f"Distribution of {hist_column}", xlabel=hist_column, ylabel="count")
+chart_path = OUTPUT_DIR / ({{ filename }} or f"histogram_{hist_column}.png")
+fig.tight_layout()
+fig.savefig(chart_path, dpi=120)
+plt.close(fig)
+print(f"Saved {chart_path} (n={len(hist_values):,}, skew={hist_values.skew():.2f})")
+'''
+
+[params.column]
+type = "column"
+
+[params.bins]
+type = "int"
+default = 30
+min = 5
+max = 200
+
+[params.filename]
+type = "path"
+optional = true
+
+[example]
+with = { column = "tenure_months" }

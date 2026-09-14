@@ -1,0 +1,23 @@
+id = "feature.ratio"
+title = "Ratio of two columns"
+description = "Add numerator / denominator as a new column; division by zero gives missing."
+tags = ["ratio", "divide", "per", "rate", "feature", "derive"]
+requires = ["df"]
+provides = ["df"]
+code = '''
+denominator = pd.to_numeric(df[{{ denominator }}], errors="coerce").replace(0, np.nan)
+df[{{ name }}] = pd.to_numeric(df[{{ numerator }}], errors="coerce") / denominator
+print(f"Added {df.columns[-1]}")
+'''
+
+[params.numerator]
+type = "column"
+
+[params.denominator]
+type = "column"
+
+[params.name]
+type = "new_column"
+
+[example]
+with = { numerator = "monthly_charges", denominator = "support_calls", name = "charge_per_call" }

@@ -1,0 +1,21 @@
+id = "clean.drop_duplicates"
+title = "Drop duplicate rows"
+description = "Remove duplicate rows, optionally judged on a subset of columns."
+tags = ["duplicate", "dedupe", "unique", "clean", "repeated"]
+requires = ["df"]
+provides = ["df"]
+code = '''
+rows_before = len(df)
+df = df.drop_duplicates(subset={{ subset }}, keep={{ keep }}).reset_index(drop=True)
+print(f"Removed {rows_before - len(df)} duplicate rows")
+'''
+
+[params.subset]
+type = "columns"
+optional = true
+description = "Columns that define a duplicate (all if omitted)"
+
+[params.keep]
+type = "choice"
+choices = ["first", "last"]
+default = "first"

@@ -1,0 +1,28 @@
+id = "stats.chi_square"
+title = "Chi-square test of independence"
+description = "Test whether two categorical columns are associated, with Cramer's V and an expected-count check."
+tags = ["chi", "square", "independence", "association", "categorical", "crosstab", "contingency", "test", "significant"]
+requires = ["df"]
+imports = ["from scipy import stats"]
+code = '''
+column_a, column_b = {{ column_a }}, {{ column_b }}
+contingency = pd.crosstab(df[column_a], df[column_b])
+chi2, chi_p, dof, expected = stats.chi2_contingency(contingency)
+total = contingency.to_numpy().sum()
+smaller_side = min(contingency.shape) - 1
+cramers_v = np.sqrt(chi2 / (total * smaller_side)) if smaller_side > 0 else float("nan")
+print(contingency.to_string())
+print(f"chi2 = {chi2:.3f}, dof = {dof}, p = {chi_p:.4g}, Cramer's V = {cramers_v:.3f}")
+low_expected_share = (expected < 5).mean()
+if low_expected_share > 0.2:
+    print(f"Assumption check: {low_expected_share:.0%} of cells expect fewer than 5 rows; merge rare categories or use Fisher's exact test.")
+'''
+
+[params.column_a]
+type = "column"
+
+[params.column_b]
+type = "column"
+
+[example]
+with = { column_a = "plan_type", column_b = "churned" }

@@ -1,0 +1,55 @@
+id = "model.grid_search"
+title = "Tune a model with grid search"
+description = "Cross-validated hyperparameter search on train; keeps the best model."
+tags = ["tune", "tuning", "grid", "search", "hyperparameter", "optimize", "cross", "validation", "model"]
+requires = ["split", "features_ready"]
+provides = ["model"]
+imports = [
+    "from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor, RandomForestClassifier, RandomForestRegressor",
+    "from sklearn.linear_model import LogisticRegression, Ridge",
+    "from sklearn.model_selection import GridSearchCV",
+]
+code = '''
+is_classification = TASK == "classification"
+search_spaces = {
+    "random_forest": (
+        (RandomForestClassifier if is_classification else RandomForestRegressor)(random_state=SEED, n_jobs=-1),
+        {"n_estimators": [100, 300], "max_depth": [None, 6, 12]},
+    ),
+    "gradient_boosting": (
+        (HistGradientBoostingClassifier if is_classification else HistGradientBoostingRegressor)(random_state=SEED),
+        {"learning_rate": [0.05, 0.1], "max_depth": [None, 4]},
+    ),
+    "linear": (
+        LogisticRegression(max_iter=2000) if is_classification else Ridge(),
+        {"C": [0.1, 1.0, 10.0]} if is_classification else {"alpha": [0.1, 1.0, 10.0]},
+    ),
+}
+estimator, grid = search_spaces[{{ family }}]
+search_scoring = {{ scoring }}
+if search_scoring == "auto":
+    search_scoring = "balanced_accuracy" if is_classification else "r2"
+search = GridSearchCV(estimator, grid, cv={{ cv }}, scoring=search_scoring, n_jobs=-1).fit(X_train, y_train)
+model = search.best_estimator_
+print(f"Best cross-validated {search_scoring}: {search.best_score_:.4f} with {search.best_params_}")
+'''
+
+[params.family]
+type = "choice"
+choices = ["random_forest", "gradient_boosting", "linear"]
+default = "random_forest"
+
+[params.cv]
+type = "int"
+default = 5
+min = 2
+max = 20
+
+[params.scoring]
+type = "choice"
+choices = ["auto", "accuracy", "balanced_accuracy", "f1", "roc_auc", "r2", "neg_mean_absolute_error"]
+default = "auto"
+
+[example]
+target = "churned"
+with = { family = "linear", cv = 3 }

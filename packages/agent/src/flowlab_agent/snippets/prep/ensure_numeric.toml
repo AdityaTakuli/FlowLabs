@@ -1,0 +1,48 @@
+id = "prep.ensure_numeric"
+title = "Prepare features for modelling"
+description = "Make every feature numeric and complete: drop ids and dates, one-hot remaining categories, fill gaps with train medians."
+tags = ["prepare", "numeric", "features", "encode", "impute", "ready"]
+requires = ["split"]
+provides = ["features_ready"]
+stage = 3.5
+auto = true
+code = '''
+def _prepare_features(train, test, max_categories={{ max_categories }}):
+    train, test = train.copy(), test.copy()
+    dropped = []
+    for column in list(train.columns):
+        series = train[column]
+        is_float = pd.api.types.is_float_dtype(series)
+        if pd.api.types.is_bool_dtype(series):
+            train[column], test[column] = series.astype(float), test[column].astype(float)
+        elif pd.api.types.is_datetime64_any_dtype(series):
+            dropped.append(column)
+        elif not is_float and len(train) > 20 and series.nunique() == len(train):
+            dropped.append(column)  # one distinct value per row: an identifier
+        elif not pd.api.types.is_numeric_dtype(series) and series.nunique() > max_categories:
+            dropped.append(column)
+    train, test = train.drop(columns=dropped), test.drop(columns=dropped)
+    categorical = [c for c in train.columns if not pd.api.types.is_numeric_dtype(train[c])]
+    if categorical:
+        dummies_train = pd.get_dummies(train[categorical].astype("string").fillna("missing"), dtype=float)
+        dummies_test = pd.get_dummies(test[categorical].astype("string").fillna("missing"), dtype=float)
+        dummies_test = dummies_test.reindex(columns=dummies_train.columns, fill_value=0.0)
+        train = pd.concat([train.drop(columns=categorical), dummies_train], axis=1)
+        test = pd.concat([test.drop(columns=categorical), dummies_test], axis=1)
+    train, test = train.astype(float), test.astype(float)
+    medians = train.median()
+    return train.fillna(medians).fillna(0.0), test.fillna(medians).fillna(0.0), dropped
+
+
+X_train, X_test, dropped_features = _prepare_features(X_train, X_test)
+print(f"Model-ready features: {X_train.shape[1]} (dropped {dropped_features})")
+'''
+
+[params.max_categories]
+type = "int"
+default = 30
+min = 2
+max = 500
+
+[example]
+target = "churned"

@@ -1,0 +1,42 @@
+id = "explain.feature_importance"
+title = "Model feature importance"
+description = "Built-in importances (trees) or standardised absolute coefficients (linear models), printed and charted."
+tags = ["importance", "feature", "drivers", "explain", "why", "coefficients", "important", "chart"]
+requires = ["model", "split", "features_ready"]
+imports = ["import matplotlib.pyplot as plt"]
+code = '''
+if hasattr(model, "feature_importances_"):
+    importance = pd.Series(model.feature_importances_, index=X_train.columns)
+elif hasattr(model, "coef_"):
+    # Raw coefficients depend on each feature's units; scale by the feature's spread so they compare.
+    coefficient_size = np.abs(np.atleast_2d(model.coef_)).mean(axis=0)
+    importance = pd.Series(coefficient_size * X_train.std(ddof=0).to_numpy(), index=X_train.columns)
+    print("Linear model: importance = |coefficient| x feature standard deviation")
+else:
+    importance = None
+    print("This model has no built-in importances; use explain.permutation_importance.")
+if importance is not None:
+    top_features = importance.sort_values(ascending=False).head({{ top }})
+    print(top_features.round(4).to_string())
+    fig, ax = plt.subplots(figsize=(7, 0.35 * len(top_features) + 1))
+    top_features.iloc[::-1].plot.barh(ax=ax)
+    ax.set_title("Feature importance")
+    chart_path = OUTPUT_DIR / {{ filename }}
+    fig.tight_layout()
+    fig.savefig(chart_path, dpi=120)
+    plt.close(fig)
+    print(f"Saved {chart_path}")
+'''
+
+[params.top]
+type = "int"
+default = 15
+min = 1
+max = 200
+
+[params.filename]
+type = "path"
+default = "feature_importance.png"
+
+[example]
+target = "churned"

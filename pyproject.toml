@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flowlab"
+version = "0.1.0"
+description = "FlowLab Phase 0: Flow Spec contracts, node catalogue, compiler and local executor"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.7",
+    "polars>=1.0",
+    "pyarrow>=15",
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "scikit-learn>=1.5",
+    "scipy>=1.11",
+    "joblib>=1.3",
+    "click>=8.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "hypothesis>=6", "ruff>=0.5", "mypy>=1.10"]
+
+[project.scripts]
+flowlab = "flowlab_engine.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["packages/flowspec/src", "packages/nodes/src", "packages/engine/src", "packages/agent/src"]
+
+[tool.setuptools.package-data]
+flowlab_agent = ["snippets/*/*.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+"packages/agent/src/flowlab_agent/planner.py" = ["E501"]  # prompt text: line breaks are meaningful
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["packages"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["sklearn.*", "joblib.*", "scipy.*", "pandas.*"]
+ignore_missing_imports = true

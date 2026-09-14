@@ -1,0 +1,26 @@
+id = "export.save_data"
+title = "Save the dataset"
+description = "Write the current (cleaned) DataFrame to CSV or Parquet in the outputs folder."
+tags = ["save", "export", "write", "csv", "parquet", "download", "output", "cleaned"]
+requires = ["df"]
+code = '''
+export_format = {{ format }}
+export_path = OUTPUT_DIR / ({{ filename }} or f"data.{export_format}")
+if export_format == "parquet":
+    df.to_parquet(export_path, index=False)
+else:
+    df.to_csv(export_path, index=False)
+print(f"Saved {len(df):,} rows to {export_path}")
+'''
+
+[params.format]
+type = "choice"
+choices = ["csv", "parquet"]
+default = "csv"
+
+[params.filename]
+type = "path"
+optional = true
+
+[example]
+with = { format = "parquet" }

@@ -1,0 +1,30 @@
+id = "prep.ordinal_encode"
+title = "Ordinal encode categories"
+description = "Replace each category with an integer code learned from train; unknown or missing becomes -1."
+tags = ["encode", "ordinal", "label", "integer", "categorical", "category"]
+requires = ["split"]
+provides = ["split"]
+code = '''
+ordinal_columns = {{ columns }} or [
+    c for c in X_train.columns
+    if not (
+        pd.api.types.is_numeric_dtype(X_train[c])
+        or pd.api.types.is_bool_dtype(X_train[c])
+        or pd.api.types.is_datetime64_any_dtype(X_train[c])
+    )
+]
+for ordinal_column in ordinal_columns:
+    categories = sorted(X_train[ordinal_column].dropna().astype(str).unique())
+    codes = {value: code for code, value in enumerate(categories)}
+    X_train[ordinal_column] = X_train[ordinal_column].astype("string").map(codes).fillna(-1).astype(float)
+    X_test[ordinal_column] = X_test[ordinal_column].astype("string").map(codes).fillna(-1).astype(float)
+print(f"Ordinal encoded {len(ordinal_columns)} columns")
+'''
+
+[params.columns]
+type = "columns"
+optional = true
+
+[example]
+target = "churned"
+with = { columns = ["plan_type"] }

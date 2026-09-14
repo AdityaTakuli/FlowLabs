@@ -1,0 +1,29 @@
+id = "feature.datetime_parts"
+title = "Extract date parts"
+description = "Add year, month, day-of-week and weekend columns from a date column."
+tags = ["date", "datetime", "year", "month", "weekday", "weekend", "feature", "derive"]
+requires = ["df"]
+provides = ["df"]
+code = '''
+date_column = {{ column }}
+dates = df[date_column]
+if not pd.api.types.is_datetime64_any_dtype(dates):
+    dates = pd.to_datetime(dates, errors="coerce", format="mixed")
+df[f"{date_column}_year"] = dates.dt.year
+df[f"{date_column}_month"] = dates.dt.month
+df[f"{date_column}_dayofweek"] = dates.dt.dayofweek
+df[f"{date_column}_is_weekend"] = (dates.dt.dayofweek >= 5).astype(float)
+if {{ drop_original }}:
+    df = df.drop(columns=[date_column])
+print(f"Added date parts from {date_column}")
+'''
+
+[params.column]
+type = "column"
+
+[params.drop_original]
+type = "bool"
+default = true
+
+[example]
+with = { column = "signup_date" }

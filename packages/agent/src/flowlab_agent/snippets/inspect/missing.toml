@@ -1,0 +1,15 @@
+id = "inspect.missing"
+title = "Missing value report"
+description = "Share of missing values per column and rows with any missing value."
+tags = ["missing", "null", "nan", "quality", "eda", "overview"]
+requires = ["df"]
+code = '''
+missing_pct = df.isna().mean().mul(100).round(2).sort_values(ascending=False)
+missing_pct = missing_pct[missing_pct > 0]
+if missing_pct.empty:
+    print("No missing values.")
+else:
+    print("Missing values (% of rows):")
+    print(missing_pct.to_string())
+    print(f"Rows with any missing value: {df.isna().any(axis=1).mean():.1%}")
+'''

@@ -1,0 +1,41 @@
+id = "stats.ttest"
+title = "Welch t-test between two groups"
+description = "Compare a numeric column between two groups with assumption checks (normality, equal variance) and Cohen's d."
+tags = ["ttest", "test", "compare", "difference", "groups", "significant", "mean", "hypothesis", "pvalue"]
+requires = ["df"]
+imports = ["from scipy import stats"]
+code = '''
+value_column, group_column, alpha = {{ value_column }}, {{ group_column }}, {{ alpha }}
+test_data = df[[value_column, group_column]].dropna()
+group_labels = test_data[group_column].value_counts().index[:2]
+if test_data[group_column].nunique() != 2:
+    print(f"Note: {group_column} has {test_data[group_column].nunique()} groups; comparing the two largest: {list(group_labels)}")
+group_a = pd.to_numeric(test_data.loc[test_data[group_column] == group_labels[0], value_column], errors="coerce").dropna()
+group_b = pd.to_numeric(test_data.loc[test_data[group_column] == group_labels[1], value_column], errors="coerce").dropna()
+welch = stats.ttest_ind(group_a, group_b, equal_var=False)
+pooled_sd = np.sqrt(((len(group_a) - 1) * group_a.var() + (len(group_b) - 1) * group_b.var()) / (len(group_a) + len(group_b) - 2))
+cohens_d = (group_a.mean() - group_b.mean()) / pooled_sd if pooled_sd > 0 else float("nan")
+normal = [stats.shapiro(g.sample(min(len(g), 5000), random_state=SEED)).pvalue > alpha for g in (group_a, group_b) if len(g) >= 3]
+levene_p = stats.levene(group_a, group_b).pvalue
+print(f"{value_column}: {group_labels[0]} mean {group_a.mean():.3f} (n={len(group_a)}) vs {group_labels[1]} mean {group_b.mean():.3f} (n={len(group_b)})")
+print(f"Welch t = {welch.statistic:.3f}, p = {welch.pvalue:.4g}, Cohen's d = {cohens_d:.3f}")
+print(f"Levene equal-variance p = {levene_p:.4g} (Welch's test does not assume equal variances)")
+if not all(normal):
+    print("Assumption check: a group is not normally distributed (Shapiro-Wilk). With small groups, prefer stats.mann_whitney.")
+print("Significant" if welch.pvalue < alpha else "Not significant", f"at alpha = {alpha}")
+'''
+
+[params.value_column]
+type = "column"
+
+[params.group_column]
+type = "column"
+
+[params.alpha]
+type = "float"
+default = 0.05
+min = 0.0001
+max = 0.2
+
+[example]
+with = { value_column = "tenure_months", group_column = "churned" }

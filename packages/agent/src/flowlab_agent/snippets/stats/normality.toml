@@ -1,0 +1,25 @@
+id = "stats.normality"
+title = "Normality check"
+description = "Shapiro-Wilk test, skewness and kurtosis for one numeric column."
+tags = ["normality", "normal", "shapiro", "gaussian", "distribution", "skew", "kurtosis", "assumption", "test"]
+requires = ["df"]
+imports = ["from scipy import stats"]
+code = '''
+normality_column = {{ column }}
+normality_values = pd.to_numeric(df[normality_column], errors="coerce").dropna().astype(float)
+if len(normality_values) < 3:
+    print(f"{normality_column}: not enough values for a normality test")
+else:
+    sample = normality_values.sample(min(len(normality_values), 5000), random_state=SEED)
+    shapiro = stats.shapiro(sample)
+    print(f"{normality_column}: n={len(normality_values):,}, skew={normality_values.skew():.3f}, excess kurtosis={normality_values.kurt():.3f}")
+    print(f"Shapiro-Wilk W = {shapiro.statistic:.4f}, p = {shapiro.pvalue:.4g}")
+    verdict = "consistent with a normal distribution" if shapiro.pvalue > 0.05 else "not normally distributed"
+    print(f"Verdict: {verdict}. With large n, tiny deviations are significant; also look at the skew and a histogram.")
+'''
+
+[params.column]
+type = "column"
+
+[example]
+with = { column = "monthly_charges" }

@@ -1,0 +1,32 @@
+id = "prep.clip_outliers"
+title = "Clip outliers (IQR)"
+description = "Cap numeric features at Q1 - k*IQR and Q3 + k*IQR computed on train."
+tags = ["outlier", "clip", "cap", "winsorize", "iqr", "extreme"]
+requires = ["split"]
+provides = ["split"]
+code = '''
+clip_columns = {{ columns }} or [
+    c for c in X_train.columns
+    if pd.api.types.is_numeric_dtype(X_train[c]) and not pd.api.types.is_bool_dtype(X_train[c])
+]
+if clip_columns:
+    q1, q3 = X_train[clip_columns].quantile(0.25), X_train[clip_columns].quantile(0.75)
+    spread = (q3 - q1) * {{ factor }}
+    lower, upper = q1 - spread, q3 + spread
+    X_train[clip_columns] = X_train[clip_columns].astype(float).clip(lower=lower, upper=upper, axis=1)
+    X_test[clip_columns] = X_test[clip_columns].astype(float).clip(lower=lower, upper=upper, axis=1)
+print(f"Clipped outliers in {len(clip_columns)} columns")
+'''
+
+[params.columns]
+type = "columns"
+optional = true
+
+[params.factor]
+type = "float"
+default = 1.5
+min = 0.5
+max = 10.0
+
+[example]
+target = "churned"

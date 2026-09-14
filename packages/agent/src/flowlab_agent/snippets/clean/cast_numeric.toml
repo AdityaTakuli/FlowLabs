@@ -1,0 +1,19 @@
+id = "clean.cast_numeric"
+title = "Convert text to numbers"
+description = "Strip thousands separators, currency and percent signs, then convert; bad values become missing."
+tags = ["numeric", "number", "convert", "cast", "currency", "type", "messy", "clean"]
+requires = ["df"]
+provides = ["df"]
+code = '''
+for numeric_column in {{ columns }}:
+    as_text = df[numeric_column].astype("string").str.replace(r"[,$€£%\s]", "", regex=True)
+    df[numeric_column] = pd.to_numeric(as_text, errors="coerce").astype("float64")
+    print(f"{numeric_column}: {df[numeric_column].isna().sum()} values are missing after conversion")
+'''
+
+[params.columns]
+type = "columns"
+
+[example]
+dataset = "mixed_messy"
+with = { columns = ["amount"] }

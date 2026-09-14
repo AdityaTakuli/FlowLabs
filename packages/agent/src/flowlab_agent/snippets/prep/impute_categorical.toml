@@ -1,0 +1,37 @@
+id = "prep.impute_categorical"
+title = "Impute categorical columns"
+description = "Fill missing categories with the most frequent train value or a 'missing' label."
+tags = ["impute", "missing", "null", "fill", "mode", "categorical", "category"]
+requires = ["split"]
+provides = ["split"]
+code = '''
+category_columns = {{ columns }} or [
+    c for c in X_train.columns
+    if not (
+        pd.api.types.is_numeric_dtype(X_train[c])
+        or pd.api.types.is_bool_dtype(X_train[c])
+        or pd.api.types.is_datetime64_any_dtype(X_train[c])
+    )
+]
+for category_column in category_columns:
+    fill_label = "missing"
+    if {{ strategy }} == "most_frequent":
+        modes = X_train[category_column].mode(dropna=True)
+        fill_label = modes.iloc[0] if not modes.empty else "missing"
+    X_train[category_column] = X_train[category_column].fillna(fill_label)
+    X_test[category_column] = X_test[category_column].fillna(fill_label)
+print(f"Imputed {len(category_columns)} categorical columns")
+'''
+
+[params.strategy]
+type = "choice"
+choices = ["most_frequent", "missing_label"]
+default = "missing_label"
+
+[params.columns]
+type = "columns"
+optional = true
+
+[example]
+dataset = "missing_20pct"
+target = "target"

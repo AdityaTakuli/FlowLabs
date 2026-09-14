@@ -1,0 +1,17 @@
+id = "export.save_predictions"
+title = "Save test predictions"
+description = "Write the original test rows with the model's predictions to CSV."
+tags = ["save", "export", "predictions", "results", "scores", "download", "output"]
+requires = ["preds", "split"]
+code = '''
+predictions_path = OUTPUT_DIR / {{ filename }}
+df.loc[X_test.index].assign(actual=y_test.to_numpy(), predicted=y_pred).to_csv(predictions_path, index=False)
+print(f"Saved {len(X_test):,} predictions to {predictions_path}")
+'''
+
+[params.filename]
+type = "path"
+default = "predictions.csv"
+
+[example]
+target = "churned"

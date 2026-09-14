@@ -1,0 +1,15 @@
+id = "inspect.describe"
+title = "Numeric summary statistics"
+description = "Count, mean, std, quartiles, skew and missing count for every numeric column."
+tags = ["describe", "statistics", "summary", "mean", "median", "skew", "eda", "numeric"]
+requires = ["df"]
+code = '''
+numeric = df.select_dtypes(include="number")
+if numeric.empty:
+    print("No numeric columns to describe.")
+else:
+    summary = numeric.describe().T
+    summary["skew"] = numeric.skew()
+    summary["missing"] = numeric.isna().sum()
+    print(summary.round(3).to_string())
+'''

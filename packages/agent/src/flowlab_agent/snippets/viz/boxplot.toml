@@ -1,0 +1,40 @@
+id = "viz.boxplot"
+title = "Box plot"
+description = "Box plot of a numeric column, optionally split by a category; shows spread and outliers."
+tags = ["boxplot", "box", "distribution", "outlier", "compare", "groups", "chart", "plot", "viz"]
+requires = ["df"]
+imports = ["import matplotlib.pyplot as plt"]
+code = '''
+box_column, by_column = {{ column }}, {{ by }}
+fig, ax = plt.subplots(figsize=(8, 4))
+if by_column:
+    box_data = df[[box_column, by_column]].dropna()
+    box_groups = [
+        (str(name), pd.to_numeric(group[box_column], errors="coerce").dropna())
+        for name, group in box_data.groupby(by_column)
+    ][:20]
+    ax.boxplot([values for _, values in box_groups], tick_labels=[name for name, _ in box_groups])
+    ax.set_xlabel(by_column)
+else:
+    ax.boxplot(pd.to_numeric(df[box_column], errors="coerce").dropna())
+ax.set(title=f"{box_column}" + (f" by {by_column}" if by_column else ""), ylabel=box_column)
+chart_path = OUTPUT_DIR / ({{ filename }} or f"boxplot_{box_column}.png")
+fig.tight_layout()
+fig.savefig(chart_path, dpi=120)
+plt.close(fig)
+print(f"Saved {chart_path}")
+'''
+
+[params.column]
+type = "column"
+
+[params.by]
+type = "column"
+optional = true
+
+[params.filename]
+type = "path"
+optional = true
+
+[example]
+with = { column = "monthly_charges", by = "plan_type" }

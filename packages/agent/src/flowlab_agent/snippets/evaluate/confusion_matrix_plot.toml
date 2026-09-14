@@ -1,0 +1,24 @@
+id = "evaluate.confusion_matrix_plot"
+title = "Confusion matrix chart"
+description = "Save a confusion matrix of test predictions as a PNG."
+tags = ["confusion", "matrix", "chart", "plot", "evaluate", "classification", "errors"]
+task = "classification"
+requires = ["model", "split", "features_ready"]
+imports = ["import matplotlib.pyplot as plt", "from sklearn.metrics import ConfusionMatrixDisplay"]
+code = '''
+fig, ax = plt.subplots(figsize=(5, 4))
+ConfusionMatrixDisplay.from_estimator(model, X_test, y_test, ax=ax, colorbar=False)
+ax.set_title("Confusion matrix (test)")
+chart_path = OUTPUT_DIR / {{ filename }}
+fig.tight_layout()
+fig.savefig(chart_path, dpi=120)
+plt.close(fig)
+print(f"Saved {chart_path}")
+'''
+
+[params.filename]
+type = "path"
+default = "confusion_matrix.png"
+
+[example]
+target = "churned"

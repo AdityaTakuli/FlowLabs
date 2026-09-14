@@ -1,0 +1,28 @@
+id = "clean.parse_dates"
+title = "Parse a date column"
+description = "Convert text to datetime; unparseable values become missing."
+tags = ["date", "datetime", "parse", "time", "convert", "clean"]
+requires = ["df"]
+provides = ["df"]
+code = '''
+date_column = {{ column }}
+df[date_column] = pd.to_datetime(df[date_column], format={{ format }} or "mixed", dayfirst={{ dayfirst }}, errors="coerce")
+print(f"Parsed {date_column}: {df[date_column].isna().sum()} values could not be parsed")
+'''
+
+[params.column]
+type = "column"
+
+[params.format]
+type = "text"
+optional = true
+description = "strftime format such as %Y-%m-%d (inferred if omitted)"
+
+[params.dayfirst]
+type = "bool"
+default = false
+description = "Treat 03/04 as 3 April"
+
+[example]
+dataset = "mixed_messy"
+with = { column = "ordered_on", dayfirst = true }

@@ -1,0 +1,39 @@
+{
+  "spec_version": "1.0",
+  "flow_id": "flw_churn_full",
+  "name": "Churn: profile, clean, scale, logistic model",
+  "created_by": "user",
+  "dataset_bindings": { "primary": "churn" },
+  "nodes": [
+    { "id": "src", "type": "source.dataset", "label": "Customers",
+      "params": { "dataset_ref": "primary", "target": "churned", "role_overrides": { "signup_date": "ignore" } } },
+    { "id": "overview", "type": "profile.overview", "params": { "head_rows": 5 } },
+    { "id": "missing", "type": "profile.missingness", "params": {} },
+    { "id": "tenure_hist", "type": "viz.distribution", "label": "Tenure", "params": { "column": "tenure_months", "chart": "histogram", "bins": 24 } },
+    { "id": "drop_id", "type": "clean.drop_columns", "params": { "columns": ["customer_id", "signup_date"] } },
+    { "id": "split", "type": "prep.split", "params": { "test_size": 0.25, "stratify_by": "churned" } },
+    { "id": "impute", "type": "clean.impute", "params": { "strategy": "median" } },
+    { "id": "encode", "type": "prep.encode", "params": { "method": "onehot" } },
+    { "id": "scale", "type": "prep.scale", "params": { "method": "robust" } },
+    { "id": "charges_hist", "type": "viz.distribution", "label": "Scaled charges (train)", "params": { "column": "monthly_charges", "chart": "box", "partition": "train" } },
+    { "id": "fit", "type": "model.fit", "label": "Logistic regression", "params": { "algorithm": "logistic_regression", "class_weight": "balanced" } },
+    { "id": "eval", "type": "model.evaluate", "params": {} },
+    { "id": "export_split", "type": "sink.export", "params": { "format": "csv", "path": "prepared/churn" } }
+  ],
+  "edges": [
+    { "id": "e1", "source": "src", "target": "overview" },
+    { "id": "e2", "source": "src", "target": "missing" },
+    { "id": "e3", "source": "src", "target": "tenure_hist" },
+    { "id": "e4", "source": "src", "target": "drop_id" },
+    { "id": "e5", "source": "drop_id", "target": "split" },
+    { "id": "e6", "source": "split", "target": "impute" },
+    { "id": "e7", "source": "impute", "target": "encode" },
+    { "id": "e8", "source": "encode", "target": "scale" },
+    { "id": "e9", "source": "scale", "target": "charges_hist" },
+    { "id": "e10", "source": "scale", "target": "fit", "target_port": "train" },
+    { "id": "e11", "source": "fit", "source_port": "model", "target": "eval", "target_port": "model" },
+    { "id": "e12", "source": "scale", "target": "eval", "target_port": "data" },
+    { "id": "e13", "source": "scale", "target": "export_split" }
+  ],
+  "meta": { "seed": 7 }
+}

@@ -1,0 +1,36 @@
+id = "clean.filter_rows"
+title = "Filter rows by a condition"
+description = "Keep only rows where a column compares to a value (equals, greater than, contains...)."
+tags = ["filter", "subset", "where", "condition", "select", "rows", "only"]
+requires = ["df"]
+provides = ["df"]
+code = '''
+filter_column, filter_value = {{ column }}, {{ value }}
+column_values = df[filter_column]
+conditions = {
+    "eq": lambda: column_values == filter_value,
+    "ne": lambda: column_values != filter_value,
+    "gt": lambda: column_values > filter_value,
+    "ge": lambda: column_values >= filter_value,
+    "lt": lambda: column_values < filter_value,
+    "le": lambda: column_values <= filter_value,
+    "contains": lambda: column_values.astype("string").str.contains(str(filter_value), case=False, regex=False, na=False),
+}
+rows_before = len(df)
+df = df[conditions[{{ operator }}]().fillna(False).astype(bool)].reset_index(drop=True)
+print(f"Kept {len(df):,} of {rows_before:,} rows")
+'''
+
+[params.column]
+type = "column"
+
+[params.operator]
+type = "choice"
+choices = ["eq", "ne", "gt", "ge", "lt", "le", "contains"]
+default = "eq"
+
+[params.value]
+type = "scalar"
+
+[example]
+with = { column = "plan_type", operator = "ne", value = "enterprise" }

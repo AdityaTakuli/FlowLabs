@@ -1,0 +1,36 @@
+id = "viz.correlation_heatmap"
+title = "Correlation heatmap"
+description = "Heatmap of correlations between numeric columns (up to 30); saved as PNG."
+tags = ["correlation", "heatmap", "matrix", "relationship", "chart", "plot", "viz", "eda"]
+requires = ["df"]
+imports = ["import matplotlib.pyplot as plt"]
+code = '''
+heatmap_input = df.select_dtypes(include=["number", "bool"]).astype(float)
+heatmap_input = heatmap_input.loc[:, heatmap_input.nunique() > 1].iloc[:, :30]
+corr = heatmap_input.corr(method={{ method }})
+size = max(4, 0.5 * len(corr) + 1)
+fig, ax = plt.subplots(figsize=(size + 1, size))
+image = ax.imshow(corr, cmap="coolwarm", vmin=-1, vmax=1)
+ax.set_xticks(range(len(corr)), corr.columns, rotation=90)
+ax.set_yticks(range(len(corr)), corr.columns)
+if len(corr) <= 15:
+    for i in range(len(corr)):
+        for j in range(len(corr)):
+            ax.text(j, i, f"{corr.iloc[i, j]:.2f}", ha="center", va="center", fontsize=8)
+fig.colorbar(image, ax=ax)
+ax.set_title(f"{str({{ method }}).title()} correlation")
+chart_path = OUTPUT_DIR / {{ filename }}
+fig.tight_layout()
+fig.savefig(chart_path, dpi=120)
+plt.close(fig)
+print(f"Saved {chart_path}")
+'''
+
+[params.method]
+type = "choice"
+choices = ["pearson", "spearman", "kendall"]
+default = "spearman"
+
+[params.filename]
+type = "path"
+default = "correlation_heatmap.png"

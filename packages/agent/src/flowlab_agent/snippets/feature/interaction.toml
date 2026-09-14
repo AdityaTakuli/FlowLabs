@@ -1,0 +1,22 @@
+id = "feature.interaction"
+title = "Interaction of two columns"
+description = "Add the product of two numeric columns as a new feature."
+tags = ["interaction", "product", "multiply", "combine", "feature", "derive"]
+requires = ["df"]
+provides = ["df"]
+code = '''
+df[{{ name }}] = pd.to_numeric(df[{{ column_a }}], errors="coerce") * pd.to_numeric(df[{{ column_b }}], errors="coerce")
+print(f"Added {df.columns[-1]}")
+'''
+
+[params.column_a]
+type = "column"
+
+[params.column_b]
+type = "column"
+
+[params.name]
+type = "new_column"
+
+[example]
+with = { column_a = "tenure_months", column_b = "monthly_charges", name = "lifetime_value" }

@@ -1,0 +1,16 @@
+id = "model.random_forest_auto"
+title = "Default model (random forest)"
+description = "Random forest classifier or regressor chosen from the target type."
+tags = ["model", "default", "random", "forest", "auto"]
+requires = ["split", "features_ready"]
+provides = ["model"]
+auto = true
+imports = ["from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor"]
+code = '''
+forest_class = RandomForestClassifier if TASK == "classification" else RandomForestRegressor
+model = forest_class(n_estimators=300, random_state=SEED, n_jobs=-1).fit(X_train, y_train)
+print(f"Fitted default random forest ({TASK}) on {len(X_train):,} rows")
+'''
+
+[example]
+target = "churned"

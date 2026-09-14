@@ -1,0 +1,19 @@
+id = "load.json"
+title = "Load a JSON file"
+description = "Read a JSON array of records, or JSON Lines, into a pandas DataFrame."
+tags = ["load", "read", "json", "jsonl", "ndjson", "file"]
+provides = ["df"]
+code = '''
+df = pd.read_json(DATA_PATH, lines={{ lines }})
+print(f"Loaded {len(df):,} rows x {df.shape[1]} columns from {DATA_PATH.name}")
+'''
+
+[params.lines]
+type = "bool"
+default = false
+description = "True for JSON Lines (one record per line)"
+
+[example]
+dataset = "tiny_30"
+file = "jsonl"
+with = { lines = true }

@@ -1,0 +1,40 @@
+id = "model.random_forest_classifier"
+title = "Random forest classifier"
+description = "Robust ensemble of decision trees; handles non-linear effects with little tuning."
+tags = ["model", "random", "forest", "tree", "ensemble", "classification", "classify", "train"]
+task = "classification"
+requires = ["split", "features_ready"]
+provides = ["model"]
+imports = ["from sklearn.ensemble import RandomForestClassifier"]
+code = '''
+model = RandomForestClassifier(
+    n_estimators={{ n_estimators }},
+    max_depth={{ max_depth }},
+    class_weight=None if {{ class_weight }} == "none" else {{ class_weight }},
+    random_state=SEED,
+    n_jobs=-1,
+)
+model.fit(X_train, y_train)
+print(f"Fitted random forest ({model.n_estimators} trees) on {len(X_train):,} rows")
+'''
+
+[params.n_estimators]
+type = "int"
+default = 300
+min = 10
+max = 5000
+
+[params.max_depth]
+type = "int"
+optional = true
+min = 1
+max = 100
+
+[params.class_weight]
+type = "choice"
+choices = ["none", "balanced", "balanced_subsample"]
+default = "none"
+
+[example]
+target = "churned"
+with = { n_estimators = 100, max_depth = 8 }
