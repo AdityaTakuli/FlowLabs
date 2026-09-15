@@ -443,3 +443,46 @@ def test_structural_validator_catches_bad_output(ml: Manifest) -> None:
 def test_analysis_exposes_graph_for_later_stages(ml_repo: Path) -> None:
     analysis = analyse(ml_repo, NO_GIT)
     assert analysis.graph.edges and set(analysis.votes) == {u.id for u in analysis.manifest.units}
+
+
+def test_traced_edges_beat_inferred_ones(tmp_path: Path) -> None:
+    """SEG-029: an observed Code Mode trace edge is kept and lowers confidence of unobserved static edges."""
+    root = write(tmp_path / "traced", {
+        "load.py": """
+            def load():
+                return [1, 2, 3]
+
+            def helper():
+                return 0
+        """,
+        "train.py": """
+            from load import helper, load
+
+            def train():
+                helper()
+                rows = load()
+                return sum(rows)
+        """,
+    })  # fmt: skip
+    traces = root / ".flowlab" / "traces"
+    traces.mkdir(parents=True)
+    (traces / "trace_1.json").write_text(
+        json.dumps(
+            {
+                "edges": [
+                    {"from": ["train.py", 5], "to": ["load.py", 2], "type": "call", "count": 1},
+                ]
+            }
+        )
+    )
+    analysis = analyse(root, NO_GIT)
+    assert analysis.graph.traced
+    by_name = {u.name: u.id for u in analysis.manifest.units}
+    observed = [e for e in analysis.graph.edges.values() if e.observed]
+    assert any(e.source == by_name["train"] and e.target == by_name["load"] for e in observed)
+    ghost = [
+        e
+        for e in analysis.graph.edges.values()
+        if e.source == by_name["train"] and e.target == by_name["helper"] and not e.observed
+    ]
+    assert ghost and all(e.confidence == "medium" for e in ghost)

@@ -101,3 +101,23 @@ def test_trace_to_flow_env_watch_and_eject(tmp_path: Path) -> None:
         "eject", str(EXAMPLES / "churn_flow.json"), "--data", str(FIXTURES), "--out", str(out)
     )
     assert code == 0 and out.is_file() and json.loads(out.read_text())["nbformat"] == 4
+
+
+def test_architecture_command_writes_a_manifest(tmp_path: Path) -> None:
+    root = make_project(tmp_path)
+    (root / "load.py").write_text(
+        "def load(path):\n    return path\n\ndef load_all(path):\n    return [load(path)]\n"
+    )
+    code, output = invoke("lab", "architecture", "--root", str(root), "--no-git")
+    assert code == 0, output
+    assert "components" in output and "unassigned" in output
+    stored = root / ".flowlab" / "architecture" / "manifest.json"
+    assert stored.is_file()
+    manifest = json.loads(stored.read_text())
+    assert manifest["stats"]["units"] >= 2 and manifest["llm"]["status"] == "skipped"
+    dump = tmp_path / "arch.json"
+    code, output = invoke(
+        "lab", "architecture", "--root", str(root), "--no-git", "--json", "--out", str(dump)
+    )
+    assert code == 0 and json.loads(output)["project_id"] == manifest["project_id"]
+    assert dump.is_file()

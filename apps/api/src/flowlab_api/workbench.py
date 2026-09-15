@@ -16,17 +16,22 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from flowlab_lab.project import IGNORED_DIRS, SOURCE_SUFFIXES
+from flowlab_lab.languages import CODE_SUFFIXES
+from flowlab_lab.project import IGNORED_DIRS
 
 from .agent import AgentService, ClientFactory
 from .architecture import ArchitectureService
 from .flows import FlowService
 from .service import EventHub, LabService, ServiceError
+from .structure_service import StructureService
 
 MAX_ENTRIES = 2000
 MAX_RECENTS = 12
 MAX_IMPORT_BYTES = 5 * 1024 * 1024
-PROJECT_MARKERS = (".git", ".flowlab", "pyproject.toml", "requirements.txt", "setup.py")
+PROJECT_MARKERS = (
+    ".git", ".flowlab", "pyproject.toml", "requirements.txt", "setup.py", "package.json", "go.mod",
+    "Cargo.toml", "pom.xml", "build.gradle", "Gemfile", "composer.json",
+)  # fmt: skip
 
 
 def default_recents_path() -> Path:
@@ -46,10 +51,12 @@ class Workbench:
         self._factory = llm_client_factory
         self.recents_path = recents_path or default_recents_path()
         self._lock = threading.RLock()
-        self.service, self.flows, self.agent, self.architecture = self._build(root)
+        self.service, self.flows, self.agent, self.architecture, self.structure = self._build(root)
         self._remember(self.root)
 
-    def _build(self, root: Path) -> tuple[LabService, FlowService, AgentService, ArchitectureService]:
+    def _build(
+        self, root: Path
+    ) -> tuple[LabService, FlowService, AgentService, ArchitectureService, StructureService]:
         try:
             service = LabService(root, hub=self.hub)
         except OSError as exc:  # e.g. a read-only folder: state lives in <folder>/.flowlab
@@ -61,6 +68,7 @@ class Workbench:
             FlowService(service.project, self.hub),
             AgentService(service.project, self.hub, self._factory),
             ArchitectureService(service.project, self.hub, self._factory),
+            StructureService(service.project, self.hub),
         )
 
     @property
@@ -110,7 +118,7 @@ class Workbench:
                 continue
             if is_dir and name in IGNORED_DIRS:
                 continue
-            if not is_dir and not name.endswith(SOURCE_SUFFIXES):
+            if not is_dir and not name.endswith(CODE_SUFFIXES):
                 continue
             if len(entries) >= MAX_ENTRIES:
                 truncated = True
@@ -139,8 +147,8 @@ class Workbench:
             raise ServiceError(404, "PATH_NOT_FOUND", f"{path} does not exist") from exc
         file: str | None = None
         if target.is_file():
-            if not target.name.endswith(SOURCE_SUFFIXES):
-                raise ServiceError(400, "UNSUPPORTED_FILE", "open a .py or .ipynb file, or a folder")
+            if not target.name.endswith(CODE_SUFFIXES):
+                raise ServiceError(400, "UNSUPPORTED_FILE", "open a source code file or a folder")
             file, target = target.name, target.parent
         if target == Path(target.anchor):
             raise ServiceError(400, "FOLDER_TOO_BROAD", "pick a project folder, not the filesystem root")
@@ -148,7 +156,7 @@ class Workbench:
             if target != self.root:
                 built = self._build(target)  # fails before the current project is torn down
                 old_service, old_flows = self.service, self.flows
-                self.service, self.flows, self.agent, self.architecture = built
+                self.service, self.flows, self.agent, self.architecture, self.structure = built
                 old_flows.shutdown()
                 old_service.shutdown()
             self._remember(target)
@@ -161,8 +169,8 @@ class Workbench:
     def import_file(self, name: str, content: str) -> dict[str, Any]:
         base = Path(name.replace("\\", "/")).name
         stem, suffix = Path(base).stem, Path(base).suffix
-        if not stem or suffix not in SOURCE_SUFFIXES:
-            raise ServiceError(400, "UNSUPPORTED_FILE", "import a .py or .ipynb file")
+        if not stem or suffix not in CODE_SUFFIXES:
+            raise ServiceError(400, "UNSUPPORTED_FILE", "import a source code file")
         if len(content.encode("utf-8")) > MAX_IMPORT_BYTES:
             raise ServiceError(
                 413, "FILE_TOO_LARGE", "files over 5 MB cannot be imported; open their folder instead"

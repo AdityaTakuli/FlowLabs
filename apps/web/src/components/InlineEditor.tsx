@@ -55,7 +55,7 @@ export function InlineEditor({
 
   return (
     <div
-      className="inline-editor nodrag nowheel nopan"
+      className="inline-editor nodrag nowheel nopan nokey"
       onClick={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {

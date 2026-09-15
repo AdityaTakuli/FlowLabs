@@ -29,7 +29,9 @@ import {
   variableMatches,
   visibleEdges,
 } from "../layout";
+import type { Api } from "../api";
 import type { CodeGraph, CodeNode, ExecutionRecord, NodeState, RunMode, SessionState } from "../types";
+import { useSavedLayout, withMoved } from "../structure/useSavedLayout";
 import { InlineEditor, type SourceProblem } from "./InlineEditor";
 
 export type HeatMode = "off" | "time" | "memory";
@@ -160,7 +162,7 @@ function CodeNodeView({ data, selected }: NodeProps<CodeFlowNode>) {
       )}
       <Handle type="source" position={Position.Bottom} isConnectable={false} />
       {data.editing && !undefinedNode && (
-        <NodeToolbar isVisible position={Position.Bottom} offset={12} className="nodrag nowheel nopan">
+        <NodeToolbar isVisible position={Position.Bottom} offset={12} className="nodrag nowheel nopan nokey">
           <InlineEditor
             node={node}
             kernelReady={data.kernelReady}
@@ -220,6 +222,7 @@ const nodeTypes = { code: CodeNodeView };
 const edgeTypes = { data: DataEdge };
 
 export interface GraphCanvasProps {
+  api: Api;
   file: string;
   graph: CodeGraph;
   session: SessionState | null;
@@ -246,7 +249,8 @@ export function GraphCanvas(props: GraphCanvasProps) {
   );
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const layout = useMemo(() => layoutWithRoutes(graph.nodes, edges), [structure]);
-  const positions = layout.positions;
+  const saved = useSavedLayout(props.api, props.file, "cells");
+  const positions = withMoved(layout.positions, saved.moved);
 
   const related = useMemo(() => {
     if (search.trim()) return variableMatches(graph, search);
@@ -337,6 +341,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
       edges={flowEdges}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
+      onNodesChange={saved.onNodesChange}
       fitView
       fitViewOptions={{ padding: 0.2, maxZoom: 1.1 }}
       minZoom={0.1}

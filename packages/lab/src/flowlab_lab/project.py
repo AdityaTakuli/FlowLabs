@@ -17,6 +17,7 @@ from flowspec import sha256_bytes
 from pydantic import BaseModel, Field
 
 from .codegraph import CodeGraph, analyse_text
+from .languages import CODE_SUFFIXES
 
 STATE_DIR = ".flowlab"
 STATE_SUBDIRS = ("snapshots", "backups", "traces", "executions")
@@ -107,6 +108,14 @@ class LabProject:
         return path.resolve().relative_to(self.root).as_posix()
 
     def index(self) -> list[str]:
+        """Python scripts and notebooks: the files Code Mode cells can run."""
+        return self._walk(SOURCE_SUFFIXES)
+
+    def index_code(self) -> list[str]:
+        """Source files in every language FlowLab can draw as a graph."""
+        return self._walk(CODE_SUFFIXES)
+
+    def _walk(self, suffixes: tuple[str, ...]) -> list[str]:
         found: list[str] = []
         visited = 0
         for directory, subdirs, files in os.walk(self.root, followlinks=False):
@@ -115,7 +124,7 @@ class LabProject:
             if visited > MAX_INDEX_ENTRIES:
                 break
             for name in files:
-                if not name.endswith(SOURCE_SUFFIXES):
+                if not name.endswith(suffixes):
                     continue
                 path = Path(directory) / name
                 try:
@@ -164,7 +173,7 @@ class FileWatcher:
         self._suppressed: dict[str, str] = {}
 
     def prime(self) -> None:
-        self._known = {path: self._stat(path) for path in self.project.index()}
+        self._known = {path: self._stat(path) for path in self.project.index_code()}
 
     def suppress(self, relative: str, content_hash: str) -> None:
         self._suppressed[relative] = content_hash
@@ -176,7 +185,7 @@ class FileWatcher:
 
     def poll(self) -> list[FileChange]:
         changes: list[FileChange] = []
-        current = set(self.project.index())
+        current = set(self.project.index_code())
         for path in sorted(current):
             stat = self.project.resolve(path).stat()
             previous = self._known.get(path)

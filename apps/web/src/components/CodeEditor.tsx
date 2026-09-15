@@ -8,9 +8,11 @@ interface CodeEditorProps {
   onBlur: () => void;
   onCursor: (line: number) => void;
   errorLine: number | null;
+  /** Monaco language id (python, typescript, go, …). */
+  language?: string;
 }
 
-export function CodeEditor({ value, onChange, onSave, onBlur, onCursor, errorLine }: CodeEditorProps) {
+export function CodeEditor({ value, onChange, onSave, onBlur, onCursor, errorLine, language = "python" }: CodeEditorProps) {
   const handlers = useRef({ onSave, onBlur, onCursor });
   handlers.current = { onSave, onBlur, onCursor };
   const decorations = useRef<{ clear: () => void; set: (d: unknown[]) => void } | null>(null);
@@ -41,7 +43,7 @@ export function CodeEditor({ value, onChange, onSave, onBlur, onCursor, errorLin
   return (
     <Editor
       height="100%"
-      language="python"
+      language={language}
       theme="vs-dark"
       value={value}
       onChange={(next) => onChange(next ?? "")}

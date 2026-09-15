@@ -3,9 +3,11 @@ import dagre from "@dagrejs/dagre";
 import { Background, Controls, Handle, MarkerType, MiniMap, Position, ReactFlow, type Edge, type Node, type NodeProps } from "@xyflow/react";
 import { ApiError, type Api } from "../api";
 import {
+  UNASSIGNED_ID,
   archetypeFamily,
   cycleMembership,
   dependencyPairs,
+  neighborIds,
   type AnalyseRequest,
   type ArchComponent,
   type ArchFinding,
@@ -34,6 +36,7 @@ interface CardData extends Record<string, unknown> {
   errors: number;
   warnings: number;
   highlighted: boolean;
+  unassigned: boolean;
 }
 
 type CardNode = Node<CardData, "component">;
@@ -47,7 +50,7 @@ function ComponentCard({ data, selected }: NodeProps<CardNode>) {
   const family = archetypeFamily(c.archetype);
   return (
     <div
-      className={`arch-node fam-${family} conf-${c.confidence} ${selected ? "selected" : ""} ${data.highlighted ? "highlighted" : ""}`}
+      className={`arch-node fam-${data.unassigned ? "unassigned" : family} conf-${c.confidence} ${selected ? "selected" : ""} ${data.highlighted ? "highlighted" : ""}`}
       style={{ width: NODE_W, minHeight: NODE_H }}
       aria-label={`${c.name}, ${c.archetype}, ${c.units.length} units, ${c.confidence} confidence`}
     >
@@ -56,14 +59,14 @@ function ComponentCard({ data, selected }: NodeProps<CardNode>) {
         <span className="arch-name" title={c.name}>
           {c.name}
         </span>
-        {c.decided_by === "llm" && (
+        {c.decided_by === "llm" && !data.unassigned && (
           <span className="chip model-chip" title="Named or regrouped by the model">
             ✦
           </span>
         )}
       </div>
       <div className="arch-node-meta">
-        <span className={`chip archetype fam-${family}`}>{c.archetype.replace(/_/g, " ")}</span>
+        <span className={`chip archetype fam-${data.unassigned ? "unassigned" : family}`}>{data.unassigned ? "unassigned" : c.archetype.replace(/_/g, " ")}</span>
         <span className="dim small">
           {c.units.length} units · {c.sloc} SLOC
         </span>
@@ -87,15 +90,44 @@ function layout(components: ArchComponent[], pairs: [string, string][]): Record<
   const graph = new dagre.graphlib.Graph();
   graph.setGraph({ rankdir: "TB", nodesep: 40, ranksep: 80, marginx: 20, marginy: 20 });
   graph.setDefaultEdgeLabel(() => ({}));
-  for (const c of components) graph.setNode(c.id, { width: NODE_W, height: NODE_H });
+  const placed = components.filter((c) => c.id !== UNASSIGNED_ID);
+  for (const c of placed) graph.setNode(c.id, { width: NODE_W, height: NODE_H });
   for (const [dependent, dependency] of pairs) if (dependent !== dependency) graph.setEdge(dependent, dependency);
   dagre.layout(graph);
   const positions: Record<string, { x: number; y: number }> = {};
-  for (const c of components) {
-    const placed = graph.node(c.id) as { x: number; y: number } | undefined;
-    positions[c.id] = placed ? { x: placed.x - NODE_W / 2, y: placed.y - NODE_H / 2 } : { x: 0, y: 0 };
+  for (const c of placed) {
+    const node = graph.node(c.id) as { x: number; y: number } | undefined;
+    positions[c.id] = node ? { x: node.x - NODE_W / 2, y: node.y - NODE_H / 2 } : { x: 0, y: 0 };
+  }
+  const extra = components.find((c) => c.id === UNASSIGNED_ID);
+  if (extra) {
+    const xs = Object.values(positions).map((p) => p.x);
+    const ys = Object.values(positions).map((p) => p.y);
+    positions[UNASSIGNED_ID] = { x: xs.length ? Math.min(...xs) : 0, y: (ys.length ? Math.max(...ys) : 0) + NODE_H + 72 };
   }
   return positions;
+}
+
+function unassignedComponent(manifest: ArchManifest): ArchComponent | null {
+  if (!manifest.unassigned.length) return null;
+  const members = manifest.units.filter((u) => manifest.unassigned.includes(u.id));
+  return {
+    id: UNASSIGNED_ID,
+    name: "Unassigned",
+    archetype: "utility",
+    responsibility: "Units with no callers that are not an entry point, or that fit no component.",
+    units: manifest.unassigned,
+    public_surface: [],
+    depends_on: [],
+    files: [...new Set(members.map((u) => u.file))],
+    spans: members.map((u) => ({ file: u.file, line_start: u.line_start, line_end: u.line_end })),
+    sloc: members.reduce((n, u) => n + u.sloc, 0),
+    confidence: "low",
+    decided_by: "cluster",
+    archetype_decided_by: "cluster",
+    archetype_confidence: "low",
+    reason: "Unassignable code stays unassigned (SEG-005).",
+  };
 }
 
 export function ArchitectureWorkspace({ api, modeSwitch, onOpenFile }: { api: Api; modeSwitch: ReactNode; onOpenFile: (file: string) => void }) {
@@ -106,6 +138,7 @@ export function ArchitectureWorkspace({ api, modeSwitch, onOpenFile }: { api: Ap
   const [selection, setSelection] = useState<Selection>(null);
   const [severities, setSeverities] = useState<Record<Severity, boolean>>({ error: true, warning: true, info: false });
   const [modelOpen, setModelOpen] = useState(false);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     api
@@ -116,6 +149,21 @@ export function ArchitectureWorkspace({ api, modeSwitch, onOpenFile }: { api: Ap
         else setError(message(e));
       });
   }, [api]);
+
+  useEffect(
+    () =>
+      api.events((event) => {
+        if (event.type !== "architecture_ready") return;
+        api
+          .architecture()
+          .then((next) => {
+            setManifest(next);
+            setMissing(false);
+          })
+          .catch(() => undefined);
+      }, () => undefined),
+    [api],
+  );
 
   async function run(body: AnalyseRequest): Promise<ArchManifest | null> {
     setBusy(body.use_llm ? "Naming with the model…" : "Analysing the project…");
@@ -145,7 +193,10 @@ export function ArchitectureWorkspace({ api, modeSwitch, onOpenFile }: { api: Ap
     const pairs = dependencyPairs(manifest.edges);
     const cycles = cycleMembership(manifest.components.map((c) => c.id), pairs);
     const layers = manifest.findings.filter((f) => f.code === "LAYER_VIOLATION");
-    return { units, components, findingsByComponent, pairs, cycles, layers, positions: layout(manifest.components, pairs) };
+    const leaks = manifest.findings.filter((f) => f.code === "LEAKAGE_FIT_BEFORE_SPLIT");
+    const extra = unassignedComponent(manifest);
+    const canvas = extra ? [...manifest.components, extra] : manifest.components;
+    return { units, components, findingsByComponent, pairs, cycles, layers, leaks, extra, positions: layout(canvas, pairs) };
   }, [manifest]);
 
   const highlighted = useMemo(() => {
@@ -157,17 +208,35 @@ export function ArchitectureWorkspace({ api, modeSwitch, onOpenFile }: { api: Ap
       for (const u of [f?.unit_id, ...(f?.unit_ids ?? [])]) {
         const owner = u ? derived.units.get(u)?.component_id : null;
         if (owner) set.add(owner);
+        if (u && manifest.unassigned.includes(u)) set.add(UNASSIGNED_ID);
       }
+    }
+    if (selection?.kind === "component") {
+      for (const id of neighborIds(selection.id, manifest.components)) set.add(id);
+    }
+    if (selection?.kind === "unit") {
+      const owner = derived.units.get(selection.id)?.component_id;
+      if (owner) for (const id of neighborIds(owner, manifest.components)) set.add(id);
+      if (manifest.unassigned.includes(selection.id)) set.add(UNASSIGNED_ID);
     }
     return set;
   }, [manifest, derived, selection]);
 
   const selectedComponent =
-    selection?.kind === "component" ? selection.id : selection?.kind === "unit" ? (derived?.units.get(selection.id)?.component_id ?? null) : null;
+    selection?.kind === "component"
+      ? selection.id
+      : selection?.kind === "unit"
+        ? manifest?.unassigned.includes(selection.id)
+          ? UNASSIGNED_ID
+          : (derived?.units.get(selection.id)?.component_id ?? null)
+        : null;
+
+  const needle = query.trim().toLowerCase();
+  const matches = (text: string) => !needle || text.toLowerCase().includes(needle);
 
   const nodes: CardNode[] =
     manifest && derived
-      ? manifest.components.map((c) => {
+      ? [...manifest.components, ...(derived.extra ? [derived.extra] : [])].map((c) => {
           const findings = derived.findingsByComponent.get(c.id) ?? [];
           return {
             id: c.id,
@@ -179,6 +248,7 @@ export function ArchitectureWorkspace({ api, modeSwitch, onOpenFile }: { api: Ap
               errors: findings.filter((f) => f.severity === "error").length,
               warnings: findings.filter((f) => f.severity === "warning").length,
               highlighted: highlighted.has(c.id),
+              unassigned: c.id === UNASSIGNED_ID,
             },
           };
         })
@@ -192,12 +262,19 @@ export function ArchitectureWorkspace({ api, modeSwitch, onOpenFile }: { api: Ap
           const cycle = derived.cycles.has(e.from) && derived.cycles.get(e.from) === derived.cycles.get(e.to);
           const layer = derived.layers.some((f) => f.component_id === dependent && f.unit_ids.some((u) => sources.has(u)));
           const colour = cycle || layer ? "var(--red)" : e.kind === "call" ? "var(--edge)" : "var(--accent)";
+          const dimmed = highlighted.size > 0 && !highlighted.has(e.from) && !highlighted.has(e.to);
+          const marks = [cycle ? "cycle" : "", layer ? "layer" : "", e.observed ? "traced" : ""].filter(Boolean);
           return {
             id: `${e.from}->${e.to}:${e.kind}`,
             source: e.from,
             target: e.to,
-            label: `${e.via.length} ${e.kind === "call" ? "call" : "flow"}${e.via.length === 1 ? "" : "s"}${cycle ? " · cycle" : layer ? " · layer" : ""}`,
-            style: { stroke: colour, strokeWidth: cycle || layer ? 2.2 : 1.4, strokeDasharray: e.kind === "dataflow" ? "6 4" : e.confidence === "low" ? "2 4" : undefined },
+            label: `${e.via.length} ${e.kind === "call" ? "call" : "flow"}${e.via.length === 1 ? "" : "s"}${marks.length ? ` · ${marks.join(" · ")}` : ""}`,
+            style: {
+              stroke: colour,
+              strokeWidth: cycle || layer ? 2.2 : e.observed ? 2 : 1.4,
+              strokeDasharray: e.kind === "dataflow" ? "6 4" : e.confidence === "low" ? "2 4" : undefined,
+              opacity: dimmed ? 0.18 : 1,
+            },
             labelStyle: { fill: cycle || layer ? "var(--red)" : "var(--text-dim)", fontSize: 11 },
             labelBgStyle: { fill: "var(--bg)", fillOpacity: 0.85 },
             markerEnd: { type: MarkerType.ArrowClosed, color: colour, width: 16, height: 16 },
@@ -239,6 +316,7 @@ export function ArchitectureWorkspace({ api, modeSwitch, onOpenFile }: { api: Ap
           <>
             <section>
               <h2>Findings</h2>
+              <input className="arch-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filter components and findings…" aria-label="Filter architecture" />
               <div className="chip-row">
                 {counts.map(([severity, count]) => (
                   <label key={severity} className={`chip toggle-chip sev-${severity} ${severities[severity] ? "on" : ""}`}>
@@ -249,7 +327,7 @@ export function ArchitectureWorkspace({ api, modeSwitch, onOpenFile }: { api: Ap
               </div>
               <div className="arch-list">
                 {manifest.findings.map((f, index) =>
-                  severities[f.severity] ? (
+                  severities[f.severity] && matches(`${f.code} ${f.message} ${f.law}`) ? (
                     <button key={index} className={`warning-row sev-${f.severity} ${selection?.kind === "finding" && selection.index === index ? "active" : ""}`} onClick={() => setSelection({ kind: "finding", index })}>
                       <span className="code">{f.code}</span>
                       <span className="arch-finding-text">{f.message}</span>
@@ -262,12 +340,14 @@ export function ArchitectureWorkspace({ api, modeSwitch, onOpenFile }: { api: Ap
             <section>
               <h2>Components</h2>
               <div className="arch-list">
-                {manifest.components.map((c) => (
-                  <button key={c.id} className={`arch-row ${selectedComponent === c.id ? "active" : ""}`} onClick={() => setSelection({ kind: "component", id: c.id })}>
-                    <span className="arch-row-name">{c.name}</span>
-                    <span className={`chip archetype fam-${archetypeFamily(c.archetype)}`}>{c.archetype.replace(/_/g, " ")}</span>
-                  </button>
-                ))}
+                {manifest.components.map((c) =>
+                  matches(`${c.name} ${c.archetype} ${c.responsibility}`) ? (
+                    <button key={c.id} className={`arch-row ${selectedComponent === c.id ? "active" : ""}`} onClick={() => setSelection({ kind: "component", id: c.id })}>
+                      <span className="arch-row-name">{c.name}</span>
+                      <span className={`chip archetype fam-${archetypeFamily(c.archetype)}`}>{c.archetype.replace(/_/g, " ")}</span>
+                    </button>
+                  ) : null,
+                )}
               </div>
             </section>
             <section>
@@ -275,7 +355,7 @@ export function ArchitectureWorkspace({ api, modeSwitch, onOpenFile }: { api: Ap
               <div className="arch-list">
                 {manifest.unassigned.map((id) => {
                   const unit = derived.units.get(id);
-                  return unit ? (
+                  return unit && matches(`${unit.qualified_name} ${unit.name} ${unit.file}`) ? (
                     <button key={id} className={`arch-row ${selection?.kind === "unit" && selection.id === id ? "active" : ""}`} onClick={() => setSelection({ kind: "unit", id })}>
                       <span className="kind-icon">{KIND_ICON[unit.kind]}</span>
                       <span className="arch-row-name mono">{unit.qualified_name}</span>
@@ -298,6 +378,16 @@ export function ArchitectureWorkspace({ api, modeSwitch, onOpenFile }: { api: Ap
           <div className="banner warning" role="alert">
             <span>{error}</span>
             <button onClick={() => setError(null)}>Dismiss</button>
+          </div>
+        )}
+        {manifest && derived && derived.leaks.length > 0 && (
+          <div className="banner warning arch-leak-banner" role="alert">
+            <span>
+              {derived.leaks.length} leakage finding{derived.leaks.length === 1 ? "" : "s"}: a transformer is fitted before the train/test split.
+            </span>
+            <button onClick={() => setSelection({ kind: "finding", index: manifest.findings.indexOf(derived.leaks[0]!) })}>
+              Show
+            </button>
           </div>
         )}
         {!manifest && (
@@ -337,6 +427,7 @@ export function ArchitectureWorkspace({ api, modeSwitch, onOpenFile }: { api: Ap
               <span>— call</span>
               <span className="legend-flow">- - data flow</span>
               <span className="legend-bad">— cycle or layer violation</span>
+              <span className="legend-traced">thick = traced (observed)</span>
               <span>dashed border = low confidence</span>
             </div>
           </section>
@@ -379,6 +470,8 @@ interface Derived {
   units: Map<string, ArchUnit>;
   components: Map<string, ArchComponent>;
   findingsByComponent: Map<string, ArchFinding[]>;
+  extra: ArchComponent | null;
+  leaks: ArchFinding[];
 }
 
 function ArchInspector({
@@ -516,6 +609,16 @@ function ArchInspector({
   }
 
   if (selection?.kind === "component") {
+    if (selection.id === UNASSIGNED_ID) {
+      return (
+        <div className="inspector-body">
+          <h2>Unassigned</h2>
+          <p className="dim small">Dead, unreachable, or uncategorisable units stay here rather than being forced into a neighbour (SEG-005, SEG-068).</p>
+          <UnitList ids={manifest.unassigned} derived={derived} onSelect={onSelect} />
+          {manifest.unassigned[0] && <FeedbackForm api={api} target={{ unit_id: manifest.unassigned[0] }} />}
+        </div>
+      );
+    }
     const c = derived.components.get(selection.id);
     if (!c) return null;
     const usedBy = manifest.components.filter((other) => other.depends_on.includes(c.id));

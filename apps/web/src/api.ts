@@ -23,6 +23,7 @@ import type {
   RunSummary,
 } from "./flow/types";
 import type { AnalyseRequest, ArchManifest } from "./architecture/types";
+import type { LayoutPayload, StructureGraph } from "./structure/types";
 import type { AgentPlan, AgentPreview, AgentProposal, AgentStatus, SnippetInfo } from "./agent/AgentPanel";
 
 const TOKEN_KEY = "flowlab-token";
@@ -131,6 +132,17 @@ export class Api {
   nodeOutput = (runId: string, nodeId: string) =>
     this.request<NodeOutput>("GET", "/flow/output", undefined, { run_id: runId, node_id: nodeId });
   datasetProfile = (file: string) => this.request<DatasetProfile>("GET", "/dataset/profile", undefined, { file });
+
+  // Structure graphs (any language) and saved node positions
+  structure = (file: string) => this.request<StructureGraph>("GET", "/structure", undefined, { file });
+  structurePreview = (file: string, nodeId: string, source: string) =>
+    this.request<{ ok: boolean; message: string | null; line: number | null }>("POST", "/structure/preview", { file, node_id: nodeId, source });
+  structureEdit = (file: string, nodeId: string, source: string, expectedHash: string | null) =>
+    this.request<StructureGraph>("POST", "/structure/edit", { file, node_id: nodeId, source, expected_hash: expectedHash });
+  structureRevert = (file: string) => this.request<StructureGraph & { restored_from: string }>("POST", "/structure/revert", { file });
+  layout = (file: string, view: string) => this.request<LayoutPayload>("GET", "/layout", undefined, { file, view });
+  saveLayout = (file: string, view: string, positions: LayoutPayload["positions"]) =>
+    this.request<{ saved: number }>("PUT", "/layout", { file, view, positions });
 
   // Architecture (code segregation)
   architecture = () => this.request<ArchManifest>("GET", "/architecture");

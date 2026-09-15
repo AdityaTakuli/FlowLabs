@@ -134,6 +134,9 @@ export interface ProjectInfo {
   badge: string;
   config: { local_only: boolean; max_preview_rows: number };
   sessions: string[];
+  code_files: string[];
+  file_info: Record<string, import("./structure/types").FileKind>;
+  languages: import("./structure/types").LanguageSummary[];
 }
 
 export interface VariableSummary {

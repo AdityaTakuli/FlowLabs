@@ -115,10 +115,22 @@ export interface AnalyseRequest {
 const ML = new Set(["ingestion", "validation", "cleaning", "feature_engineering", "splitting", "training", "tuning", "evaluation", "explainability", "inference", "experiment_tracking", "visualization"]);
 const BACKEND = new Set(["entrypoint", "routing", "controller", "service", "repository", "domain_model", "schema", "middleware", "auth", "client_adapter", "background_job"]);
 
+export const UNASSIGNED_ID = "__unassigned__";
+
 export function archetypeFamily(archetype: string): "ml" | "backend" | "cross" {
   if (ML.has(archetype)) return "ml";
   if (BACKEND.has(archetype)) return "backend";
   return "cross";
+}
+
+/** Components that share a dependency with `componentId` (itself, its deps, and its callers). */
+export function neighborIds(componentId: string, components: ArchComponent[]): Set<string> {
+  const nearby = new Set<string>([componentId]);
+  const self = components.find((c) => c.id === componentId);
+  if (!self) return nearby;
+  for (const id of self.depends_on) nearby.add(id);
+  for (const other of components) if (other.depends_on.includes(componentId)) nearby.add(other.id);
+  return nearby;
 }
 
 /** Component dependency (dependent → dependency): callers depend on callees, consumers on producers. */

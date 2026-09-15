@@ -121,6 +121,19 @@ class ArchitectureFeedback(BaseModel):
     correction: str = Field(min_length=3, max_length=1000)
 
 
+class StructureEditRequest(BaseModel):
+    file: str
+    node_id: str
+    source: str = Field(max_length=500_000)
+    expected_hash: str | None = None
+
+
+class LayoutRequest(BaseModel):
+    file: str
+    view: str = "structure"
+    positions: dict[str, dict[str, float]] = Field(default_factory=dict)
+
+
 class OpenProjectRequest(BaseModel):
     path: str
 
@@ -217,7 +230,7 @@ def create_app(
 
     @app.get("/api/project")
     def project() -> dict[str, Any]:
-        return bench.service.project_info()
+        return {**bench.service.project_info(), **bench.structure.languages()}
 
     @app.get("/api/graph")
     def graph(file: str) -> dict[str, Any]:
@@ -237,6 +250,30 @@ def create_app(
             confirm=body.confirm,
             expected_hash=body.expected_hash,
         )
+
+    @app.get("/api/structure")
+    def structure(file: str) -> dict[str, Any]:
+        return bench.structure.graph(file)
+
+    @app.post("/api/structure/preview")
+    def structure_preview(body: StructureEditRequest) -> dict[str, Any]:
+        return bench.structure.preview(body.file, body.node_id, body.source)
+
+    @app.post("/api/structure/edit")
+    def structure_edit(body: StructureEditRequest) -> dict[str, Any]:
+        return bench.structure.edit(body.file, body.node_id, body.source, body.expected_hash)
+
+    @app.post("/api/structure/revert")
+    def structure_revert(body: FileRequest) -> dict[str, Any]:
+        return bench.structure.revert(body.file)
+
+    @app.get("/api/layout")
+    def layout(file: str, view: str = "structure") -> dict[str, Any]:
+        return bench.structure.layout(file, view)
+
+    @app.put("/api/layout")
+    def save_layout(body: LayoutRequest) -> dict[str, Any]:
+        return bench.structure.save_layout(body.file, body.view, body.positions)
 
     @app.post("/api/revert")
     def revert(body: FileRequest) -> dict[str, Any]:

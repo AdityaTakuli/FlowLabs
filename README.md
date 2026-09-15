@@ -73,7 +73,7 @@ cd apps/web && npm install && npm run build && cd ../..   # once (frontend packa
 flowlab serve --root path/to/your/project                # opens http://127.0.0.1:8765/?token=…
 ```
 
-- Graph / Linear / Split views of any `.ipynb` or `.py` in the folder; click a block for
+- Graph / Linear / Split views of any `.ipynb` or data-analysis `.py` in the folder; click a block for
   Code (Monaco, save on blur or Ctrl/⌘+S, live edge preview), Data, Diff and Profile tabs.
 - Start a kernel in the sidebar, then Run / Run to here / Run from here / Run stale; output
   streams to the console, stale blocks are highlighted, RAM gauge is live.
@@ -93,8 +93,8 @@ flowlab serve --root path/to/your/project                # opens http://127.0.0.
 
 ### Open code from anywhere, watch data travel (📂 Open)
 
-- **📂 Open** browses this computer: open any folder (it becomes the project) or a single `.py` /
-  `.ipynb` file (its folder opens with that file selected). Recent folders are remembered in
+- **📂 Open** browses this computer: open any folder (it becomes the project) or a single source
+  file (its folder opens with that file selected). Recent folders are remembered in
   `~/.flowlab/recent.json`; **Import a file…** copies one file into `imported/` instead.
 - The file splits into blocks (`# %%` cells, notebook cells, or statement groups). After a run,
   every edge shows what travelled along it: `DataFrame 4×4`, `list · 4 items`, and for HTTP calls
@@ -102,6 +102,26 @@ flowlab serve --root path/to/your/project                # opens http://127.0.0.
   full value: JSON body, headers, URL, timing, table samples.
 - Double-click a block (or ✎) to edit its code right on the canvas; **Save & run** re-runs it and
   downstream edges turn stale until they run again.
+
+### Any language: structure graphs, cells only for data work
+
+- Every source file in the folder is listed with its language (Python, TypeScript/JavaScript, Go,
+  Rust, Java, Kotlin, C#, C/C++, Ruby, PHP, Swift, …). The **Language** picker shows only the
+  languages this project uses, most used first.
+- Each file opens in the workspace that fits it, and the sidebar shows which one: **cells** for
+  notebooks, `# %%` scripts and pandas/sklearn/torch scripts (kernel, run buttons, live values on
+  edges), and **graph** for application code (web backends, libraries, other languages). A graph
+  shows functions, methods and classes as cards and calls as arrows labelled with the function
+  called; click an arrow to see each call site and its arguments. A Python file can switch views
+  (**Open as cells** / **Structure view**).
+- Drag cards anywhere; positions are saved per file in `.flowlab/layouts/` (in cell graphs too).
+  **Reset layout** returns to the automatic layout, and **Fold classes** tucks methods into their
+  class.
+- Double-click a card to edit just that function or class in an editor that highlights its
+  language. Saves that would add a syntax error are refused; **Undo change** restores the file.
+  Purple ↗ cards are functions from other files; double-click to open them.
+- Parsing uses `tree-sitter-language-pack`. Grammars not yet cached download once on first use.
+  See `docs/decisions/0011-any-language-structure-graphs.md`.
 
 ### Ask panel (✦ Ask, next to the mode switch)
 
@@ -130,6 +150,25 @@ flowlab serve --root path/to/your/project                # opens http://127.0.0.
 - Undo/redo, copy/paste/duplicate, multi-select, auto-layout, save with `Ctrl+S` (conflicts with
   on-disk edits are detected).
 
+### Architecture (same server, toggle in the toolbar)
+
+Decomposes the open project into **components** (one responsibility each) and **units** (functions,
+classes, cells). The analysis is static and local; naming with a model is optional and consent-gated.
+
+```bash
+flowlab lab architecture --root path/to/your/project          # writes .flowlab/architecture/manifest.json
+flowlab lab architecture --root . --json                      # print the manifest
+```
+
+- Cards are components; solid arrows are calls, dashed arrows are data flow. Red arrows are
+  dependency cycles or layer violations. The dashed-border card is `__unassigned__` (dead or
+  uncategorisable code, never forced into a neighbour).
+- Leakage findings (a transformer fitted before the train/test split) are errors on the diagram.
+- **Name with model…** sends cluster fingerprints only (names, truncated signatures, first
+  docstring lines, import names, edge counts — never bodies, tests or data). Needs `GROQ_API_KEY`
+  and explicit consent, same as ✦ Ask.
+- **Report incorrect segregation…** stores an anonymised fingerprint on this machine.
+
 ## Code Mode (PRD Part II)
 
 Your own notebooks and scripts as a dependency graph, run on this machine. The code stays the
@@ -145,6 +184,7 @@ flowlab lab transform pipeline.py reorder --node b5 --before b3 --root .   # ref
 flowlab lab revert pipeline.py --root .               # undo the last transformation
 flowlab lab trace --root ~/projects/repo -- python train.py --config dev   # graph from one instrumented run
 flowlab lab to-flow analysis.ipynb --node b2 --node b3 --out draft.json    # draft Flow Spec for a section
+flowlab lab architecture --root ~/projects/churn                           # components + units + findings
 flowlab eject examples/churn_flow.json --data fixtures --format ipynb --out churn.ipynb
 ```
 

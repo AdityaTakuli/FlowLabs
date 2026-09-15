@@ -14,6 +14,9 @@ import { ArchitectureWorkspace } from "./architecture/ArchitectureWorkspace";
 import { EdgePanel } from "./components/EdgePanel";
 import { FolderPicker } from "./components/FolderPicker";
 import type { EdgeTarget } from "./components/GraphCanvas";
+import { StructureCanvas, type EditOutcome } from "./structure/StructureCanvas";
+import { StructurePanel } from "./structure/StructurePanel";
+import { filesForLanguage, workspaceFor, type StructureEdge, type StructureGraph, type Workspace as FileWorkspace } from "./structure/types";
 
 type View = "graph" | "linear" | "split";
 interface Toast {
@@ -23,6 +26,16 @@ interface Toast {
 }
 
 const LAST_FILE_KEY = "flowlab-last-file";
+const WORKSPACE_KEY = "flowlab-workspace-overrides";
+const LANGUAGE_KEY = "flowlab-language";
+
+function readOverrides(): Record<string, FileWorkspace> {
+  try {
+    return JSON.parse(storageGet(WORKSPACE_KEY) ?? "{}") as Record<string, FileWorkspace>;
+  } catch {
+    return {};
+  }
+}
 
 function storageGet(key: string): string | null {
   try {
@@ -167,9 +180,19 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
   const [dismissedSecrets, setDismissedSecrets] = useState<Set<string>>(() => new Set());
   const [edgePanel, setEdgePanel] = useState<EdgeTarget | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [structure, setStructure] = useState<StructureGraph | null>(null);
+  const [structureEdge, setStructureEdge] = useState<StructureEdge | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const [resetSignal, setResetSignal] = useState(0);
+  const [layoutMoved, setLayoutMoved] = useState(false);
+  const [overrides, setOverrides] = useState<Record<string, FileWorkspace>>(readOverrides);
+  const [language, setLanguage] = useState<string>("all");
 
   const fileRef = useRef<string | null>(null);
   fileRef.current = file;
+  const fileKind = file ? project?.file_info?.[file] : undefined;
+  const workspace: FileWorkspace = file ? workspaceFor(file, fileKind, overrides[file] ?? null) : "cells";
+  const allFiles = project?.code_files ?? project?.files ?? [];
   const lineId = useRef(0);
   const stateTimer = useRef<number | null>(null);
 
@@ -219,11 +242,22 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
       .project()
       .then((info) => {
         setProject(info);
+        const files = info.code_files ?? info.files;
+        const storedLanguage = storageGet(`${LANGUAGE_KEY}:${info.root}`);
+        const primary = info.languages?.[0];
+        const chosen =
+          storedLanguage && (storedLanguage === "all" || info.languages.some((l) => l.name === storedLanguage))
+            ? storedLanguage
+            : primary && primary.share >= 0.6 && info.languages.length > 1
+              ? primary.name
+              : "all";
+        setLanguage(chosen);
         const remembered = storageGet(LAST_FILE_KEY);
         const initial =
-          (remembered && info.files.includes(remembered) ? remembered : null) ??
-          info.files.find((f) => f.endsWith(".ipynb")) ??
-          info.files[0] ??
+          (remembered && files.includes(remembered) ? remembered : null) ??
+          files.find((f) => f.endsWith(".ipynb")) ??
+          filesForLanguage(files, info.file_info ?? {}, chosen)[0] ??
+          files[0] ??
           null;
         setFile(initial);
       })
@@ -241,9 +275,21 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
     setSession(null);
     setEdgePanel(null);
     setEditingId(null);
+    setStructure(null);
+    setStructureEdge(null);
+    setCollapsed(new Set());
+    if (workspace === "structure") {
+      api
+        .structure(file)
+        .then((next) => {
+          if (fileRef.current === file) setStructure(next);
+        })
+        .catch(fail);
+      return;
+    }
     loadGraph(file).catch(fail);
     loadState(file).catch(fail);
-  }, [file, loadGraph, loadState, fail]);
+  }, [api, file, workspace, loadGraph, loadState, fail]);
 
   // a script saved from the Ask panel
   useEffect(() => {
@@ -252,7 +298,7 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
       .project()
       .then((info) => {
         setProject(info);
-        if (info.files.includes(openRequest.file)) setFile(openRequest.file);
+        if ((info.code_files ?? info.files).includes(openRequest.file)) setFile(openRequest.file);
       })
       .catch(fail);
   }, [api, openRequest, fail]);
@@ -266,6 +312,16 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
     }
     if (event.type === "file_changed") {
       if (event.data.kind === "added" || event.data.kind === "deleted") api.project().then(setProject).catch(() => undefined);
+      if (event.file === file && file && workspace === "structure") {
+        if (event.data.origin === "disk") toast("info", `${file} changed on disk; the graph was refreshed`);
+        api
+          .structure(file)
+          .then((next) => {
+            if (fileRef.current === file) setStructure(next);
+          })
+          .catch(() => undefined);
+        return;
+      }
       if (event.file === file && file) {
         if (dirty && event.data.origin === "disk") toast("info", `${file} changed on disk while you were editing`);
         loadGraph(file).catch(() => undefined);
@@ -401,6 +457,61 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
     }
   }
 
+  async function saveUnit(nodeId: string, source: string): Promise<EditOutcome> {
+    if (!file || !structure) return { ok: false, message: "Nothing to save" };
+    try {
+      const next = await api.structureEdit(file, nodeId, source, structure.hash);
+      setStructure(next);
+      setCanRevert(true);
+      toast("success", `Saved ${nodeId}`);
+      return { ok: true };
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "SYNTAX_ERROR") {
+        return { ok: false, message: error.message, line: (error.details.line as number | null | undefined) ?? null };
+      }
+      if (error instanceof ApiError && error.code === "FILE_CHANGED") {
+        toast("error", "The file changed on disk. Reloaded it; check your edit and try again.");
+        api.structure(file).then(setStructure).catch(() => undefined);
+        return { ok: false, message: error.message };
+      }
+      fail(error);
+      return { ok: false, message: error instanceof ApiError ? error.message : String(error) };
+    }
+  }
+
+  async function revertStructure() {
+    if (!file) return;
+    try {
+      const result = await api.structureRevert(file);
+      setStructure(result);
+      toast("success", `Restored ${file} from ${result.restored_from}`);
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "NO_BACKUP") setCanRevert(false);
+      fail(error);
+    }
+  }
+
+  function chooseWorkspace(next: FileWorkspace) {
+    if (!file) return;
+    const updated = { ...overrides, [file]: next };
+    setOverrides(updated);
+    storageSet(WORKSPACE_KEY, JSON.stringify(updated));
+  }
+
+  function chooseLanguage(next: string) {
+    setLanguage(next);
+    if (project) storageSet(`${LANGUAGE_KEY}:${project.root}`, next);
+  }
+
+  function openFile(next: string) {
+    if (dirty && !window.confirm("Discard your unsaved edit?")) return;
+    if (!allFiles.includes(next)) {
+      toast("info", `${next} is not in this project's file list`);
+      return;
+    }
+    setFile(next);
+  }
+
   function select(nodeId: string | null) {
     if (nodeId !== selectedId && dirty) {
       setPreview(null);
@@ -448,6 +559,132 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
   }, []);
   const savedNode = savedGraph?.nodes.find((n) => n.id === selectedId) ?? null;
 
+  if (workspace === "structure" && file) {
+    const unit = structure?.nodes.find((n) => n.id === selectedId) ?? null;
+    return (
+      <div className="app console-closed structure-app">
+        <header className="toolbar">
+          <div className="brand">
+            <span className="logo" aria-hidden>◆</span> FlowLab {modeSwitch}
+          </div>
+          <div className="file-title" title={fileKind?.reason ?? file}>
+            {file}
+            {structure && <span className="chip lang-chip">{structure.language_name}</span>}
+          </div>
+          <input className="search" placeholder="Find function…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search functions and calls" />
+          <label className="toggle" title="Dim everything not connected to the selected unit">
+            <input type="checkbox" checked={focus} onChange={(e) => setFocus(e.target.checked)} /> Focus
+          </label>
+          <button
+            onClick={() => setCollapsed((current) => (current.size ? new Set() : new Set(structure?.nodes.filter((n) => n.kind === "class").map((n) => n.id) ?? [])))}
+            title="Fold every class's methods into the class card, or unfold them"
+          >
+            {collapsed.size ? "Unfold classes" : "Fold classes"}
+          </button>
+          <div className="spacer" />
+          <button disabled={!layoutMoved} onClick={() => setResetSignal((n) => n + 1)} title="Forget where you dragged cards and use the automatic layout">
+            ⟲ Reset layout
+          </button>
+          <button disabled={!canRevert} onClick={() => void revertStructure()} title="Undo the last change FlowLab made to this file">
+            ↶ Undo change
+          </button>
+          {fileKind?.can_run_cells && (
+            <button className="primary" onClick={() => chooseWorkspace("cells")} title="Open this Python file as runnable cells (data analysis / ML)">
+              ▶ Open as cells
+            </button>
+          )}
+          <span className={`conn ${connected ? "on" : "off"}`} title={connected ? "Live updates connected" : "Reconnecting…"}>
+            ● {connected ? "live" : "offline"}
+          </span>
+        </header>
+        <Sidebar
+          project={project}
+          file={file}
+          files={filesForLanguage(allFiles, project?.file_info ?? {}, language)}
+          fileInfo={project?.file_info ?? {}}
+          languages={project?.languages ?? []}
+          language={language}
+          onLanguage={chooseLanguage}
+          onOpen={openFile}
+          showKernel={false}
+          kernel={{ status: "none" }}
+          resources={resources}
+          hidden={[]}
+          onKernel={() => undefined}
+        />
+        <main className="workspace view-graph">
+          {!structure && <div className="placeholder">Reading {file}…</div>}
+          {structure && (
+            <section className="canvas-pane">
+              <StructureCanvas
+                api={api}
+                graph={structure}
+                selectedId={selectedId}
+                editingId={editingId}
+                search={search}
+                focus={focus}
+                collapsed={collapsed}
+                resetSignal={resetSignal}
+                onSelect={(id) => {
+                  setSelectedId(id);
+                  setStructureEdge(null);
+                }}
+                onSelectEdge={(edge) => {
+                  setStructureEdge(edge);
+                  setSelectedId(null);
+                }}
+                onEdit={setEditingId}
+                onToggleCollapse={(id) =>
+                  setCollapsed((current) => {
+                    const next = new Set(current);
+                    if (next.has(id)) next.delete(id);
+                    else next.add(id);
+                    return next;
+                  })
+                }
+                onOpenFile={openFile}
+                onSave={saveUnit}
+                onLayoutMoved={setLayoutMoved}
+              />
+              {structure.problems.length > 0 && (
+                <div className="preview-note">
+                  ⚠ {structure.problems.length} syntax problem{structure.problems.length === 1 ? "" : "s"} (first on line {structure.problems[0]!.line})
+                </div>
+              )}
+            </section>
+          )}
+        </main>
+        <aside className="inspector">
+          {structure ? (
+            <StructurePanel
+              graph={structure}
+              node={unit}
+              edge={structureEdge}
+              onSelect={(id) => {
+                setSelectedId(id);
+                setStructureEdge(null);
+              }}
+              onEdit={(id) => {
+                setSelectedId(id);
+                setEditingId(id);
+              }}
+              onOpenFile={openFile}
+            />
+          ) : (
+            <div className="panel dim">…</div>
+          )}
+        </aside>
+        <div className="toasts" aria-live="polite">
+          {toasts.map((t) => (
+            <div key={t.id} className={`toast ${t.kind}`}>
+              {t.text}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`app ${consoleOpen ? "console-open" : "console-closed"}`}>
       <header className="toolbar">
@@ -458,6 +695,11 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
           {file ?? "no file"}
           {dirty && <span className="unsaved"> · unsaved</span>}
         </div>
+        {fileKind?.language === "python" && !file?.endsWith(".ipynb") && (
+          <button onClick={() => chooseWorkspace("structure")} title="Show this file as functions, classes and calls instead of runnable cells">
+            ⧉ Structure view
+          </button>
+        )}
         <div className="segmented" role="group" aria-label="View">
           {(["graph", "linear", "split"] as View[]).map((v) => (
             <button key={v} className={view === v ? "active" : ""} onClick={() => setView(v)}>
@@ -501,10 +743,13 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
       <Sidebar
         project={project}
         file={file}
-        onOpen={(next) => {
-          if (dirty && !window.confirm("Discard your unsaved edit?")) return;
-          setFile(next);
-        }}
+        files={filesForLanguage(allFiles, project?.file_info ?? {}, language)}
+        fileInfo={project?.file_info ?? {}}
+        languages={project?.languages ?? []}
+        language={language}
+        onLanguage={chooseLanguage}
+        onOpen={openFile}
+        showKernel
         kernel={session?.kernel ?? { status: "none" }}
         resources={resources}
         hidden={session?.hidden_state ?? []}
@@ -518,10 +763,11 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
             <button onClick={() => setDismissedSecrets((s) => new Set(s).add(file))}>Dismiss</button>
           </div>
         )}
-        {!graph && <div className="placeholder">{file ? "Analysing…" : "No Python or notebook files in this folder."}</div>}
+        {!graph && <div className="placeholder">{file ? "Analysing…" : "No source files in this folder."}</div>}
         {graph && view !== "linear" && file && (
           <section className="canvas-pane">
             <GraphCanvas
+              api={api}
               file={file}
               graph={graph}
               session={session}

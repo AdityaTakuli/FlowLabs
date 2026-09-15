@@ -9,3 +9,7 @@ runs/
 .flowlab/
 generated/
 .env
+
+# build output and installed packages
+node_modules/
+apps/web/dist/

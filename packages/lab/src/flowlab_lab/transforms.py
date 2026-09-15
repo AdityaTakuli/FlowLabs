@@ -290,6 +290,11 @@ def _backup(project: LabProject, file: str, text: str) -> Path:
     return path
 
 
+def write_backup(project: LabProject, file: str, text: str) -> Path:
+    """Keep ``text`` as the newest backup of ``file`` (``revert_last`` restores it)."""
+    return _backup(project, file, text)
+
+
 def backups_for(project: LabProject, file: str) -> list[Path]:
     return sorted((project.state_dir / "backups").glob(f"{file.replace('/', '__')}.*.bak"))
 

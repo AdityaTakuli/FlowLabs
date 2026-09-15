@@ -42,9 +42,10 @@ STAGE6_INPUT_PER_COMPONENT, STAGE6_OUTPUT_PER_COMPONENT, STAGE6_GROUP = 2_000, 2
 MAX_FINGERPRINT_UNITS = 12
 MAX_COMPONENT_UNITS = 30
 LIBRARY_WORDS = frozenset(
-    {"pandas", "numpy", "sklearn", "scikit", "torch", "pytorch", "tensorflow", "keras", "fastapi", "flask", "django",
-     "sqlalchemy", "pydantic", "polars", "matplotlib", "seaborn", "plotly", "requests", "httpx", "celery", "airflow",
-     "spark", "pyspark", "xgboost", "lightgbm", "numba", "scipy", "boto3", "redis"}
+    {"pandas", "numpy", "sklearn", "scikit", "torch", "pytorch", "tensorflow", "keras", "fastapi",
+     "flask", "django", "sqlalchemy", "pydantic", "polars", "matplotlib", "seaborn", "plotly", "requests",
+     "httpx", "celery", "airflow", "spark", "pyspark", "xgboost", "lightgbm", "numba", "scipy", "boto3",
+     "redis"}
 )  # fmt: skip
 NAME_SHAPE = re.compile(r"^[A-Za-z][A-Za-z0-9'-]*(?: [A-Za-z0-9][A-Za-z0-9'-]*){1,3}$")
 AND_TWO_VERBS = re.compile(
@@ -88,11 +89,12 @@ STAGE4_SCHEMA = """Return:
 
 STAGE5_SYSTEM = f"""TASK: CLASSIFY. Assign exactly one archetype from the list to each component.
 {ARCHETYPE_LINE}
-Return: {{"archetypes": [{{"cluster_id": "c3", "archetype": "...", "confidence": "high|medium|low", "reason": "..."}}]}}
+Return: {{"archetypes": [{{"cluster_id": "c3", "archetype": "...", "confidence": "high|medium|low",
+"reason": "..."}}]}}
 Output valid JSON only."""
 
-STAGE6_SYSTEM = """TASK: CONTRACTS. For each component fingerprint write its responsibility: ONE sentence, present
-tense, starting with a verb, no "and" joining two different verbs, at most 25 words.
+STAGE6_SYSTEM = """TASK: CONTRACTS. For each component fingerprint write its responsibility: ONE
+sentence, present tense, starting with a verb, no "and" joining two different verbs, at most 25 words.
 Return: {"contracts": [{"cluster_id": "c3", "responsibility": "..."}]}
 Output valid JSON only."""
 
@@ -182,8 +184,8 @@ class Runner:
 
     def key(self, stage: str, messages: list[dict[str, str]], max_tokens: int) -> str:
         blob = json.dumps(
-            {"stage": stage, "version": PROMPT_TEMPLATE_VERSION, "model": self.completer.model, "messages": messages,
-             "max_tokens": max_tokens},
+            {"stage": stage, "version": PROMPT_TEMPLATE_VERSION, "model": self.completer.model,
+             "messages": messages, "max_tokens": max_tokens},
             sort_keys=True, ensure_ascii=False,
         )  # fmt: skip
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()
@@ -383,13 +385,15 @@ def _apply_stage4(
                     labels.add(label)
             if len(labels) > 1:
                 errors.append(
-                    f"merge {clusters} joins {sorted(labels)}, which must stay separate components (SEG-052/SEG-059)"
+                    f"merge {clusters} joins {sorted(labels)}, which must stay separate components "
+                    "(SEG-052/SEG-059)"
                 )
                 continue
             merged = set().union(*(groups[c] for c in clusters))
             if len(merged) > MAX_COMPONENT_UNITS:
                 errors.append(
-                    f"merge {clusters} would create {len(merged)} units, above {MAX_COMPONENT_UNITS} (SEG-041)"
+                    f"merge {clusters} would create {len(merged)} units, "
+                    f"above {MAX_COMPONENT_UNITS} (SEG-041)"
                 )
                 continue
             groups[clusters[0]] = merged
@@ -398,7 +402,7 @@ def _apply_stage4(
             changed.add(clusters[0])
             reasons.setdefault(clusters[0], []).append(reason)
         elif op == "split":
-            cid = change.get("cluster")
+            cid = str(change.get("cluster", ""))
             partition = change.get("partition")
             if (
                 cid not in in_batch
@@ -426,10 +430,13 @@ def _apply_stage4(
                 claimed |= part
             for uid in sorted(groups[cid] - claimed):  # unlisted members follow their strongest part
                 strengths = [
-                    sum(1 for e in graph.edges.values() if {e.source, e.target} == {uid, other} or (e.source == uid and e.target in part) or (e.target == uid and e.source in part))
+                    sum(
+                        1
+                        for e in graph.edges.values()
+                        if (e.source == uid and e.target in part) or (e.target == uid and e.source in part)
+                    )
                     for part in parts
-                    for other in [uid]
-                ]  # fmt: skip
+                ]
                 parts[max(range(len(parts)), key=lambda i: (strengths[i], -i))].add(uid)
             if any(not part for part in parts):
                 errors.append(f"split of {cid} leaves an empty part")
@@ -484,8 +491,8 @@ def _apply_stage4(
         override.name = str(entry["name"]).strip()
         override.responsibility = str(entry["responsibility"]).strip()
         override.decided_by = "llm"
-        confidence = entry.get("confidence")
-        override.confidence = confidence if confidence in ("high", "medium", "low") else "medium"
+        stated = entry.get("confidence")
+        override.confidence = stated if stated in ("high", "medium", "low") else "medium"
         if entry.get("archetype") in ARCHETYPES:
             _, _, _, ambiguous = group_archetype(graph, votes, state.groups[cid])
             if ambiguous:  # SEG-038: rules first; the model only settles ambiguous components
@@ -578,14 +585,17 @@ def run_llm_stages(analysis: Analysis, completer: Completer, options: Segregatio
     stage5 = 0 if not ambiguous else estimate_tokens(STAGE5_SYSTEM) + 80 * ambiguous + 40 * ambiguous
     report.estimated_tokens = stage4 + stage5
     if report.estimated_tokens > options.max_tokens and not options.allow_over_budget:
-        base = analysis.manifest.model_copy(deep=True)
-        base.llm = LlmReport(
-            status="over_budget", estimated_tokens=report.estimated_tokens,
-            notes=[f"Estimated {report.estimated_tokens:,} tokens exceeds the {options.max_tokens:,}-token budget; "
-                   "no model call was made. Confirm to continue (SEG-007)."],
-        )  # fmt: skip
-        base.stats.estimated_tokens = report.estimated_tokens
-        return Analysis(context=context, manifest=base)
+        unchanged = analysis.manifest.model_copy(deep=True)
+        unchanged.llm = LlmReport(
+            status="over_budget",
+            estimated_tokens=report.estimated_tokens,
+            notes=[
+                f"Estimated {report.estimated_tokens:,} tokens exceeds the {options.max_tokens:,}-token "
+                "budget; no model call was made. Confirm to continue (SEG-007)."
+            ],
+        )
+        unchanged.stats.estimated_tokens = report.estimated_tokens
+        return Analysis(context=context, manifest=unchanged)
     if options.allow_over_budget:
         runner.ceiling = max(options.max_tokens, int(report.estimated_tokens * 1.5) + STAGE4_OUTPUT_CEILING)
 
@@ -612,9 +622,11 @@ def run_llm_stages(analysis: Analysis, completer: Completer, options: Segregatio
 
         # Stage 5: ambiguous archetypes only, rung 4 plus dominant imports (SEG-038, SEG-080)
         pending = [
-            cid for cid, members in sorted(state.groups.items())
-            if group_archetype(graph, votes, members)[3] and not (state.overrides.get(cid) and state.overrides[cid].archetype)
-        ]  # fmt: skip
+            cid
+            for cid, members in sorted(state.groups.items())
+            if group_archetype(graph, votes, members)[3]
+            and not (cid in state.overrides and state.overrides[cid].archetype)
+        ]
         if pending:
             summaries = []
             for cid in pending:
@@ -627,10 +639,14 @@ def run_llm_stages(analysis: Analysis, completer: Completer, options: Segregatio
                         if e.target in members and e.source not in members
                     }
                 )[:6]
-                summaries.append(_redact({
-                    "cluster_id": cid, "name": override.name or cid, "responsibility": override.responsibility or "",
-                    "public_surface": public, "dominant_imports": fingerprint(analysis, state, cid)["dominant_imports"],
-                }, counter))  # fmt: skip
+                summary = {
+                    "cluster_id": cid,
+                    "name": override.name or cid,
+                    "responsibility": override.responsibility or "",
+                    "public_surface": public,
+                    "dominant_imports": fingerprint(analysis, state, cid)["dominant_imports"],
+                }
+                summaries.append(_redact(summary, counter))
             chunks: list[list[dict[str, Any]]] = [[]]
             for summary in summaries:
                 if (
@@ -730,7 +746,8 @@ def run_llm_stages(analysis: Analysis, completer: Completer, options: Segregatio
     except Exception as exc:  # noqa: BLE001 - a failing provider must never lose the deterministic result
         failures += 1
         report.notes.append(
-            f"Model call failed ({type(exc).__name__}: {str(exc)[:160]}); deterministic result kept (SEG-033)."
+            f"Model call failed ({type(exc).__name__}: {str(exc)[:160]}); "
+            "deterministic result kept (SEG-033)."
         )
 
     if counter["redacted"]:
@@ -752,15 +769,15 @@ def run_llm_stages(analysis: Analysis, completer: Completer, options: Segregatio
         else:
             base = "medium"  # a boundary the model moved is at best medium confidence
         confidences.append(base)
-        override = copy.copy(state.overrides.get(cid)) if cid in state.overrides else None
+        final = copy.copy(state.overrides[cid]) if cid in state.overrides else None
         if cid in state.changed:
-            override = override or GroupOverride()
-            override.decided_by = "llm"
-        if override is not None and state.reasons.get(cid):
-            override.reason = " ".join(state.reasons[cid][:2])
-        elif override is not None and override.decided_by == "llm" and not override.reason:
-            override.reason = "Named by the model from its structural fingerprint."
-        overrides.append(override)
+            final = final or GroupOverride()
+            final.decided_by = "llm"
+        if final is not None and state.reasons.get(cid):
+            final.reason = " ".join(state.reasons[cid][:2])
+        elif final is not None and final.decided_by == "llm" and not final.reason:
+            final.reason = "Named by the model from its structural fingerprint."
+        overrides.append(final)
     unassigned = sorted(set(deterministic.unassigned) - {u for g in groups for u in g})
     manifest = assemble(context, groups, confidences, unassigned, overrides, report)
     problems = structural_violations(manifest)

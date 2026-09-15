@@ -603,7 +603,7 @@ input.bad, select.bad { border-color: var(--red); }
 .kind-icon { font-family: var(--mono); font-size: 11px; width: 16px; text-align: center; color: var(--text-dim); flex-shrink: 0; }
 .chip.archetype.fam-ml { color: #7ee787; border-color: #3fb95055; }
 .chip.archetype.fam-backend { color: #79c0ff; border-color: #58a6ff55; }
-.chip.archetype.fam-cross { color: #d2a8ff; border-color: #bc8cff55; }
+.chip.archetype.fam-unassigned { color: var(--text-dim); border-color: var(--border); }
 .chip.model-chip { color: var(--purple); border-color: #bc8cff66; }
 .chip.sev-chip.sev-error { color: var(--red); }
 .chip.sev-chip.sev-warning { color: var(--orange); }
@@ -613,7 +613,10 @@ input.bad, select.bad { border-color: var(--red); }
 .arch-node { background: var(--panel); border: 1.5px solid var(--border); border-left-width: 4px; border-radius: var(--radius); padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; box-shadow: 0 2px 8px #0005; }
 .arch-node.fam-ml { border-left-color: #3fb950; }
 .arch-node.fam-backend { border-left-color: #58a6ff; }
-.arch-node.fam-cross { border-left-color: #bc8cff; }
+.arch-node.fam-unassigned { border-left-color: var(--text-dim); border-style: dashed; opacity: 0.92; }
+.arch-search { width: 100%; margin-bottom: 6px; }
+.arch-leak-banner { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 6; }
+.arch-legend .legend-traced { color: var(--text); }
 .arch-node.conf-low { border-style: dashed; }
 .arch-node.selected { border-color: var(--accent); box-shadow: 0 0 0 3px #58a6ff40; }
 .arch-node.highlighted { box-shadow: 0 0 0 3px #f8514966; }
@@ -638,3 +641,21 @@ input.bad, select.bad { border-color: var(--red); }
 .arch-feedback textarea { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font: inherit; padding: 6px; }
 .arch-model-dialog { width: min(560px, 94vw); display: flex; flex-direction: column; gap: 10px; }
 .arch-model-dialog input[type=number] { width: 110px; }
+
+/* ---------------------------------------------------------- structure graphs */
+.language-picker { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
+.language-picker select { width: 100%; }
+.lang-icon { font-family: var(--mono); font-size: 10px; min-width: 22px; text-align: center; color: var(--text-dim); }
+.workspace-tag { font-size: 10px; border-radius: 3px; padding: 0 4px; margin-left: auto; flex-shrink: 0; border: 1px solid var(--border); }
+.workspace-tag.ws-cells { color: var(--green); border-color: #3fb95055; }
+.workspace-tag.ws-structure { color: var(--accent); border-color: #58a6ff55; }
+.lang-chip { margin-left: 8px; }
+.unit-node.unit-class { border-color: #1f6feb88; background: #0d1f3a; }
+.unit-node.unit-external { border-style: dashed; border-color: #8957e5; background: #1c1430; }
+.unit-node.unit-module { border-color: var(--orange); }
+.unit-collapse { padding: 0 6px; font-size: 11px; line-height: 18px; flex-shrink: 0; }
+.dim-chip { max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+.call-sites { list-style: none; padding: 0; margin: 0 0 12px; display: flex; flex-direction: column; gap: 6px; }
+.call-sites li { display: flex; gap: 6px; align-items: baseline; }
+.call-sites code { font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+.signature { font-family: var(--mono); font-size: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; white-space: pre-wrap; word-break: break-word; }

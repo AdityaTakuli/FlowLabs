@@ -355,6 +355,67 @@ def watch_cmd(root: Path, interval: float, once: bool) -> None:
         click.echo("stopped")
 
 
+@lab_group.command("architecture")
+@ROOT_OPTION
+@click.option("--json", "as_json", is_flag=True, help="Print the architecture manifest JSON.")
+@click.option(
+    "--out",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Write the manifest JSON here (default: .flowlab/architecture/manifest.json).",
+)
+@click.option(
+    "--git/--no-git", default=True, show_default=True, help="Use git history as a clustering signal."
+)
+def architecture_cmd(root: Path, as_json: bool, out: Path | None, git: bool) -> None:
+    """Decompose the project into components and units (Code Segregation Bylaws). No model, no tokens."""
+    from .segregation import SegregationError, SegregationOptions, analyse_architecture
+
+    project = _project(root)
+    project.init()
+    try:
+        manifest = analyse_architecture(project.root, SegregationOptions(use_git=git))
+    except SegregationError as exc:
+        raise click.ClickException(str(exc)) from exc
+    target = out or project.state_dir / "architecture" / "manifest.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(manifest.to_json(), encoding="utf-8")
+    if as_json:
+        click.echo(manifest.to_json())
+        return
+    stats = manifest.stats
+    click.secho(
+        f"{stats.components} components, {stats.units} units, {stats.unassigned_units} unassigned · "
+        f"{stats.sloc} SLOC · {stats.clustering} ({stats.files} files)",
+        bold=True,
+    )
+    for component in manifest.components:
+        colour = STYLE[component.confidence]
+        click.echo(
+            f"  {click.style(component.name, bold=True):<32} "
+            f"{click.style(component.archetype, fg=colour):<22} "
+            f"{len(component.units):>3} units  {component.sloc:>5} SLOC  {component.confidence}"
+        )
+    if manifest.unassigned:
+        click.secho("unassigned", bold=True)
+        by_id = {u.id: u for u in manifest.units}
+        for uid in manifest.unassigned:
+            unit = by_id.get(uid)
+            if unit:
+                click.echo(f"  {unit.qualified_name}  {unit.file}:{unit.line_start}")
+    if manifest.findings:
+        click.secho("findings", bold=True)
+        for finding in manifest.findings:
+            click.secho(
+                f"  {finding.severity.upper():7} {finding.code}: {finding.message}",
+                fg=STYLE[finding.severity],
+            )
+    try:
+        shown = project.relative(target)
+    except ValueError:
+        shown = str(target)
+    click.echo(f"  wrote {shown}")
+
+
 @click.command("eject")
 @click.argument("flow", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option(

@@ -51,7 +51,9 @@ def _anonymise(value: str) -> str:
 
 
 class ArchitectureService:
-    def __init__(self, project: LabProject, hub: EventHub, client_factory: ClientFactory | None = None) -> None:
+    def __init__(
+        self, project: LabProject, hub: EventHub, client_factory: ClientFactory | None = None
+    ) -> None:
         self.project = project
         self.hub = hub
         self._factory = client_factory
@@ -69,9 +71,13 @@ class ArchitectureService:
         data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
         return data
 
-    def analyse(self, *, use_llm: bool, confirm_external: bool, max_tokens: int, allow_over_budget: bool) -> dict[str, Any]:
+    def analyse(
+        self, *, use_llm: bool, confirm_external: bool, max_tokens: int, allow_over_budget: bool
+    ) -> dict[str, Any]:
         if use_llm and not confirm_external:
-            raise ServiceError(428, "CONSENT_REQUIRED", f"naming with a model sends {SENT_TO_LLM}; confirm to continue")
+            raise ServiceError(
+                428, "CONSENT_REQUIRED", f"naming with a model sends {SENT_TO_LLM}; confirm to continue"
+            )
         with self._lock:
             if self._running:
                 raise ServiceError(409, "ANALYSIS_RUNNING", "an analysis of this project is already running")
@@ -85,7 +91,9 @@ class ArchitectureService:
                     key = load_api_key(search=[self.project.root, Path.cwd()])
                     if not key:
                         raise ServiceError(
-                            412, "NO_API_KEY", "GROQ_API_KEY is not set: add it to .env in the project folder or export it"
+                            412,
+                            "NO_API_KEY",
+                            "GROQ_API_KEY is not set: add it to .env in the project folder or export it",
                         )
                     client = GroqClient(key)
                 completer = AgentCompleter(client)
@@ -95,7 +103,9 @@ class ArchitectureService:
             try:
                 manifest = analyse(self.project.root, options, completer=completer).manifest
             except SegregationError as exc:
-                raise ServiceError(422, "SEGREGATION_INVALID", str(exc), {"problems": exc.problems[:20]}) from exc
+                raise ServiceError(
+                    422, "SEGREGATION_INVALID", str(exc), {"problems": exc.problems[:20]}
+                ) from exc
         finally:
             with self._lock:
                 self._running = False
@@ -106,7 +116,11 @@ class ArchitectureService:
             {
                 "type": "architecture_ready",
                 "file": None,
-                "data": {"components": len(manifest.components), "findings": len(manifest.findings), "llm": manifest.llm.status},
+                "data": {
+                    "components": len(manifest.components),
+                    "findings": len(manifest.findings),
+                    "llm": manifest.llm.status,
+                },
             }
         )
         result: dict[str, Any] = json.loads(text)
