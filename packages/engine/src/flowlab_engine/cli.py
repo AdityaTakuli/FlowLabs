@@ -186,8 +186,12 @@ def spec_schema() -> None:
 
 
 from flowlab_agent.cli import register as _register_agent_commands  # noqa: E402
+from flowlab_api.cli import register as _register_api_commands  # noqa: E402
+from flowlab_lab.cli import register as _register_lab_commands  # noqa: E402
 
 _register_agent_commands(main)
+_register_lab_commands(main)
+_register_api_commands(main)
 
 
 if __name__ == "__main__":

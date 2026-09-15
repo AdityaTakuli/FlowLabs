@@ -1,0 +1,471 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Api, ApiError, initToken } from "./api";
+import { formatDuration } from "./layout";
+import type { CodeGraph, GraphPayload, LabEvent, ProjectInfo, Resources, RunMode, SessionState } from "./types";
+import { GraphCanvas, type HeatMode } from "./components/GraphCanvas";
+import { Sidebar, type KernelAction } from "./components/Sidebar";
+import { Inspector, type InspectorTab } from "./components/Inspector";
+import { LinearView } from "./components/LinearView";
+import { Console, type ConsoleLine } from "./components/Console";
+import { ConfirmDialog, type ConfirmRequest } from "./components/ConfirmDialog";
+
+type View = "graph" | "linear" | "split";
+interface Toast {
+  id: number;
+  kind: "info" | "error" | "success";
+  text: string;
+}
+
+const LAST_FILE_KEY = "flowlab-last-file";
+
+function storageGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function storageSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* private mode: remembering the file is only a convenience */
+  }
+}
+
+export function App() {
+  const [token] = useState(() => initToken());
+  const api = useMemo(() => (token ? new Api(token) : null), [token]);
+  if (!api) {
+    return (
+      <div className="empty-screen">
+        <h1>FlowLab</h1>
+        <p>This page needs the private link printed by the server.</p>
+        <pre>flowlab serve --root path/to/your/project</pre>
+        <p className="dim">Open the <code>http://127.0.0.1:8765/?token=…</code> URL it prints.</p>
+      </div>
+    );
+  }
+  return <Workspace api={api} />;
+}
+
+function Workspace({ api }: { api: Api }) {
+  const [project, setProject] = useState<ProjectInfo | null>(null);
+  const [file, setFile] = useState<string | null>(null);
+  const [payload, setPayload] = useState<GraphPayload | null>(null);
+  const [preview, setPreview] = useState<CodeGraph | null>(null);
+  const [session, setSession] = useState<SessionState | null>(null);
+  const [resources, setResources] = useState<Resources | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedVariable, setSelectedVariable] = useState<string | null>(null);
+  const [tab, setTab] = useState<InspectorTab>("code");
+  const [view, setView] = useState<View>("graph");
+  const [focus, setFocus] = useState(false);
+  const [search, setSearch] = useState("");
+  const [heat, setHeat] = useState<HeatMode>("off");
+  const [showImports, setShowImports] = useState(false);
+  const [consoleLines, setConsoleLines] = useState<ConsoleLine[]>([]);
+  const [consoleOpen, setConsoleOpen] = useState(true);
+  const [warningsOpen, setWarningsOpen] = useState(false);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [connected, setConnected] = useState(false);
+  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+  const [canRevert, setCanRevert] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [dismissedSecrets, setDismissedSecrets] = useState<Set<string>>(() => new Set());
+
+  const fileRef = useRef<string | null>(null);
+  fileRef.current = file;
+  const lineId = useRef(0);
+  const stateTimer = useRef<number | null>(null);
+
+  const toast = useCallback((kind: Toast["kind"], text: string) => {
+    const id = Date.now() + Math.random();
+    setToasts((current) => [...current.slice(-4), { id, kind, text }]);
+    window.setTimeout(() => setToasts((current) => current.filter((t) => t.id !== id)), kind === "error" ? 10000 : 4000);
+  }, []);
+  const fail = useCallback(
+    (error: unknown) => toast("error", error instanceof ApiError ? error.message : String(error)),
+    [toast],
+  );
+  const log = useCallback((line: Omit<ConsoleLine, "id" | "ts">) => {
+    const entry: ConsoleLine = { ...line, id: ++lineId.current, ts: new Date().toLocaleTimeString() };
+    setConsoleLines((lines) => [...lines.slice(-1999), entry]);
+  }, []);
+
+  const loadGraph = useCallback(
+    async (target: string) => {
+      const next = await api.graph(target);
+      if (fileRef.current === target) setPayload(next);
+    },
+    [api],
+  );
+  const loadState = useCallback(
+    async (target: string) => {
+      const next = await api.state(target);
+      if (fileRef.current === target) {
+        setSession(next);
+        setResources(next.resources);
+      }
+    },
+    [api],
+  );
+  const scheduleState = useCallback(() => {
+    if (stateTimer.current !== null) return;
+    stateTimer.current = window.setTimeout(() => {
+      stateTimer.current = null;
+      const target = fileRef.current;
+      if (target) loadState(target).catch(() => undefined);
+    }, 120);
+  }, [loadState]);
+
+  // project + first file
+  useEffect(() => {
+    api
+      .project()
+      .then((info) => {
+        setProject(info);
+        const remembered = storageGet(LAST_FILE_KEY);
+        const initial =
+          (remembered && info.files.includes(remembered) ? remembered : null) ??
+          info.files.find((f) => f.endsWith(".ipynb")) ??
+          info.files[0] ??
+          null;
+        setFile(initial);
+      })
+      .catch(fail);
+  }, [api, fail]);
+
+  useEffect(() => {
+    if (!file) return;
+    storageSet(LAST_FILE_KEY, file);
+    setSelectedId(null);
+    setPreview(null);
+    setDirty(false);
+    setCanRevert(false);
+    setPayload(null);
+    setSession(null);
+    loadGraph(file).catch(fail);
+    loadState(file).catch(fail);
+  }, [file, loadGraph, loadState, fail]);
+
+  // live events
+  const handler = useRef<(event: LabEvent) => void>(() => undefined);
+  handler.current = (event: LabEvent) => {
+    if (event.type === "resources") {
+      setResources(event.data as unknown as Resources);
+      return;
+    }
+    if (event.type === "file_changed") {
+      if (event.data.kind === "added" || event.data.kind === "deleted") api.project().then(setProject).catch(() => undefined);
+      if (event.file === file && file) {
+        if (dirty && event.data.origin === "disk") toast("info", `${file} changed on disk while you were editing`);
+        loadGraph(file).catch(() => undefined);
+        scheduleState();
+      }
+      return;
+    }
+    if (!file || event.file !== file) return;
+    const node = event.node_id ?? null;
+    const data = event.data;
+    switch (event.type) {
+      case "stream":
+        log({ kind: data.name === "stderr" ? "stderr" : "stdout", node, text: String(data.text ?? "") });
+        break;
+      case "display":
+        if (data.text) log({ kind: "stdout", node, text: String(data.text) });
+        break;
+      case "node_started":
+        log({ kind: "info", node, text: `▶ ${node} started` });
+        scheduleState();
+        break;
+      case "node_completed":
+        log({ kind: "info", node, text: `✓ ${node} finished in ${formatDuration(data.duration_ms as number)}` });
+        scheduleState();
+        break;
+      case "node_failed":
+        log({ kind: "error", node, text: `✕ ${node} ${String(data.status)}` });
+        scheduleState();
+        break;
+      case "run_finished": {
+        const error = data.error as { message: string } | null;
+        if (error) {
+          toast("error", error.message);
+          log({ kind: "error", node: null, text: error.message });
+        }
+        scheduleState();
+        break;
+      }
+      case "kernel_died":
+        toast("error", `The kernel died while running ${node}. Restart it from the sidebar.`);
+        scheduleState();
+        break;
+      default:
+        if (event.type.startsWith("kernel") || event.type === "run_started") scheduleState();
+    }
+  };
+  useEffect(() => api.events((event) => handler.current(event), setConnected), [api]);
+
+  // actions
+  async function run(nodeId: string | null, mode: RunMode) {
+    if (!file) return;
+    try {
+      const { plan } = await api.execute(file, nodeId, mode);
+      log({ kind: "info", node: null, text: `run ${mode}${nodeId ? ` ${nodeId}` : ""}: ${plan.join(" → ")}` });
+      scheduleState();
+    } catch (error) {
+      fail(error);
+    }
+  }
+
+  async function kernel(action: KernelAction) {
+    if (!file) return;
+    try {
+      if (action === "clean") {
+        const { removed } = await api.cleanKernel(file);
+        toast("success", removed.length ? `Removed ${removed.join(", ")}` : "Nothing to clean");
+      } else {
+        if (action === "start") toast("info", "Starting a kernel in your environment…");
+        await api.kernel(action, file);
+        if (action === "restart") log({ kind: "info", node: null, text: "kernel restarted" });
+      }
+      scheduleState();
+    } catch (error) {
+      fail(error);
+    }
+  }
+
+  async function transform(op: string, nodeIds: string[], params: Record<string, unknown> = {}, confirmed = false): Promise<boolean> {
+    if (!file || !payload) return false;
+    try {
+      const result = await api.transform(file, op, nodeIds, params, { confirm: confirmed, expectedHash: payload.hash });
+      setPayload((current) => (current && current.file === file ? { ...current, hash: result.hash, graph: result.graph } : current));
+      setPreview(null);
+      setDirty(false);
+      setCanRevert(true);
+      if (op !== "edit") toast("success", result.message);
+      if (selectedId && !result.graph.nodes.some((n) => n.id === selectedId)) setSelectedId(null);
+      scheduleState();
+      return true;
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "CONFIRM_REQUIRED") {
+        setConfirm({
+          title: `Delete ${nodeIds[0]}?`,
+          message: error.message,
+          confirmLabel: "Delete anyway",
+          danger: true,
+          onConfirm: () => void transform(op, nodeIds, params, true),
+        });
+        return false;
+      }
+      if (error instanceof ApiError && error.code === "FILE_CHANGED") {
+        toast("error", "The file changed on disk. Reloaded it; check your edit and try again.");
+        await loadGraph(file).catch(() => undefined);
+        return false;
+      }
+      if (error instanceof ApiError && error.code === "DEPENDENCY_VIOLATION") {
+        const edge = error.details.blocking_edge as { from: string; to: string; variable: string } | undefined;
+        if (edge) {
+          setSelectedId(edge.to);
+          setSearch(edge.variable);
+        }
+      }
+      fail(error);
+      return false;
+    }
+  }
+
+  async function revert() {
+    if (!file) return;
+    try {
+      const result = await api.revert(file);
+      setPayload({ file: result.file, hash: result.hash, graph: result.graph, secrets_warning: result.secrets_warning });
+      setPreview(null);
+      setDirty(false);
+      toast("success", `Restored ${file} from ${result.restored_from}`);
+      scheduleState();
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "NO_BACKUP") setCanRevert(false);
+      fail(error);
+    }
+  }
+
+  function select(nodeId: string | null) {
+    if (nodeId !== selectedId && dirty) {
+      setPreview(null);
+      setDirty(false);
+    }
+    setSelectedId(nodeId);
+    setSelectedVariable(null);
+  }
+
+  const graph = preview ?? payload?.graph ?? null;
+  const savedGraph = payload?.graph ?? null;
+  const warningCount = (graph?.warnings.length ?? 0) + (session?.hidden_state.length ?? 0);
+  const kernelStatus = session?.kernel.status ?? "none";
+  const kernelReady = kernelStatus === "idle";
+  const selectedNode = graph?.nodes.find((n) => n.id === selectedId) ?? null;
+  const savedNode = savedGraph?.nodes.find((n) => n.id === selectedId) ?? null;
+
+  return (
+    <div className={`app ${consoleOpen ? "console-open" : "console-closed"}`}>
+      <header className="toolbar">
+        <div className="brand">
+          <span className="logo" aria-hidden>◆</span> FlowLab <span className="mode-tag">Code Mode</span>
+        </div>
+        <div className="file-title" title={file ?? ""}>
+          {file ?? "no file"}
+          {dirty && <span className="unsaved"> · unsaved</span>}
+        </div>
+        <div className="segmented" role="group" aria-label="View">
+          {(["graph", "linear", "split"] as View[]).map((v) => (
+            <button key={v} className={view === v ? "active" : ""} onClick={() => setView(v)}>
+              {v === "graph" ? "Graph" : v === "linear" ? "Linear" : "Split"}
+            </button>
+          ))}
+        </div>
+        <input
+          className="search"
+          placeholder="Find variable…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          aria-label="Search by variable name"
+        />
+        <label className="toggle" title="Dim everything not connected to the selected block">
+          <input type="checkbox" checked={focus} onChange={(e) => setFocus(e.target.checked)} /> Focus
+        </label>
+        <label className="toggle" title="Show edges from import blocks">
+          <input type="checkbox" checked={showImports} onChange={(e) => setShowImports(e.target.checked)} /> Imports
+        </label>
+        <select value={heat} onChange={(e) => setHeat(e.target.value as HeatMode)} aria-label="Heat map">
+          <option value="off">Heat map: off</option>
+          <option value="time">Heat map: time</option>
+          <option value="memory">Heat map: memory</option>
+        </select>
+        <div className="spacer" />
+        <button disabled={!kernelReady} onClick={() => void run(null, "stale")} title="Re-run blocks whose code or inputs changed">
+          ↻ Run stale
+        </button>
+        <button className="primary" disabled={!kernelReady} onClick={() => void run(null, "all")}>
+          ▶ Run all
+        </button>
+        <button disabled={!canRevert} onClick={() => void revert()} title="Undo the last change FlowLab made to this file">
+          ↶ Undo change
+        </button>
+        <span className={`conn ${connected ? "on" : "off"}`} title={connected ? "Live updates connected" : "Reconnecting…"}>
+          ● {connected ? "live" : "offline"}
+        </span>
+      </header>
+
+      <Sidebar
+        project={project}
+        file={file}
+        onOpen={(next) => {
+          if (dirty && !window.confirm("Discard your unsaved edit?")) return;
+          setFile(next);
+        }}
+        kernel={session?.kernel ?? { status: "none" }}
+        resources={resources}
+        hidden={session?.hidden_state ?? []}
+        onKernel={(action) => void kernel(action)}
+      />
+
+      <main className={`workspace view-${view}`}>
+        {payload?.secrets_warning && file && !dismissedSecrets.has(file) && (
+          <div className="banner warning" role="alert">
+            <span>🔑 {payload.secrets_warning}</span>
+            <button onClick={() => setDismissedSecrets((s) => new Set(s).add(file))}>Dismiss</button>
+          </div>
+        )}
+        {!graph && <div className="placeholder">{file ? "Analysing…" : "No Python or notebook files in this folder."}</div>}
+        {graph && view !== "linear" && file && (
+          <section className="canvas-pane">
+            <GraphCanvas
+              file={file}
+              graph={graph}
+              session={session}
+              selectedId={selectedId}
+              focus={focus}
+              search={search}
+              heat={heat}
+              showImports={showImports}
+              onSelect={select}
+              onSelectEdge={(from, variable) => {
+                select(from);
+                setSelectedVariable(variable);
+                setTab("data");
+              }}
+              onRun={(nodeId, mode) => void run(nodeId, mode)}
+            />
+            <button className={`warnings-button ${warningCount ? "has" : ""}`} onClick={() => setWarningsOpen((o) => !o)}>
+              ⚠ {warningCount} warning{warningCount === 1 ? "" : "s"}
+            </button>
+            {warningsOpen && (
+              <div className="warnings-panel">
+                {[...(graph.warnings ?? []), ...(session?.hidden_state ?? [])].map((w, i) => (
+                  <button key={i} className={`warning-row sev-${w.severity}`} onClick={() => w.node_id && select(w.node_id)}>
+                    <span className="code">{w.code}</span>
+                    {w.node_id && <span className="node-ref">{w.node_id}</span>}
+                    <span>{w.message}</span>
+                  </button>
+                ))}
+                {warningCount === 0 && <div className="dim">No warnings.</div>}
+              </div>
+            )}
+            {preview && <div className="preview-note">Previewing unsaved edit — edges reflect your draft</div>}
+          </section>
+        )}
+        {graph && view !== "graph" && (
+          <section className="linear-pane">
+            <LinearView
+              graph={graph}
+              session={session}
+              selectedId={selectedId}
+              kernelReady={kernelReady}
+              onSelect={select}
+              onRun={(nodeId, mode) => void run(nodeId, mode)}
+              onReorder={(moving, anchor, before) => void transform("reorder", [moving], before ? { before: anchor } : { after: anchor })}
+            />
+          </section>
+        )}
+      </main>
+
+      <Inspector
+        api={api}
+        file={file}
+        graph={graph}
+        node={selectedNode}
+        savedNode={savedNode}
+        session={session}
+        tab={tab}
+        onTab={setTab}
+        focusVariable={selectedVariable}
+        kernelReady={kernelReady}
+        onSelect={select}
+        onRun={(nodeId, mode) => void run(nodeId, mode)}
+        onTransform={transform}
+        onPreview={setPreview}
+        onDirty={setDirty}
+      />
+
+      <Console
+        lines={consoleLines}
+        open={consoleOpen}
+        onToggle={() => setConsoleOpen((o) => !o)}
+        onClear={() => setConsoleLines([])}
+        onSelect={select}
+        badge={project?.badge ?? ""}
+      />
+
+      <div className="toasts" aria-live="polite">
+        {toasts.map((t) => (
+          <div key={t.id} className={`toast ${t.kind}`}>
+            {t.text}
+          </div>
+        ))}
+      </div>
+      {confirm && <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />}
+    </div>
+  );
+}
