@@ -1,0 +1,1 @@
+{"version":3,"file":"carbongen.d.ts","sourceRoot":"","sources":["../src/carbongen.ts"],"names":[],"mappings":"AAAA,OAAO,EAAC,MAAM,EAAC,MAAM,aAAa,CAAC;AA4DnC,iBAAS,eAAe,CAAC,EAAC,KAAK,EAAE,UAAU,EAAC,EAAE;IAAC,KAAK,EAAE,OAAO,GAAG,KAAK,GAAG,KAAK,GAAG,MAAM,CAAC;IAAC,UAAU,EAAE,MAAM,CAAA;CAAC,GAAG,MAAM,CA6GnH;AAED,eAAe,eAAe,CAAC"}

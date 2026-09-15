@@ -2,5 +2,6 @@
 
 from .app import create_app
 from .service import LabService, ServiceError
+from .workbench import Workbench
 
-__all__ = ["LabService", "ServiceError", "create_app"]
+__all__ = ["LabService", "ServiceError", "Workbench", "create_app"]

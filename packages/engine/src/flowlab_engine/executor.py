@@ -39,7 +39,7 @@ class NodeRecord:
 @dataclass
 class RunResult:
     run_id: str
-    status: Literal["completed", "failed"]
+    status: Literal["completed", "failed", "cancelled"]
     run_dir: Path
     nodes: list[NodeRecord]
     exports: list[dict[str, str]]
@@ -92,7 +92,10 @@ def execute_plan(
     export_dir: Path | None = None,
     run_id: str | None = None,
     on_event: Callable[[RunEvent], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> RunResult:
+    """Run every step in order. ``should_cancel`` is checked between steps (a node is never killed
+    mid-write, so its artifacts and the cache stay consistent)."""
     run_id = run_id or new_run_id()
     run_dir = runs_dir / run_id
     nodes_dir = run_dir / "nodes"
@@ -108,11 +111,14 @@ def execute_plan(
     records: list[NodeRecord] = []
     exports: list[dict[str, str]] = []
     failure: dict[str, str] | None = None
+    cancelled = False
 
     for step in plan.steps:
         record = NodeRecord(step.node_id, step.node_type, "skipped", step.cache_key)
         records.append(record)
-        if failure is not None:
+        if failure is None and not cancelled and should_cancel is not None and should_cancel():
+            cancelled = True
+        if failure is not None or cancelled:
             continue
         log.emit("node_started", step.node_id, node_type=step.node_type, index=step.index)
         t0 = time.perf_counter()
@@ -152,9 +158,13 @@ def execute_plan(
                 output_hashes=record.output_hashes,
             )
 
-    status: Literal["completed", "failed"] = "failed" if failure else "completed"
+    status: Literal["completed", "failed", "cancelled"] = (
+        "failed" if failure else "cancelled" if cancelled else "completed"
+    )
     if failure:
         log.emit("run_failed", failure["node_id"], code=failure["code"], message=failure["message"])
+    elif cancelled:
+        log.emit("run_cancelled", skipped=sum(r.status == "skipped" for r in records))
     else:
         log.emit("run_completed", nodes=len(records))
     log.close()

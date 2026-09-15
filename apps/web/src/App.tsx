@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Api, ApiError, initToken } from "./api";
 import { formatDuration } from "./layout";
 import type { CodeGraph, GraphPayload, LabEvent, ProjectInfo, Resources, RunMode, SessionState } from "./types";
@@ -8,6 +8,12 @@ import { Inspector, type InspectorTab } from "./components/Inspector";
 import { LinearView } from "./components/LinearView";
 import { Console, type ConsoleLine } from "./components/Console";
 import { ConfirmDialog, type ConfirmRequest } from "./components/ConfirmDialog";
+import { FlowWorkspace } from "./flow/FlowWorkspace";
+import { AgentPanel } from "./agent/AgentPanel";
+import { ArchitectureWorkspace } from "./architecture/ArchitectureWorkspace";
+import { EdgePanel } from "./components/EdgePanel";
+import { FolderPicker } from "./components/FolderPicker";
+import type { EdgeTarget } from "./components/GraphCanvas";
 
 type View = "graph" | "linear" | "split";
 interface Toast {
@@ -47,10 +53,95 @@ export function App() {
       </div>
     );
   }
-  return <Workspace api={api} />;
+  return <Shell api={api} />;
 }
 
-function Workspace({ api }: { api: Api }) {
+type Mode = "code" | "flow" | "architecture";
+const MODE_KEY = "flowlab-mode";
+
+function Shell({ api }: { api: Api }) {
+  const [mode, setMode] = useState<Mode>(() => {
+    const stored = storageGet(MODE_KEY);
+    return stored === "flow" || stored === "architecture" ? stored : "code";
+  });
+  const [askOpen, setAskOpen] = useState(false);
+  const [openRequest, setOpenRequest] = useState<{ file: string; at: number } | null>(null);
+  const closeAsk = useCallback(() => setAskOpen(false), []);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const closePicker = useCallback(() => setPickerOpen(false), []);
+  // Another tab (or this one) opened a different folder: start fresh on the new project.
+  useEffect(
+    () =>
+      api.events(
+        (event) => {
+          if (event.type === "project_changed") window.location.reload();
+        },
+        () => undefined,
+      ),
+    [api],
+  );
+  const modeSwitch = (
+    <>
+    <span className="mode-switch" role="group" aria-label="Mode">
+      {(["code", "flow", "architecture"] as Mode[]).map((m) => (
+        <button
+          key={m}
+          className={mode === m ? "active" : ""}
+          aria-pressed={mode === m}
+          onClick={() => {
+            setMode(m);
+            storageSet(MODE_KEY, m);
+          }}
+        >
+          {m === "code" ? "Code Mode" : m === "flow" ? "Flow Mode" : "Architecture"}
+        </button>
+      ))}
+    </span>
+    <button className="open-button" onClick={() => setPickerOpen(true)} title="Open a folder or file from this computer">
+      📂 Open
+    </button>
+    <button className={`ask-button ${askOpen ? "active" : ""}`} onClick={() => setAskOpen((o) => !o)} title="Ask a question about a dataset; FlowLab builds a script from reviewed snippets">
+      ✦ Ask
+    </button>
+    </>
+  );
+  return (
+    <>
+      {mode === "architecture" ? (
+        <ArchitectureWorkspace
+          api={api}
+          modeSwitch={modeSwitch}
+          onOpenFile={(file) => {
+            storageSet(LAST_FILE_KEY, file);
+            storageSet(MODE_KEY, "code");
+            setMode("code");
+            setOpenRequest({ file, at: Date.now() });
+          }}
+        />
+      ) : mode === "flow" ? (
+        <FlowWorkspace api={api} modeSwitch={modeSwitch} />
+      ) : (
+        <Workspace api={api} modeSwitch={modeSwitch} openRequest={openRequest} />
+      )}
+      {askOpen && (
+        <AgentPanel
+          api={api}
+          onClose={closeAsk}
+          onOpenScript={(file) => {
+            storageSet(LAST_FILE_KEY, file);
+            storageSet(MODE_KEY, "code");
+            setMode("code");
+            setOpenRequest({ file, at: Date.now() });
+            setAskOpen(false);
+          }}
+        />
+      )}
+      {pickerOpen && <FolderPicker api={api} onClose={closePicker} />}
+    </>
+  );
+}
+
+function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: ReactNode; openRequest: { file: string; at: number } | null }) {
   const [project, setProject] = useState<ProjectInfo | null>(null);
   const [file, setFile] = useState<string | null>(null);
   const [payload, setPayload] = useState<GraphPayload | null>(null);
@@ -74,6 +165,8 @@ function Workspace({ api }: { api: Api }) {
   const [canRevert, setCanRevert] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [dismissedSecrets, setDismissedSecrets] = useState<Set<string>>(() => new Set());
+  const [edgePanel, setEdgePanel] = useState<EdgeTarget | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const fileRef = useRef<string | null>(null);
   fileRef.current = file;
@@ -146,9 +239,23 @@ function Workspace({ api }: { api: Api }) {
     setCanRevert(false);
     setPayload(null);
     setSession(null);
+    setEdgePanel(null);
+    setEditingId(null);
     loadGraph(file).catch(fail);
     loadState(file).catch(fail);
   }, [file, loadGraph, loadState, fail]);
+
+  // a script saved from the Ask panel
+  useEffect(() => {
+    if (!openRequest) return;
+    api
+      .project()
+      .then((info) => {
+        setProject(info);
+        if (info.files.includes(openRequest.file)) setFile(openRequest.file);
+      })
+      .catch(fail);
+  }, [api, openRequest, fail]);
 
   // live events
   const handler = useRef<(event: LabEvent) => void>(() => undefined);
@@ -173,9 +280,12 @@ function Workspace({ api }: { api: Api }) {
       case "stream":
         log({ kind: data.name === "stderr" ? "stderr" : "stdout", node, text: String(data.text ?? "") });
         break;
-      case "display":
-        if (data.text) log({ kind: "stdout", node, text: String(data.text) });
+      case "display": {
+        const rich = (data.output as { kind?: string; mime?: string } | undefined) ?? {};
+        if (rich.kind && rich.kind !== "text") log({ kind: "info", node, text: `▣ ${rich.mime} output (open the block's Output tab)` });
+        else if (data.text) log({ kind: "stdout", node, text: String(data.text) });
         break;
+      }
       case "node_started":
         log({ kind: "info", node, text: `▶ ${node} started` });
         scheduleState();
@@ -306,13 +416,43 @@ function Workspace({ api }: { api: Api }) {
   const kernelStatus = session?.kernel.status ?? "none";
   const kernelReady = kernelStatus === "idle";
   const selectedNode = graph?.nodes.find((n) => n.id === selectedId) ?? null;
+
+  // Notebook-style shortcuts (ignored while typing in an input or the code editor).
+  const shortcuts = useRef<(event: KeyboardEvent) => void>(() => undefined);
+  shortcuts.current = (event: KeyboardEvent) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.closest(".monaco-editor"))) return;
+    if (event.key === "Escape") {
+      if (editingId) setEditingId(null);
+      else if (edgePanel) setEdgePanel(null);
+      else select(null);
+      return;
+    }
+    if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey || event.shiftKey) || !selectedId || !graph) return;
+    event.preventDefault();
+    if (!kernelReady) {
+      toast("info", kernelStatus === "busy" ? "The kernel is still running" : "Start a kernel in the sidebar first");
+      return;
+    }
+    void run(selectedId, "node");
+    if (event.shiftKey) {
+      const blocks = graph.nodes.filter((n) => n.kind === "code");
+      const next = blocks[blocks.findIndex((n) => n.id === selectedId) + 1];
+      if (next) select(next.id);
+    }
+  };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => shortcuts.current(event);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const savedNode = savedGraph?.nodes.find((n) => n.id === selectedId) ?? null;
 
   return (
     <div className={`app ${consoleOpen ? "console-open" : "console-closed"}`}>
       <header className="toolbar">
         <div className="brand">
-          <span className="logo" aria-hidden>◆</span> FlowLab <span className="mode-tag">Code Mode</span>
+          <span className="logo" aria-hidden>◆</span> FlowLab {modeSwitch}
         </div>
         <div className="file-title" title={file ?? ""}>
           {file ?? "no file"}
@@ -391,13 +531,28 @@ function Workspace({ api }: { api: Api }) {
               heat={heat}
               showImports={showImports}
               onSelect={select}
-              onSelectEdge={(from, variable) => {
-                select(from);
-                setSelectedVariable(variable);
-                setTab("data");
-              }}
+              editingId={editingId}
+              onOpenEdge={setEdgePanel}
               onRun={(nodeId, mode) => void run(nodeId, mode)}
+              onEdit={setEditingId}
+              onSaveSource={(nodeId, source) => transform("edit", [nodeId], { source })}
+              onCheckSource={async (nodeId, source) => {
+                if (!file) return null;
+                const result = await api.preview(file, nodeId, source);
+                return result.parse_error ? { message: result.parse_error, line: result.parse_error_line } : null;
+              }}
             />
+            {edgePanel && file && (
+              <EdgePanel
+                api={api}
+                file={file}
+                edge={edgePanel}
+                executionId={session?.nodes[edgePanel.from]?.last_run?.execution_id ?? null}
+                stale={session?.nodes[edgePanel.from]?.state === "stale"}
+                onClose={() => setEdgePanel(null)}
+                onSelect={select}
+              />
+            )}
             <button className={`warnings-button ${warningCount ? "has" : ""}`} onClick={() => setWarningsOpen((o) => !o)}>
               ⚠ {warningCount} warning{warningCount === 1 ? "" : "s"}
             </button>
@@ -419,6 +574,8 @@ function Workspace({ api }: { api: Api }) {
         {graph && view !== "graph" && (
           <section className="linear-pane">
             <LinearView
+              api={api}
+              file={file ?? ""}
               graph={graph}
               session={session}
               selectedId={selectedId}

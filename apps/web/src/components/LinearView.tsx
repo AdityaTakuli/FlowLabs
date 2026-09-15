@@ -1,9 +1,13 @@
 import { useState } from "react";
+import type { Api } from "../api";
+import { OutputList } from "./RichOutput";
 import { formatCount, formatDuration } from "../layout";
 import type { CodeGraph, RunMode, SessionState } from "../types";
 import { STATE_LABEL } from "./GraphCanvas";
 
 interface LinearViewProps {
+  api: Api;
+  file: string;
   graph: CodeGraph;
   session: SessionState | null;
   selectedId: string | null;
@@ -14,7 +18,7 @@ interface LinearViewProps {
 }
 
 /** The classic notebook: cells in source order. Drag a cell to move it (unsafe moves are refused). */
-export function LinearView({ graph, session, selectedId, kernelReady, onSelect, onRun, onReorder }: LinearViewProps) {
+export function LinearView({ api, file, graph, session, selectedId, kernelReady, onSelect, onRun, onReorder }: LinearViewProps) {
   const [dragging, setDragging] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ id: string; before: boolean } | null>(null);
   const cells = graph.nodes.filter((n) => n.kind !== "undefined");
@@ -90,6 +94,11 @@ export function LinearView({ graph, session, selectedId, kernelReady, onSelect, 
               </div>
             )}
             {record?.stdout && <pre className="cell-output">{record.stdout.slice(-2000)}</pre>}
+            {record && (record.rich_outputs?.length ?? 0) > 0 && (
+              <div className="cell-rich" onClick={(e) => e.stopPropagation()}>
+                <OutputList api={api} file={file} record={record} compact />
+              </div>
+            )}
           </div>
         );
       })}

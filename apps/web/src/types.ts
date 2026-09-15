@@ -67,6 +67,18 @@ export interface TraceFrame {
   text: string;
 }
 
+export interface RichOutput {
+  index: number;
+  kind: "vega" | "image" | "svg" | "html" | "markdown" | "latex" | "json" | "text";
+  mime: string;
+  plain: string;
+  size_bytes: number;
+  stored: boolean;
+  truncated: boolean;
+  width: number | null;
+  height: number | null;
+}
+
 export interface ExecutionRecord {
   execution_id: string;
   node_id: string;
@@ -78,9 +90,11 @@ export interface ExecutionRecord {
   memory_delta_mb: number | null;
   rows_in: number | null;
   rows_out: number | null;
+  execution_count?: number | null;
   stdout: string;
   stderr: string;
   outputs: string[];
+  rich_outputs?: RichOutput[];
   error: { ename: string; evalue: string; traceback: string[]; frames: TraceFrame[] } | null;
   warnings: GraphWarning[];
 }
@@ -108,7 +122,7 @@ export interface Resources {
 export interface SessionState {
   file: string;
   kernel: KernelInfo;
-  nodes: Record<string, { state: NodeState; last_run: ExecutionRecord | null }>;
+  nodes: Record<string, { state: NodeState; last_run: ExecutionRecord | null; values?: Record<string, { kind: string; text: string }> }>;
   hidden_state: GraphWarning[];
   resources: Resources;
 }
@@ -125,7 +139,7 @@ export interface ProjectInfo {
 export interface VariableSummary {
   name: string;
   type: string;
-  kind: "dataframe" | "series" | "ndarray" | "estimator" | "scalar" | "collection" | "callable" | "object";
+  kind: "dataframe" | "series" | "ndarray" | "estimator" | "scalar" | "collection" | "response" | "callable" | "object";
   rows?: number;
   columns?: string[];
   dtypes?: Record<string, string>;
@@ -140,7 +154,32 @@ export interface VariableSummary {
   params?: Record<string, string>;
   repr?: string;
   length?: number;
+  container?: string;
+  keys?: string[];
+  preview?: string;
+  preview_truncated?: boolean;
+  // HTTP responses (requests / httpx)
+  status?: number | null;
+  reason?: string;
+  url?: string;
+  method?: string;
+  content_type?: string;
+  elapsed_ms?: number | null;
+  headers?: Record<string, string>;
+  size_bytes?: number | null;
+  body?: string;
+  body_format?: "json" | "text";
+  body_truncated?: boolean;
   error?: string;
+}
+
+export interface FolderListing {
+  path: string;
+  parent: string | null;
+  home: string;
+  root: string;
+  entries: { name: string; path: string; kind: "dir" | "file"; is_project?: boolean }[];
+  truncated: boolean;
 }
 
 export interface InspectPayload {

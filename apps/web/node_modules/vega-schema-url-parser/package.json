@@ -1,0 +1,34 @@
+{
+  "name": "vega-schema-url-parser",
+  "version": "3.0.2",
+  "description": "A parser to get the library and version from Vega and Vega-Lite schema URLs.",
+  "type": "module",
+  "source": "parser.ts",
+  "exports": {
+    "types": "./dist/parser.d.ts",
+    "require": "./dist/parser.cjs",
+    "default": "./dist/parser.modern.js"
+  },
+  "main": "./dist/parser.cjs",
+  "module": "./dist/parser.module.js",
+  "unpkg": "dist/parser.umd.js",
+  "types": "dist/parser.d.ts",
+  "repository": "git@github.com:vega/schema.git",
+  "author": "Dominik Moritz <domoritz@gmail.com>",
+  "license": "BSD-3-Clause",
+  "keywords": [
+    "vega",
+    "vega-lite",
+    "schema"
+  ],
+  "scripts": {
+    "prepublish": "npm run build",
+    "build": "microbundle",
+    "watch": "microbundle watch",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.4",
+    "microbundle": "^0.15.1"
+  }
+}

@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 from .codegraph import CodeGraph, GraphWarning
 from .diff import DataDiff, diff_summaries, pick_variables
 from .kernel_helpers import HELPER_CODE, HELPER_NAME
+from .outputs import OutputStore, RichOutput
 from .project import LabProject
 from .resources import MemorySampler, host_environment, process_memory_mb, system_resources
 from .snapshots import SnapshotStore
@@ -80,6 +81,7 @@ class ExecutionRecord(BaseModel):
     stdout: str = ""
     stderr: str = ""
     outputs: list[str] = Field(default_factory=list)
+    rich_outputs: list[RichOutput] = Field(default_factory=list)
     error: ExecutionError | None = None
     warnings: list[GraphWarning] = Field(default_factory=list)
 
@@ -107,6 +109,7 @@ class LabSession:
         config = project.init()
         self.sample_rows = config.snapshot_sample_rows
         self.snapshots = SnapshotStore(project.state_dir / "snapshots", config.snapshot_max_bytes)
+        self.output_store = OutputStore(project.state_dir / "outputs", config.snapshot_max_bytes)
         self.graph: CodeGraph = project.analyse(file)
         self.last_run: dict[str, ExecutionRecord] = {}
         self.peak_history: dict[str, float] = {}
@@ -348,6 +351,7 @@ class LabSession:
             stdout: list[str] = []
             stderr: list[str] = []
             outputs: list[str] = []
+            rich_outputs: list[RichOutput] = []
 
             def hook(message: dict[str, Any]) -> None:
                 kind, content = message["header"]["msg_type"], message["content"]
@@ -358,7 +362,14 @@ class LabSession:
                     data = content.get("data", {})
                     text = data.get("text/plain", "")
                     outputs.append(text if text else f"<{', '.join(sorted(data))}>")
-                    self._emit("display", node_id, text=text, mimetypes=sorted(data))
+                    rich = self.output_store.capture(
+                        execution_id, len(rich_outputs), data, content.get("metadata") or {}
+                    )
+                    rich_outputs.append(rich)
+                    self._emit(
+                        "display", node_id, text=text, mimetypes=sorted(data),
+                        execution_id=execution_id, output=rich.model_dump(),
+                    )  # fmt: skip
 
             self._running = node_id
             self._emit("node_started", node_id, warnings=[w.model_dump() for w in warnings])
@@ -408,7 +419,7 @@ class LabSession:
                 status=status, seq=self._seq, started_at=started_at, duration_ms=duration_ms,
                 peak_memory_mb=sampler.peak_mb, memory_delta_mb=sampler.peak_delta_mb,
                 rows_in=_max_rows(before), rows_out=_max_rows(after), execution_count=count,
-                stdout="".join(stdout), stderr="".join(stderr), outputs=outputs,
+                stdout="".join(stdout), stderr="".join(stderr), outputs=outputs, rich_outputs=rich_outputs,
                 error=error, warnings=warnings,
             )  # fmt: skip
             self.last_run[node_id] = record

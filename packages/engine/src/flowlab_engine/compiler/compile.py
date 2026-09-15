@@ -143,6 +143,43 @@ def compile_flow(
     return CompileResult(ok=True, errors=[], warnings=warnings, plan=plan)
 
 
+def infer_port_schemas(
+    spec: FlowSpec | Mapping[str, Any], dataset_schemas: Mapping[str, TableSchema]
+) -> dict[str, dict[str, dict[str, PortSchema]]]:
+    """Best-effort input/output schemas per node, even when the flow does not compile.
+
+    The canvas uses this to offer column pickers while a flow is still incomplete. Nodes whose
+    params are invalid, or that sit downstream of such a node, are simply absent.
+    """
+    if not isinstance(spec, FlowSpec):
+        try:
+            spec = FlowSpec.model_validate(dict(spec))
+        except ValidationError:
+            return {}
+    # A half-built flow usually fails structural checks (an unconnected input, a bad edge). Drop
+    # the nodes those errors name and retry, so everything upstream of the problem still types.
+    graph = None
+    for _ in range(len(spec.nodes) + 1):
+        unique_edges = list({e.id: e for e in spec.edges}.values())
+        spec = spec.model_copy(update={"edges": unique_edges})
+        graph, errors, _ = build_graph(spec)
+        if graph is not None:
+            break
+        broken = {e.node_id for e in errors if e.node_id is not None}
+        if not broken:
+            return {}
+        nodes = [n for n in spec.nodes if n.id not in broken]
+        edges = [e for e in spec.edges if e.source not in broken and e.target not in broken]
+        if not nodes:
+            return {}
+        spec = spec.model_copy(update={"nodes": nodes, "edges": edges})
+    if graph is None:
+        return {}
+    params, _ = _validate_params(graph)
+    inputs, outputs, _, _ = _propagate(graph, params, dataset_schemas, spec.meta.seed)
+    return {nid: {"inputs": inputs.get(nid, {}), "outputs": outputs[nid]} for nid in outputs}
+
+
 def _validate_params(graph: FlowGraph) -> tuple[dict[str, BaseModel], list[CompileIssue]]:
     params: dict[str, BaseModel] = {}
     errors: list[CompileIssue] = []
@@ -183,7 +220,7 @@ def _propagate(
     for nid in graph.order:
         impl = graph.impls[nid]
         inbound = graph.inbound[nid]
-        if any(e.source not in outputs for e in inbound.values()):
+        if nid not in params or any(e.source not in outputs for e in inbound.values()):
             continue  # an upstream node failed; don't cascade errors
         node_inputs = {port: outputs[e.source][e.source_port] for port, e in inbound.items()}
         mismatch = [(port, ps) for port, ps in node_inputs.items() if ps.kind not in impl.inputs[port].types]

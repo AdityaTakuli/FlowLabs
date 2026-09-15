@@ -1,0 +1,1 @@
+{"version":3,"file":"repeat.js","sourceRoot":"","sources":["../src/repeat.ts"],"names":[],"mappings":"AAAA;;GAEG;AACH,MAAM,CAAC,OAAO,UAAU,MAAM,CAAC,GAAW,EAAE,IAAY;IACtD,IAAI,CAAC,GAAG,EAAE,CAAC;IACX,OAAO,EAAE,IAAI,IAAI,CAAC;QAAE,CAAC,IAAI,GAAG,CAAC;IAC7B,OAAO,CAAC,CAAC;AACX,CAAC"}

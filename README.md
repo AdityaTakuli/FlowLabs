@@ -80,10 +80,55 @@ flowlab serve --root path/to/your/project                # opens http://127.0.0.
 - Drag cells in Linear view to reorder (unsafe moves are refused and the blocking edge is
   shown); duplicate, split, extract, insert and delete from the Code tab; Undo change reverts.
 - Focus mode, variable search, import-edge toggle and time/memory heat map on the canvas.
+- Rich outputs: matplotlib/PNG/SVG images, HTML (pandas tables, widgets), Vega-Lite charts, JSON and
+  Markdown appear in the block's **Output** tab and under each cell in Linear view. Payloads stay in
+  `.flowlab/outputs/` (size-capped, oldest evicted); HTML runs in a sandboxed iframe with no access to
+  the canvas origin or its token.
+- Shortcuts: `Ctrl/⌘+Enter` runs the selected block, `Shift+Enter` runs it and selects the next,
+  `Esc` clears the selection.
 - Security: listens on 127.0.0.1 only, every API call needs the per-launch token, loopback
   `Host`/`Origin` checks block DNS rebinding and cross-site requests.
 - Frontend dev with hot reload: run `flowlab serve` and `npm run dev` in `apps/web`, then open
   the `localhost:5173` link it prints.
+
+### Open code from anywhere, watch data travel (📂 Open)
+
+- **📂 Open** browses this computer: open any folder (it becomes the project) or a single `.py` /
+  `.ipynb` file (its folder opens with that file selected). Recent folders are remembered in
+  `~/.flowlab/recent.json`; **Import a file…** copies one file into `imported/` instead.
+- The file splits into blocks (`# %%` cells, notebook cells, or statement groups). After a run,
+  every edge shows what travelled along it: `DataFrame 4×4`, `list · 4 items`, and for HTTP calls
+  made with `requests`/`httpx` the response status, e.g. `200 OK · json`. Click an edge label for the
+  full value: JSON body, headers, URL, timing, table samples.
+- Double-click a block (or ✎) to edit its code right on the canvas; **Save & run** re-runs it and
+  downstream edges turn stale until they run again.
+
+### Ask panel (✦ Ask, next to the mode switch)
+
+- Pick a dataset and describe a goal; the Groq model picks reviewed snippets and FlowLab composes
+  a script with `# %%` cells. **Save & open in Code Mode** writes it into the project, ready to run
+  block by block with charts shown inline.
+- Needs `GROQ_API_KEY` in the environment or a `.env` in the project folder. Each ask requires
+  consent and sends only the goal and a column summary (names, kinds, % missing, distinct counts);
+  **Preview exact prompt** shows it without calling the model.
+- Edit the plan (remove steps, change params, add snippets) and **Recompose** for zero tokens.
+  Identical asks are served from `.flowlab/llm_cache`. See `docs/decisions/0008-agent-panel.md`.
+
+### Flow Mode (same server, toggle in the toolbar)
+
+- Flows are Flow Spec `.json` files in the folder; datasets are `.csv`/`.parquet`/… files. A
+  binding can be a path (`data/churn.csv`) or a unique file stem (`churn`).
+- Drag nodes from the palette (or press `Tab` / `Ctrl+K`); a dropped node auto-connects to the
+  nearest compatible output. Ports are colour-coded by type and invalid connections are refused
+  while you drag, with the reason shown.
+- Params forms are generated from each node's JSON Schema (`x-widget`, `x-descriptions`,
+  `x-filter`), with column pickers fed by the compiler's type propagation.
+- Every edit recompiles (debounced): leakage and rigour errors badge the offending node.
+- Run / Cancel streams node states live; the Output tab shows table previews, split partitions,
+  metrics, confusion matrices and Vega-Lite charts. Runs live in `.flowlab/runs/`, cached node
+  outputs in `.flowlab/cache/`.
+- Undo/redo, copy/paste/duplicate, multi-select, auto-layout, save with `Ctrl+S` (conflicts with
+  on-disk edits are detected).
 
 ## Code Mode (PRD Part II)
 

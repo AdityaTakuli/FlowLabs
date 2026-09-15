@@ -12,9 +12,10 @@ import type {
   VariableSummary,
 } from "../types";
 import { CodeEditor } from "./CodeEditor";
+import { OutputList } from "./RichOutput";
 import { STATE_LABEL } from "./GraphCanvas";
 
-export type InspectorTab = "code" | "data" | "diff" | "profile";
+export type InspectorTab = "code" | "output" | "data" | "diff" | "profile";
 
 interface InspectorProps {
   api: Api;
@@ -42,6 +43,8 @@ export function Inspector(props: InspectorProps) {
   const entry = session?.nodes[node.id];
   const state = entry?.state ?? "idle";
   const undefinedNode = node.kind === "undefined";
+  const lastRun = entry?.last_run ?? null;
+  const outputCount = (lastRun?.rich_outputs?.length ?? 0) + (lastRun?.stdout ? 1 : 0);
   return (
     <aside className="inspector">
       <header className="inspector-head">
@@ -62,9 +65,11 @@ export function Inspector(props: InspectorProps) {
           </div>
         )}
         <nav className="tabs" role="tablist">
-          {(["code", "data", "diff", "profile"] as InspectorTab[]).map((t) => (
+          {(["code", "output", "data", "diff", "profile"] as InspectorTab[]).map((t) => (
             <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "active" : ""} onClick={() => props.onTab(t)}>
-              {t === "code" ? "Code" : t === "data" ? "Data" : t === "diff" ? "Diff" : "Profile"}
+              {TAB_LABEL[t]}
+              {t === "output" && outputCount > 0 && <span className="tab-count">{outputCount}</span>}
+              {t === "output" && entry?.last_run?.status === "error" && <span className="tab-count bad">!</span>}
             </button>
           ))}
         </nav>
@@ -74,6 +79,8 @@ export function Inspector(props: InspectorProps) {
           <UndefinedInfo node={node} graph={graph} onSelect={props.onSelect} />
         ) : tab === "code" && savedNode ? (
           <CodeTab {...props} node={node} savedNode={savedNode} file={file} graph={graph} />
+        ) : tab === "output" ? (
+          <OutputTab api={props.api} file={file} node={node} session={session} onSelect={props.onSelect} />
         ) : tab === "data" ? (
           <DataTab api={props.api} file={file} nodeId={node.id} executionId={entry?.last_run?.execution_id ?? null} focusVariable={props.focusVariable} />
         ) : tab === "diff" ? (
@@ -85,6 +92,8 @@ export function Inspector(props: InspectorProps) {
     </aside>
   );
 }
+
+const TAB_LABEL: Record<InspectorTab, string> = { code: "Code", output: "Output", data: "Data", diff: "Diff", profile: "Profile" };
 
 function Overview({ graph, session, onSelect }: { graph: CodeGraph; session: SessionState | null; onSelect: (id: string) => void }) {
   const code = graph.nodes.filter((n) => n.kind !== "undefined");
@@ -110,6 +119,7 @@ function Overview({ graph, session, onSelect }: { graph: CodeGraph; session: Ses
         <li>Click an edge to inspect the data flowing through it.</li>
         <li>Start the kernel in the sidebar, then use ▶ / Run to here on any block.</li>
         <li>Editing a block marks everything downstream as stale.</li>
+        <li><kbd>Ctrl/⌘ Enter</kbd> runs the selected block; <kbd>Shift Enter</kbd> runs it and selects the next one.</li>
       </ul>
       {graph.warnings.length > 0 && (
         <>
@@ -289,6 +299,40 @@ function SymbolRow({ label, names, tone }: { label: string; names: string[]; ton
   );
 }
 
+// ---------------------------------------------------------------------------- Output
+
+function OutputTab({ api, file, node, session, onSelect }: { api: Api; file: string; node: CodeNode; session: SessionState | null; onSelect: (id: string) => void }) {
+  const entry = session?.nodes[node.id];
+  const record = entry?.last_run ?? null;
+  if (!record) return <div className="panel dim">Run this block to see what it prints, displays and plots.</div>;
+  const empty = !record.stdout && !record.stderr && !record.error && !(record.rich_outputs?.length);
+  return (
+    <div className="output-tab">
+      <div className="dim small">
+        {record.status} · {new Date(record.started_at).toLocaleTimeString()} · {formatDuration(record.duration_ms)}
+        {record.execution_count !== null && record.execution_count !== undefined ? ` · In [${record.execution_count}]` : ""}
+      </div>
+      {entry?.state === "stale" && (
+        <div className="banner-inline">The code or its inputs changed since this output was produced. Run again to refresh it.</div>
+      )}
+      {record.error && (
+        <div className="error-box">
+          <strong>{record.error.ename}</strong>: {record.error.evalue}
+          {record.error.frames.filter((f) => f.node_id).slice(-3).map((frame, i) => (
+            <button key={i} className="frame link-button" onClick={() => frame.node_id && onSelect(frame.node_id)}>
+              {frame.node_id} line {frame.file_line ?? frame.line}: <span className="dim">{frame.text}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {record.stdout && <pre className="stream">{record.stdout}</pre>}
+      {record.stderr && <pre className="stream stderr">{record.stderr}</pre>}
+      <OutputList api={api} file={file} record={record} />
+      {empty && <div className="panel dim">This block ran without printing or displaying anything.</div>}
+    </div>
+  );
+}
+
 // ------------------------------------------------------------------------------ Data
 
 function DataTab({ api, file, nodeId, executionId, focusVariable }: { api: Api; file: string; nodeId: string; executionId: string | null; focusVariable: string | null }) {
@@ -332,7 +376,7 @@ function DataTab({ api, file, nodeId, executionId, focusVariable }: { api: Api; 
   );
 }
 
-function VariableCard({ summary, open }: { summary: VariableSummary; open: boolean }) {
+export function VariableCard({ summary, open }: { summary: VariableSummary; open: boolean }) {
   const shape =
     summary.kind === "dataframe"
       ? `${formatCount(summary.rows)} × ${summary.columns?.length ?? 0}`
@@ -340,9 +384,11 @@ function VariableCard({ summary, open }: { summary: VariableSummary; open: boole
         ? `${formatCount(summary.rows)} values`
         : summary.shape
           ? summary.shape.join(" × ")
-          : summary.length !== undefined
-            ? `${summary.length} items`
-            : "";
+          : summary.kind === "response"
+            ? `${summary.status ?? "?"} ${summary.reason ?? ""}`
+            : summary.length !== undefined
+              ? `${summary.length.toLocaleString()} ${summary.container === "dict" ? "keys" : "items"}`
+              : "";
   return (
     <details className="variable-card" open={open}>
       <summary>
@@ -353,6 +399,13 @@ function VariableCard({ summary, open }: { summary: VariableSummary; open: boole
       </summary>
       {summary.error && <div className="error-text small">{summary.error}</div>}
       {summary.repr && <pre className="repr">{summary.repr}</pre>}
+      {summary.kind === "response" && <ResponseDetails summary={summary} />}
+      {summary.preview !== undefined && (
+        <pre className="repr json-preview">
+          {summary.preview}
+          {summary.preview_truncated ? "\n… (truncated)" : ""}
+        </pre>
+      )}
       {summary.kind === "estimator" && summary.params && (
         <table className="grid">
           <tbody>
@@ -390,6 +443,50 @@ function VariableCard({ summary, open }: { summary: VariableSummary; open: boole
       )}
       <SampleTable summary={summary} />
     </details>
+  );
+}
+
+function ResponseDetails({ summary }: { summary: VariableSummary }) {
+  const status = summary.status ?? 0;
+  const tone = status >= 200 && status < 300 ? "ok" : status >= 400 ? "bad" : "";
+  return (
+    <div className="response-details">
+      <div className="response-line">
+        <span className={`status-chip ${tone}`}>
+          {summary.status ?? "?"} {summary.reason}
+        </span>
+        {summary.method && <span className="mono small">{summary.method}</span>}
+        <span className="mono small response-url" title={summary.url}>
+          {summary.url}
+        </span>
+      </div>
+      <div className="dim small">
+        {summary.content_type || "no content type"}
+        {summary.size_bytes !== null && summary.size_bytes !== undefined ? ` · ${formatBytes(summary.size_bytes)}` : ""}
+        {summary.elapsed_ms !== null && summary.elapsed_ms !== undefined ? ` · ${formatDuration(summary.elapsed_ms)}` : ""}
+      </div>
+      {summary.body !== undefined && (
+        <pre className="repr json-preview">
+          {summary.body}
+          {summary.body_truncated ? "\n… (truncated)" : ""}
+        </pre>
+      )}
+      {summary.headers && Object.keys(summary.headers).length > 0 && (
+        <details>
+          <summary className="small dim">Headers ({Object.keys(summary.headers).length})</summary>
+          <table className="grid">
+            <tbody>
+              {Object.entries(summary.headers).map(([key, value]) => (
+                <tr key={key}>
+                  <th>{key}</th>
+                  <td>{value}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+      )}
+    </div>
   );
 }
 
@@ -566,18 +663,6 @@ function ProfileTab({ api, file, node, session, onSelect }: { api: Api; file: st
             <summary>Full traceback</summary>
             <pre className="stream">{record.error.traceback.join("\n")}</pre>
           </details>
-        </section>
-      )}
-      {record.stdout && (
-        <section>
-          <h3>Output</h3>
-          <pre className="stream">{record.stdout}</pre>
-        </section>
-      )}
-      {record.stderr && (
-        <section>
-          <h3>Errors / warnings</h3>
-          <pre className="stream stderr">{record.stderr}</pre>
         </section>
       )}
       {history.length > 1 && (

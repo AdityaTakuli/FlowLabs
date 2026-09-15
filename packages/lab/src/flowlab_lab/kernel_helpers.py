@@ -28,6 +28,24 @@ def _flowlab_setup():
     def digest(raw):
         return hashlib.sha256(raw).hexdigest()[:16]
 
+    def preview_json(obj, limit=4000):
+        try:
+            text = json.dumps(obj, indent=1, default=str, ensure_ascii=False)
+        except Exception:
+            text = repr(obj)
+        return text[:limit], len(text) > limit
+
+    def safe(getter, default=None):
+        try:
+            return getter()
+        except Exception:
+            return default
+
+    def looks_like_response(obj):
+        # requests.Response, httpx.Response and look-alikes; properties may raise, hence safe()
+        return safe(lambda: not isinstance(obj, type) and hasattr(obj, "status_code")
+                    and hasattr(obj, "headers") and (hasattr(obj, "text") or hasattr(obj, "content")), False)
+
     def summary(name, obj, sample_rows):
         info = {"name": name, "type": f"{type(obj).__module__}.{type(obj).__qualname__}"}
         pd = sys.modules.get("pandas")
@@ -88,10 +106,48 @@ def _flowlab_setup():
                 fitted = any(k.endswith("_") and not k.startswith("_") for k in vars(obj))
                 params = list(obj.get_params(deep=False).items())[:30]
                 info.update(kind="estimator", fitted=fitted, params={k: repr(v)[:80] for k, v in params})
+            elif looks_like_response(obj):
+                headers = safe(lambda: dict(obj.headers.items()), {}) or {}
+                content_type = str(next((v for k, v in headers.items() if str(k).lower() == "content-type"), ""))
+                elapsed = safe(lambda: obj.elapsed.total_seconds())
+                info.update(
+                    kind="response",
+                    status=safe(lambda: int(obj.status_code)),
+                    reason=str(safe(lambda: obj.reason) or safe(lambda: obj.reason_phrase) or ""),
+                    url=str(safe(lambda: obj.url, ""))[:500],
+                    method=str(safe(lambda: obj.request.method, "") or ""),
+                    content_type=content_type[:120],
+                    elapsed_ms=round(elapsed * 1000) if isinstance(elapsed, (int, float)) else None,
+                    headers={str(k): str(v)[:200] for k, v in list(headers.items())[:40]},
+                    size_bytes=safe(lambda: len(obj.content)),
+                )
+                if sample_rows:
+                    parsed = safe(lambda: obj.json()) if "json" in content_type.lower() else None
+                    if parsed is not None:
+                        info["body"], info["body_truncated"] = preview_json(parsed)
+                        info["body_format"] = "json"
+                    else:
+                        text = safe(lambda: obj.text)
+                        if isinstance(text, str):
+                            info["body"], info["body_truncated"] = text[:4000], len(text) > 4000
+                            info["body_format"] = "text"
             elif obj is None or isinstance(obj, (bool, int, float, complex, str)):
                 info.update(kind="scalar", repr=repr(obj)[:120])
+                if sample_rows and isinstance(obj, str) and len(obj) > 120:
+                    info["preview"], info["preview_truncated"] = obj[:4000], len(obj) > 4000
             elif isinstance(obj, (list, tuple, set, frozenset, dict)):
-                info.update(kind="collection", length=len(obj))
+                info.update(kind="collection", length=len(obj), container=type(obj).__name__)
+                if isinstance(obj, dict):
+                    info["keys"] = [str(k) for k in list(obj.keys())[:30]]
+                if sample_rows:
+                    if isinstance(obj, dict):
+                        head = dict(list(obj.items())[:50])
+                    elif isinstance(obj, (set, frozenset)):
+                        head = sorted((repr(v) for v in obj))[:50]
+                    else:
+                        head = list(obj[:50])
+                    text, cut = preview_json(head)
+                    info["preview"], info["preview_truncated"] = text, cut or len(obj) > 50
             elif callable(obj):
                 info.update(kind="callable")
             else:

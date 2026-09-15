@@ -1,0 +1,1 @@
+{"version":3,"file":"isIterable.js","sourceRoot":"","sources":["../src/isIterable.ts"],"names":[],"mappings":"AAAA,OAAO,UAAU,MAAM,iBAAiB,CAAC;AAEzC;;GAEG;AACH,MAAM,CAAC,OAAO,UAAU,UAAU,CAAC,KAAyD;IAC1F,OAAO,KAAK,IAAI,IAAI,IAAI,UAAU,CAAC,KAAK,CAAC,MAAM,CAAC,QAAQ,CAAC,CAAC,CAAC;AAC7D,CAAC"}

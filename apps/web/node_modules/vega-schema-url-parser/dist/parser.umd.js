@@ -1,0 +1,2 @@
+!function(e){"object"==typeof exports&&"undefined"!=typeof module?module.exports=function(e){var n=/schema\/([\w-]+)\/([\w\.\-]+)\.json$/g.exec(e).slice(1,3);return{library:n[0],version:n[1]}}:"function"==typeof define&&define.amd?define(function(){return function(e){var n=/schema\/([\w-]+)\/([\w\.\-]+)\.json$/g.exec(e).slice(1,3);return{library:n[0],version:n[1]}}}):(e||self).vegaSchemaUrlParser=function(e){var n=/schema\/([\w-]+)\/([\w\.\-]+)\.json$/g.exec(e).slice(1,3);return{library:n[0],version:n[1]}}}(this);
+//# sourceMappingURL=parser.umd.js.map

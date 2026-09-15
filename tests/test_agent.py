@@ -470,3 +470,27 @@ def test_cli_compose_from_plan_file(tmp_path: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     assert out.is_file() and (out.parent / "outputs" / "bar_plan_type.png").is_file()
+
+
+def test_compose_cells_mode_opens_as_blocks_and_shows_charts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from flowlab_lab import analyse_text
+
+    plan = Plan(
+        steps=[
+            PlanStep(use="viz.histogram", with_={"column": "tenure_months"}),
+            PlanStep(use="inspect.describe"),
+        ]
+    )
+    result = compose(plan, LIBRARY, CHURN, goal="tenure", cells=True, output_dir=tmp_path / "out")
+    assert result.ok, result.errors
+    script = result.script or ""
+    assert script.startswith("# %% Setup") and "__file__" not in script
+    assert script.count("\n# %% ") == len(result.steps)
+    assert "chart_path = None" in script and "show_chart(chart_path)" in script
+    graph = analyse_text("generated.py", script)
+    assert len(graph.code_nodes()) == len(result.steps) + 1  # setup + one block per step
+    monkeypatch.chdir(tmp_path)
+    run_script(script, tmp_path)  # show_chart is a no-op outside a kernel
+    assert list((tmp_path / "out").glob("*.png"))

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, formatDuration, layoutGraph, neighbourhood, variableMatches, visibleEdges } from "./layout";
+import { NODE_HEIGHT, edgeValueLabel, formatBytes, formatDuration, layoutGraph, layoutWithRoutes, neighbourhood, smoothPath, variableMatches, visibleEdges } from "./layout";
 import type { CodeEdge, CodeGraph, CodeNode } from "./types";
 
 function node(id: string, defines: string[] = [], uses: string[] = []): CodeNode {
@@ -33,6 +33,23 @@ describe("layout", () => {
     expect(Object.keys(positions)).toHaveLength(5);
   });
 
+  it("routes edges with label boxes between the blocks they connect", () => {
+    const { positions, routes } = layoutWithRoutes(graph.nodes, visibleEdges(graph, false));
+    const route = routes["b2>b3"]!;
+    expect(route.points.length).toBeGreaterThanOrEqual(3);
+    expect(route.label.y).toBeGreaterThan(positions.b2!.y + NODE_HEIGHT);
+    expect(route.label.y).toBeLessThan(positions.b3!.y);
+    expect(Object.keys(routes).sort()).toEqual(["b2>b3", "b3>b4"]);
+  });
+
+  it("draws a smooth path through route points", () => {
+    const path = smoothPath([{ x: 0, y: 0 }, { x: 10, y: 50 }, { x: 0, y: 100 }]);
+    expect(path.startsWith("M 0,0")).toBe(true);
+    expect(path.match(/ C /g)).toHaveLength(2);
+    expect(path.endsWith("0,100")).toBe(true);
+    expect(smoothPath([{ x: 1, y: 1 }])).toBe("");
+  });
+
   it("hides import edges by default and merges variables between the same blocks", () => {
     const shown = visibleEdges(graph, false);
     expect(shown.map((e) => `${e.from}>${e.to}`)).toEqual(["b2>b3", "b3>b4"]);
@@ -49,6 +66,14 @@ describe("layout", () => {
   it("variable search finds definers and consumers", () => {
     expect([...variableMatches(graph, "clean")].sort()).toEqual(["b3", "b4"]);
     expect(variableMatches(graph, "  ").size).toBe(0);
+  });
+
+  it("labels edges with the values that travel along them", () => {
+    expect(edgeValueLabel(["resp"], undefined)).toEqual({ names: "resp", value: null });
+    expect(edgeValueLabel(["resp"], { resp: { kind: "response", text: "200 OK · json" } })).toEqual({ names: "resp", value: "200 OK · json" });
+    const values = { a: { kind: "scalar", text: "1" }, b: { kind: "scalar", text: "2" }, c: { kind: "scalar", text: "3" } };
+    expect(edgeValueLabel(["a", "b", "c", "d"], values)).toEqual({ names: "a, b, c …", value: "a: 1 · b: 2 +1" });
+    expect(edgeValueLabel(["x"], values).value).toBeNull();
   });
 
   it("formats values", () => {

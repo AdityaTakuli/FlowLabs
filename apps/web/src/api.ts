@@ -5,11 +5,25 @@ import type {
   InspectPayload,
   KernelInfo,
   LabEvent,
+  FolderListing,
   ProjectInfo,
   RunMode,
   SessionState,
   CodeGraph,
 } from "./types";
+import type {
+  Catalogue,
+  CompilePayload,
+  DatasetProfile,
+  FlowFile,
+  FlowIndex,
+  FlowSpec,
+  NodeOutput,
+  RunDetail,
+  RunSummary,
+} from "./flow/types";
+import type { AnalyseRequest, ArchManifest } from "./architecture/types";
+import type { AgentPlan, AgentPreview, AgentProposal, AgentStatus, SnippetInfo } from "./agent/AgentPanel";
 
 const TOKEN_KEY = "flowlab-token";
 
@@ -99,6 +113,58 @@ export class Api {
       execution_b: options.executionB,
       variable: options.variable || undefined,
     });
+
+  // Flow Mode
+  catalogue = () => this.request<Catalogue>("GET", "/catalogue");
+  flows = () => this.request<FlowIndex>("GET", "/flows");
+  loadFlow = (file: string) => this.request<FlowFile>("GET", "/flow", undefined, { file });
+  saveFlow = (file: string, spec: FlowSpec, expectedHash: string | null) =>
+    this.request<{ file: string; hash: string }>("PUT", "/flow", { file, spec, expected_hash: expectedHash });
+  newFlow = (file: string, name: string, dataset: string | null) =>
+    this.request<FlowFile>("POST", "/flow/new", { file, name, dataset });
+  compileFlow = (file: string | null, spec: FlowSpec) => this.request<CompilePayload>("POST", "/flow/compile", { file, spec });
+  runFlow = (file: string | null, spec: FlowSpec) =>
+    this.request<{ run_id: string; order: string[] }>("POST", "/flow/run", { file, spec });
+  cancelRun = (runId: string) => this.request<{ run_id: string }>("POST", "/flow/cancel", { run_id: runId });
+  runs = (flowId: string) => this.request<RunSummary[]>("GET", "/flow/runs", undefined, { flow_id: flowId });
+  runDetail = (runId: string) => this.request<RunDetail>("GET", "/flow/run", undefined, { run_id: runId });
+  nodeOutput = (runId: string, nodeId: string) =>
+    this.request<NodeOutput>("GET", "/flow/output", undefined, { run_id: runId, node_id: nodeId });
+  datasetProfile = (file: string) => this.request<DatasetProfile>("GET", "/dataset/profile", undefined, { file });
+
+  // Architecture (code segregation)
+  architecture = () => this.request<ArchManifest>("GET", "/architecture");
+  analyseArchitecture = (body: AnalyseRequest) => this.request<ArchManifest>("POST", "/architecture/analyse", body);
+  architectureFeedback = (body: { component_id?: string; unit_id?: string; correction: string }) =>
+    this.request<{ stored: boolean; path: string }>("POST", "/architecture/feedback", body);
+
+  // Open folders and files from anywhere on this machine
+  fsBrowse = (path: string | null, hidden = false) =>
+    this.request<FolderListing>("GET", "/fs/browse", undefined, { path: path ?? undefined, hidden: hidden ? "true" : undefined });
+  fsRecent = () => this.request<string[]>("GET", "/fs/recent");
+  openProject = (path: string) => this.request<{ root: string; file: string | null }>("POST", "/project/open", { path });
+  importFile = (name: string, content: string) => this.request<{ file: string }>("POST", "/files/import", { name, content });
+
+  // Agent panel
+  agentStatus = () => this.request<AgentStatus>("GET", "/agent/status");
+  agentPreview = (body: { goal: string; dataset: string; k: number }) => this.request<AgentPreview>("POST", "/agent/preview", body);
+  agentAsk = (body: { goal: string; dataset: string; k: number; use_cache: boolean; confirm_external: boolean; model?: string }) =>
+    this.request<AgentProposal>("POST", "/agent/ask", body);
+  agentCompose = (body: { goal: string; dataset: string; plan: AgentPlan }) => this.request<AgentProposal>("POST", "/agent/compose", body);
+  agentSave = (body: { proposal_id: string; file: string; overwrite: boolean }) => this.request<{ file: string }>("POST", "/agent/save", body);
+  agentSnippets = (q: string, dataset: string | null) =>
+    this.request<SnippetInfo[]>("GET", "/agent/snippets", undefined, { q, dataset: dataset ?? undefined });
+
+  /** Raw payload of a rich output (image bytes, HTML, JSON). Not JSON-decoded, so it bypasses request(). */
+  outputBlob = async (file: string, executionId: string, index: number): Promise<Blob> => {
+    const params = new URLSearchParams({ file, execution_id: executionId, index: String(index) });
+    const response = await fetch(`/api/output?${params}`, { headers: { "X-FlowLab-Token": this.token } });
+    if (!response.ok) {
+      const error = (await response.json().catch(() => ({}))) as { code?: string; message?: string };
+      throw new ApiError(response.status, error.code ?? "HTTP_ERROR", error.message ?? response.statusText);
+    }
+    return response.blob();
+  };
 
   /** Reconnecting event stream. Returns a function that closes it. */
   events(onEvent: (event: LabEvent) => void, onStatus: (connected: boolean) => void): () => void {

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from pydantic import ValidationError
 
@@ -84,6 +85,8 @@ def plan_goal(
     max_repairs: int = 2,
     seed: int = 42,
     usage_log: UsageLog | None = None,
+    cells: bool = False,
+    output_dir: Path | None = None,
 ) -> PlanResult:
     candidates = SnippetIndex(library).search(goal, digest=digest, k=k)
     result = PlanResult(candidates=[s.id for s, _ in candidates])
@@ -100,7 +103,9 @@ def plan_goal(
         plan, errors = parse_plan(response.text)
         composed = None
         if plan is not None:
-            composed = compose(plan, library, digest, goal=goal, seed=seed)
+            composed = compose(
+                plan, library, digest, goal=goal, seed=seed, cells=cells, output_dir=output_dir
+            )
             errors = composed.errors
         result.attempts.append(
             Attempt(

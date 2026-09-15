@@ -28,6 +28,7 @@ IGNORED_DIRS = frozenset(
     }
 )  # fmt: skip
 GITIGNORE_ENTRY = ".flowlab/"
+MAX_INDEX_ENTRIES = 50_000  # stop walking huge folders (e.g. a home directory)
 
 
 class PathError(ValueError):
@@ -107,8 +108,12 @@ class LabProject:
 
     def index(self) -> list[str]:
         found: list[str] = []
+        visited = 0
         for directory, subdirs, files in os.walk(self.root, followlinks=False):
             subdirs[:] = sorted(d for d in subdirs if d not in IGNORED_DIRS and not d.startswith("."))
+            visited += len(files) + len(subdirs)
+            if visited > MAX_INDEX_ENTRIES:
+                break
             for name in files:
                 if not name.endswith(SOURCE_SUFFIXES):
                     continue

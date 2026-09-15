@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -17,6 +18,7 @@ from typing import Any
 
 from flowlab_lab.codegraph import analyse_text
 from flowlab_lab.kernel import ExecutionRecord, KernelDied, LabEvent, LabSession, RunMode, diff_executions
+from flowlab_lab.outputs import OutputStore
 from flowlab_lab.privacy import OutboundPolicy, first_open_warning, transmission_badge
 from flowlab_lab.project import SOURCE_SUFFIXES, LabProject, PathError
 from flowlab_lab.resources import host_environment, process_memory_mb, system_resources
@@ -33,6 +35,7 @@ from flowspec import sha256_text
 
 MAX_STREAM_CHARS = 20_000
 STARTING = "__starting__"
+EXECUTION_ID = re.compile(r"^ex_[0-9a-f]{12}$")
 QUEUED = "__queued__"
 
 
@@ -105,20 +108,51 @@ def _cap_samples(summaries: dict[str, Any], limit: int) -> dict[str, Any]:
     return capped
 
 
+def short_value(summary: dict[str, Any]) -> str:
+    """One-line description of a variable summary, e.g. ``DataFrame 2,000×9`` or ``200 OK · json``."""
+    kind = summary.get("kind")
+    if summary.get("error"):
+        return "could not summarise"
+    if kind == "dataframe":
+        return f"DataFrame {int(summary.get('rows') or 0):,}×{len(summary.get('columns') or [])}"
+    if kind == "series":
+        return f"Series · {int(summary.get('rows') or 0):,}"
+    if kind == "ndarray":
+        return "ndarray " + "×".join(str(d) for d in summary.get("shape") or [])
+    if kind == "response":
+        content_type = str(summary.get("content_type") or "").split(";")[0]
+        fmt = "json" if "json" in content_type else content_type.split("/")[-1]
+        head = f"{summary.get('status', '?')} {summary.get('reason') or ''}".strip()
+        return f"{head} · {fmt}" if fmt else head
+    if kind == "collection":
+        container = str(summary.get("container") or "collection")
+        unit = "keys" if container == "dict" else "items"
+        return f"{container} · {int(summary.get('length') or 0):,} {unit}"
+    if kind == "estimator":
+        name = str(summary.get("type", "")).rsplit(".", 1)[-1]
+        return f"{name} (fitted)" if summary.get("fitted") else name
+    if kind == "callable":
+        return "function"
+    text = " ".join(str(summary.get("repr") or summary.get("type", "")).split())
+    return text if len(text) <= 48 else text[:47] + "…"
+
+
 class LabService:
-    def __init__(self, root: Path, *, timeout_s: float = 3600.0) -> None:
+    def __init__(self, root: Path, *, timeout_s: float = 3600.0, hub: EventHub | None = None) -> None:
         try:
             self.project = LabProject(root)
         except PathError as exc:
             raise ServiceError(400, "BAD_ROOT", str(exc)) from exc
         config = self.project.init()
         self.timeout_s = timeout_s
-        self.hub = EventHub()
+        self.hub = hub or EventHub()
+        self._values_cache: dict[str, dict[str, dict[str, str]]] = {}
         self.sessions: dict[str, LabSession] = {}
         self.running: dict[str, str | None] = {}
         self._lock = threading.Lock()
         self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="flowlab-run")
         self.snapshots = SnapshotStore(self.project.state_dir / "snapshots", config.snapshot_max_bytes)
+        self.output_store = OutputStore(self.project.state_dir / "outputs", config.snapshot_max_bytes)
 
     # ------------------------------------------------------------------ files & graph
     def check_file(self, file: str) -> str:
@@ -368,7 +402,11 @@ class LabService:
                 state = "stale"
             else:
                 state = record.status if record else "idle"
-            nodes[node.id] = {"state": state, "last_run": _record_summary(record)}
+            nodes[node.id] = {
+                "state": state,
+                "last_run": _record_summary(record),
+                "values": self._values(record.execution_id) if record else {},
+            }
         hidden: list[dict[str, Any]] = []
         if session is not None and running is None and session.is_alive():
             hidden = [w.model_dump(mode="json") for w in session.hidden_state()]
@@ -379,6 +417,24 @@ class LabService:
             "hidden_state": hidden,
             "resources": self.resources(),
         }
+
+    def _values(self, execution_id: str) -> dict[str, dict[str, str]]:
+        """Short labels for the variables a run produced; the canvas shows them on edges."""
+        cached = self._values_cache.get(execution_id)
+        if cached is None:
+            snapshot = self.snapshots.load(execution_id)
+            if snapshot is None:  # the run is recorded before its snapshot is written; retry next poll
+                return {}
+            after = snapshot.get("after") or {}
+            cached = {
+                name: {"kind": str(summary.get("kind", "")), "text": short_value(summary)}
+                for name, summary in after.items()
+                if isinstance(summary, dict)
+            }
+            if len(self._values_cache) > 1000:
+                self._values_cache.clear()
+            self._values_cache[execution_id] = cached
+        return cached
 
     def resources(self) -> dict[str, Any]:
         data = system_resources(self.project.root)
@@ -411,6 +467,25 @@ class LabService:
             "before": _cap_samples(snapshot.get("before") or {}, limit),
             "after": _cap_samples(snapshot.get("after") or {}, limit),
         }
+
+    def output(self, file: str, execution_id: str, index: int) -> tuple[str, bytes]:
+        """Payload of one rich output (image, HTML, Vega-Lite, ...) recorded for ``file``."""
+        file = self.check_file(file)
+        if not EXECUTION_ID.match(execution_id):
+            raise ServiceError(400, "BAD_EXECUTION_ID", "not an execution id")
+        snapshot = self.snapshots.load(execution_id)
+        if snapshot is None or snapshot.get("file") != file:
+            raise ServiceError(404, "NO_OUTPUT", f"{execution_id} is not a run of {file}")
+        if not 0 <= index < len(snapshot.get("rich_outputs") or []):
+            raise ServiceError(404, "NO_OUTPUT", f"{execution_id} has no output #{index}")
+        found = self.output_store.read(execution_id, index)
+        if found is None:
+            raise ServiceError(
+                410,
+                "OUTPUT_GONE",
+                "this output is no longer stored (too large or evicted); run the block again",
+            )
+        return found
 
     def history(self, file: str, node_id: str) -> list[dict[str, Any]]:
         file = self.check_file(file)
