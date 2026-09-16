@@ -3,6 +3,7 @@ import type { NodeChange } from "@xyflow/react";
 import type { Api } from "../api";
 
 export type Positions = Record<string, { x: number; y: number }>;
+export type Sizes = Record<string, { width: number; height: number }>;
 
 /**
  * Node positions the user dragged, per file and view, stored in the project's .flowlab/layouts.
@@ -12,6 +13,11 @@ export function useSavedLayout(api: Api, file: string | null, view: string, onSe
   const [moved, setMoved] = useState<Positions>({});
   const movedRef = useRef<Positions>({});
   movedRef.current = moved;
+  // React Flow reads a node's measured size from the node objects we pass in. Without handing it
+  // back, every re-render (each drag frame) hides the cards until they are measured again: flicker.
+  const [measured, setMeasured] = useState<Sizes>({});
+  const measuredRef = useRef<Sizes>({});
+  measuredRef.current = measured;
   const timer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -45,8 +51,16 @@ export function useSavedLayout(api: Api, file: string | null, view: string, onSe
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
       let next: Positions | null = null;
+      let sizes: Sizes | null = null;
       let finished = false;
       for (const change of changes) {
+        if (change.type === "dimensions" && change.dimensions) {
+          const known = measuredRef.current[change.id];
+          if (!known || known.width !== change.dimensions.width || known.height !== change.dimensions.height) {
+            sizes = sizes ?? { ...measuredRef.current };
+            sizes[change.id] = { width: change.dimensions.width, height: change.dimensions.height };
+          }
+        }
         // Selection is controlled by the app: pass React Flow's own selection on instead of
         // ignoring it, or the card flips between selected and unselected on every drag frame.
         if (change.type === "select" && change.selected) onSelect?.(change.id);
@@ -57,6 +71,7 @@ export function useSavedLayout(api: Api, file: string | null, view: string, onSe
         }
         if (change.dragging === false) finished = true;
       }
+      if (sizes) setMeasured(sizes);
       if (next) setMoved(next);
       if (finished) persist(next ?? movedRef.current);
     },
@@ -68,7 +83,7 @@ export function useSavedLayout(api: Api, file: string | null, view: string, onSe
     persist({});
   }, [persist]);
 
-  return { moved, onNodesChange, reset, hasMoved: Object.keys(moved).length > 0 };
+  return { moved, measured, onNodesChange, reset, hasMoved: Object.keys(moved).length > 0 };
 }
 
 /** Automatic positions overridden by the ones the user dragged. */

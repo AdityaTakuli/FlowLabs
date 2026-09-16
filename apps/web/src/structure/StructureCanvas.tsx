@@ -252,6 +252,9 @@ export function StructureCanvas(props: StructureCanvasProps) {
     id: node.id,
     type: "unit",
     position: positions[node.id] ?? { x: 0, y: 0 },
+    width: W,
+    height: H,
+    measured: layout.measured[node.id],
     selected: node.id === props.selectedId,
     zIndex: node.id === props.editingId ? 10 : 0,
     data: {
