@@ -42,6 +42,7 @@ class PlanStep(BaseModel):
 
     use: str
     with_: dict[str, Any] = Field(default_factory=dict, alias="with")
+    node: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,40}$")  # a Build-mode node id
 
 
 class Plan(BaseModel):
@@ -57,6 +58,7 @@ class ComposedStep:
     snippet: Snippet
     values: dict[str, Any]
     auto: bool = False
+    node: str | None = None
 
 
 @dataclass
@@ -129,11 +131,11 @@ def compose(
                 errors.append(
                     f"step {index} {snippet.id}: needs a {snippet.task} target but '{target}' is {task}"
                 )
-        composed = ComposedStep(snippet, values)
+        composed = ComposedStep(snippet, values, node=step.node)
         if snippet.category == "load":
             loader = loader or composed
             continue
-        if any(c.snippet.id == snippet.id and c.values == values for c in chosen):
+        if step.node is None and any(c.snippet.id == snippet.id and c.values == values for c in chosen):
             adjustments.append(f"dropped duplicate step {snippet.id}")
             continue
         chosen.append(composed)
@@ -271,7 +273,8 @@ def render_script(
     for number, step in enumerate(steps, 1):
         charts = cells and any("matplotlib" in line for line in step.snippet.imports)
         if cells:
-            lines.append(f"# %% {number}. {step.snippet.title} [{step.snippet.id}]")
+            node = f" {{node:{step.node}}}" if step.node else ""
+            lines.append(f"# %% {number}. {step.snippet.title} [{step.snippet.id}]{node}")
         else:
             lines.append(f"# --- {number}. {step.snippet.title} [{step.snippet.id}] ---")
         if charts:

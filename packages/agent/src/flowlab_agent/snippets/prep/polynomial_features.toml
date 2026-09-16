@@ -1,0 +1,45 @@
+id = "prep.polynomial_features"
+title = "Polynomial features"
+description = "Add squared terms and pairwise interactions of numeric features (capped to keep width manageable)."
+tags = ["polynomial", "interaction", "features", "squared", "nonlinear", "expand"]
+requires = ["split"]
+provides = ["split"]
+imports = [
+    "from sklearn.preprocessing import PolynomialFeatures",
+]
+code = '''
+poly_columns = ({{ columns }} or [
+    c for c in X_train.columns
+    if pd.api.types.is_numeric_dtype(X_train[c]) and not pd.api.types.is_bool_dtype(X_train[c])
+])[:15]
+if poly_columns:
+    poly = PolynomialFeatures(degree={{ degree }}, interaction_only={{ interaction_only }}, include_bias=False)
+    poly.fit(X_train[poly_columns].astype(float).fillna(0.0))
+    poly_names = [f"poly_{name}" for name in poly.get_feature_names_out(poly_columns)]
+
+    def _poly(frame):
+        values = poly.transform(frame[poly_columns].astype(float).fillna(0.0))
+        expanded = pd.DataFrame(values, columns=poly_names, index=frame.index)
+        return pd.concat([frame.drop(columns=poly_columns), expanded], axis=1)
+
+    X_train, X_test = _poly(X_train), _poly(X_test)
+print(f"Polynomial features: {X_train.shape[1]} features now")
+'''
+
+[params.columns]
+type = "columns"
+optional = true
+
+[params.degree]
+type = "int"
+default = 2
+min = 2
+max = 3
+
+[params.interaction_only]
+type = "bool"
+default = false
+
+[example]
+dataset = "clean_numeric"
+target = "y"

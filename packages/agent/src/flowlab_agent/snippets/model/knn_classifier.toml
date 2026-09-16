@@ -1,0 +1,29 @@
+id = "model.knn_classifier"
+title = "K-nearest neighbours classifier"
+description = "Predicts the majority class of the k most similar training rows. Scale features first."
+tags = ["knn", "neighbours", "neighbors", "nearest", "instance", "classification", "classify"]
+task = "classification"
+requires = ["split", "features_ready"]
+provides = ["model"]
+imports = [
+    "from sklearn.neighbors import KNeighborsClassifier",
+]
+code = '''
+model = KNeighborsClassifier(n_neighbors={{ n_neighbors }}, weights={{ weights }})
+model.fit(X_train, y_train)
+print(f"Fitted k-nearest neighbours classifier on {len(X_train):,} rows")
+'''
+
+[params.n_neighbors]
+type = "int"
+default = 15
+min = 1
+max = 500
+
+[params.weights]
+type = "choice"
+choices = ["uniform", "distance"]
+default = "distance"
+
+[example]
+target = "churned"

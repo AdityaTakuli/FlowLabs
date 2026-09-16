@@ -21,6 +21,7 @@ from flowlab_lab.project import IGNORED_DIRS
 
 from .agent import AgentService, ClientFactory
 from .architecture import ArchitectureService
+from .builder_service import BuilderService
 from .flows import FlowService
 from .service import EventHub, LabService, ServiceError
 from .structure_service import StructureService
@@ -51,12 +52,14 @@ class Workbench:
         self._factory = llm_client_factory
         self.recents_path = recents_path or default_recents_path()
         self._lock = threading.RLock()
-        self.service, self.flows, self.agent, self.architecture, self.structure = self._build(root)
+        self.service, self.flows, self.agent, self.architecture, self.structure, self.builder = self._build(
+            root
+        )
         self._remember(self.root)
 
     def _build(
         self, root: Path
-    ) -> tuple[LabService, FlowService, AgentService, ArchitectureService, StructureService]:
+    ) -> tuple[LabService, FlowService, AgentService, ArchitectureService, StructureService, BuilderService]:
         try:
             service = LabService(root, hub=self.hub)
         except OSError as exc:  # e.g. a read-only folder: state lives in <folder>/.flowlab
@@ -69,6 +72,7 @@ class Workbench:
             AgentService(service.project, self.hub, self._factory),
             ArchitectureService(service.project, self.hub, self._factory),
             StructureService(service.project, self.hub),
+            BuilderService(service, self.hub, self._factory),
         )
 
     @property
@@ -156,7 +160,7 @@ class Workbench:
             if target != self.root:
                 built = self._build(target)  # fails before the current project is torn down
                 old_service, old_flows = self.service, self.flows
-                self.service, self.flows, self.agent, self.architecture, self.structure = built
+                self.service, self.flows, self.agent, self.architecture, self.structure, self.builder = built
                 old_flows.shutdown()
                 old_service.shutdown()
             self._remember(target)

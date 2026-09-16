@@ -12,6 +12,7 @@ import { ConfirmDialog, type ConfirmRequest } from "./components/ConfirmDialog";
 import { FlowWorkspace } from "./flow/FlowWorkspace";
 import { AgentPanel } from "./agent/AgentPanel";
 import { ArchitectureWorkspace } from "./architecture/ArchitectureWorkspace";
+import { BuildWorkspace } from "./build/BuildWorkspace";
 import { EdgePanel } from "./components/EdgePanel";
 import { FolderPicker } from "./components/FolderPicker";
 import type { EdgeTarget } from "./components/GraphCanvas";
@@ -70,13 +71,13 @@ export function App() {
   return <Shell api={api} />;
 }
 
-type Mode = "code" | "flow" | "architecture";
+type Mode = "code" | "build" | "flow" | "architecture";
 const MODE_KEY = "flowlab-mode";
 
 function Shell({ api }: { api: Api }) {
   const [mode, setMode] = useState<Mode>(() => {
     const stored = storageGet(MODE_KEY);
-    return stored === "flow" || stored === "architecture" ? stored : "code";
+    return stored === "flow" || stored === "architecture" || stored === "build" ? stored : "code";
   });
   const [askOpen, setAskOpen] = useState(false);
   const [openRequest, setOpenRequest] = useState<{ file: string; at: number } | null>(null);
@@ -97,7 +98,7 @@ function Shell({ api }: { api: Api }) {
   const modeSwitch = (
     <>
     <span className="mode-switch" role="group" aria-label="Mode">
-      {(["code", "flow", "architecture"] as Mode[]).map((m) => (
+      {(["code", "build", "flow", "architecture"] as Mode[]).map((m) => (
         <button
           key={m}
           className={mode === m ? "active" : ""}
@@ -107,7 +108,7 @@ function Shell({ api }: { api: Api }) {
             storageSet(MODE_KEY, m);
           }}
         >
-          {m === "code" ? "Code Mode" : m === "flow" ? "Flow Mode" : "Architecture"}
+          {m === "code" ? "Code Mode" : m === "build" ? "Build" : m === "flow" ? "Flow Mode" : "Architecture"}
         </button>
       ))}
     </span>
@@ -121,7 +122,18 @@ function Shell({ api }: { api: Api }) {
   );
   return (
     <>
-      {mode === "architecture" ? (
+      {mode === "build" ? (
+        <BuildWorkspace
+          api={api}
+          modeSwitch={modeSwitch}
+          onOpenScript={(file) => {
+            storageSet(LAST_FILE_KEY, file);
+            storageSet(MODE_KEY, "code");
+            setMode("code");
+            setOpenRequest({ file, at: Date.now() });
+          }}
+        />
+      ) : mode === "architecture" ? (
         <ArchitectureWorkspace
           api={api}
           modeSwitch={modeSwitch}

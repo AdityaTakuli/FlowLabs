@@ -5,7 +5,9 @@ tags = ["importance", "permutation", "drivers", "explain", "why", "important", "
 requires = ["model", "split", "features_ready"]
 imports = ["from sklearn.inspection import permutation_importance"]
 code = '''
-permutation = permutation_importance(model, X_test, y_test, n_repeats={{ repeats }}, random_state=SEED, n_jobs=-1)
+# models defined in the notebook itself cannot be sent to worker processes
+parallel_jobs = 1 if type(model).__module__.startswith(("__main__", "<")) else -1
+permutation = permutation_importance(model, X_test, y_test, n_repeats={{ repeats }}, random_state=SEED, n_jobs=parallel_jobs)
 permutation_table = pd.DataFrame(
     {"mean_drop": permutation.importances_mean, "std": permutation.importances_std}, index=X_test.columns
 ).sort_values("mean_drop", ascending=False)

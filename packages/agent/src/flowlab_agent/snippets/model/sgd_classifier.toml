@@ -1,0 +1,29 @@
+id = "model.sgd_classifier"
+title = "SGD linear classifier"
+description = "Linear model (SVM or logistic loss) trained with stochastic gradient descent; scales to huge data."
+tags = ["sgd", "stochastic", "gradient", "linear", "svm", "large", "online", "classification"]
+task = "classification"
+requires = ["split", "features_ready"]
+provides = ["model"]
+imports = [
+    "from sklearn.linear_model import SGDClassifier",
+]
+code = '''
+model = SGDClassifier(loss={{ loss }}, alpha={{ alpha }}, max_iter=2000, random_state=SEED)
+model.fit(X_train, y_train)
+print(f"Fitted sgd linear classifier on {len(X_train):,} rows")
+'''
+
+[params.loss]
+type = "choice"
+choices = ["log_loss", "hinge", "modified_huber"]
+default = "log_loss"
+
+[params.alpha]
+type = "float"
+default = 0.0001
+min = 1e-07
+max = 10.0
+
+[example]
+target = "churned"

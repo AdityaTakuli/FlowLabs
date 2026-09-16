@@ -1,0 +1,40 @@
+id = "model.agglomerative"
+title = "Hierarchical (agglomerative) clustering"
+description = "Merge the closest rows and groups step by step until k clusters remain."
+tags = ["hierarchical", "agglomerative", "ward", "cluster", "clustering", "dendrogram", "unsupervised"]
+requires = ["df"]
+stage = 1.5
+imports = [
+    "from sklearn.cluster import AgglomerativeClustering",
+    "from sklearn.preprocessing import StandardScaler",
+]
+code = '''
+cluster_columns = {{ columns }} or [
+    c for c in df.columns
+    if pd.api.types.is_numeric_dtype(df[c]) and not pd.api.types.is_bool_dtype(df[c])
+]
+cluster_input = df[cluster_columns].astype(float)
+cluster_input = StandardScaler().fit_transform(cluster_input.fillna(cluster_input.median()).fillna(0.0))
+clusterer = AgglomerativeClustering(n_clusters={{ n_clusters }}, linkage={{ linkage }}).fit(cluster_input)
+segments = df.assign(cluster=clusterer.labels_)
+print(segments["cluster"].value_counts().sort_index().to_string())
+print(segments.groupby("cluster")[cluster_columns].mean().round(2).to_string())
+'''
+
+[params.n_clusters]
+type = "int"
+default = 4
+min = 2
+max = 50
+
+[params.linkage]
+type = "choice"
+choices = ["ward", "complete", "average", "single"]
+default = "ward"
+
+[params.columns]
+type = "columns"
+optional = true
+
+[example]
+dataset = "clean_numeric"

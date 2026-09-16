@@ -1,0 +1,25 @@
+id = "model.bayesian_ridge"
+title = "Bayesian ridge regression"
+description = "Ridge regression whose regularisation is learned from the data; gives stable coefficients."
+tags = ["bayesian", "ridge", "linear", "probabilistic", "regression"]
+task = "regression"
+requires = ["split", "features_ready"]
+provides = ["model"]
+imports = [
+    "from sklearn.linear_model import BayesianRidge",
+]
+code = '''
+model = BayesianRidge(max_iter={{ max_iter }})
+model.fit(X_train, y_train)
+print(f"Fitted bayesian ridge regression on {len(X_train):,} rows")
+'''
+
+[params.max_iter]
+type = "int"
+default = 300
+min = 10
+max = 10000
+
+[example]
+dataset = "clean_numeric"
+target = "y"

@@ -8,3 +8,7 @@ Open this folder with `flowlab serve --root examples/ml-lab` and run the files i
    FlowLab charts the printed `loss`/`val_acc` per epoch live and shows the tqdm progress.
 
 `data/` is created by the first file.
+
+Build mode: switch to **Build**, create a pipeline on `datasets/churn.csv` with target `churned`,
+and add nodes (for example: drop duplicates, train/test split, one-hot encode, scale, PyTorch
+neural network, classification metrics, confusion matrix). Then Finalize and Run.

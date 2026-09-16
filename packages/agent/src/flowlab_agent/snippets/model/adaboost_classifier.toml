@@ -1,0 +1,30 @@
+id = "model.adaboost_classifier"
+title = "AdaBoost classifier"
+description = "Boosts shallow trees by re-weighting the rows earlier trees got wrong."
+tags = ["adaboost", "boosting", "ensemble", "weak", "learners", "classification"]
+task = "classification"
+requires = ["split", "features_ready"]
+provides = ["model"]
+imports = [
+    "from sklearn.ensemble import AdaBoostClassifier",
+]
+code = '''
+model = AdaBoostClassifier(n_estimators={{ n_estimators }}, learning_rate={{ learning_rate }}, random_state=SEED)
+model.fit(X_train, y_train)
+print(f"Fitted adaboost classifier on {len(X_train):,} rows")
+'''
+
+[params.n_estimators]
+type = "int"
+default = 200
+min = 10
+max = 5000
+
+[params.learning_rate]
+type = "float"
+default = 0.5
+min = 0.001
+max = 10.0
+
+[example]
+target = "churned"

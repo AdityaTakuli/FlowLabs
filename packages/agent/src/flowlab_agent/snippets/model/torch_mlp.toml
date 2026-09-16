@@ -1,0 +1,150 @@
+id = "model.torch_mlp"
+title = "PyTorch neural network (MLP)"
+description = "Feed-forward deep network in PyTorch for classification or regression, with dropout, early stopping and live epoch metrics."
+tags = ["pytorch", "torch", "deep", "learning", "neural", "network", "mlp", "dl", "classification", "regression"]
+requires = ["split", "features_ready"]
+provides = ["model"]
+code = '''
+import torch
+from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
+from torch import nn
+
+torch.manual_seed(SEED)
+torch_hidden = [int(p) for p in {{ hidden_layers }}.split(",") if p.strip()]
+torch_dropout = {{ dropout }}
+torch_epochs = {{ epochs }}
+torch_batch = {{ batch_size }}
+torch_lr = {{ learning_rate }}
+torch_patience = {{ patience }}
+
+
+class TorchTabularModel(BaseEstimator):
+    """A PyTorch network that behaves like a scikit-learn estimator, so every evaluation step works."""
+
+    def __init__(self, task="classification"):
+        self.task = task
+
+    def _net(self, inputs, outputs):
+        layers, width = [], inputs
+        for size in torch_hidden:
+            layers += [nn.Linear(width, size), nn.ReLU(), nn.Dropout(torch_dropout)]
+            width = size
+        layers.append(nn.Linear(width, outputs))
+        return nn.Sequential(*layers)
+
+    def _tensor(self, frame):
+        return torch.tensor(np.asarray(frame, dtype=np.float32))
+
+    def fit(self, features, target):
+        self.history_ = []
+        x = self._tensor(features)
+        if self.task == "classification":
+            self.classes_ = np.array(sorted(pd.unique(target), key=str))
+            lookup = {value: index for index, value in enumerate(self.classes_)}
+            y = torch.tensor([lookup[value] for value in target], dtype=torch.long)
+            self.net, loss_fn = self._net(x.shape[1], len(self.classes_)), nn.CrossEntropyLoss()
+        else:
+            self.mean_, self.scale_ = float(np.mean(target)), float(np.std(target) or 1.0)
+            y = torch.tensor((np.asarray(target, dtype=np.float32) - self.mean_) / self.scale_).unsqueeze(1)
+            self.net, loss_fn = self._net(x.shape[1], 1), nn.MSELoss()
+        order = torch.randperm(len(x))
+        cut = max(1, int(len(x) * 0.85))
+        train_idx, val_idx = order[:cut], order[cut:]
+        optimizer = torch.optim.Adam(self.net.parameters(), lr=torch_lr)
+        best, best_state, waited = float("inf"), None, 0
+        for epoch in range(1, torch_epochs + 1):
+            self.net.train()
+            batches = train_idx[torch.randperm(len(train_idx))].split(torch_batch)
+            running = 0.0
+            for batch in batches:
+                optimizer.zero_grad()
+                loss = loss_fn(self.net(x[batch]), y[batch])
+                loss.backward()
+                optimizer.step()
+                running += loss.item() * len(batch)
+            self.net.eval()
+            with torch.no_grad():
+                val_out = self.net(x[val_idx]) if len(val_idx) else self.net(x[train_idx])
+                val_y = y[val_idx] if len(val_idx) else y[train_idx]
+                val_loss = loss_fn(val_out, val_y).item()
+                extra = f" val_acc={(val_out.argmax(1) == val_y).float().mean().item():.4f}" if self.task == "classification" else ""
+            self.history_.append({"epoch": epoch, "loss": running / len(train_idx), "val_loss": val_loss})
+            print(f"epoch {epoch} loss={running / len(train_idx):.4f} val_loss={val_loss:.4f}{extra}")
+            if val_loss < best - 1e-4:
+                best, waited = val_loss, 0
+                best_state = {k: v.clone() for k, v in self.net.state_dict().items()}
+            else:
+                waited += 1
+                if waited >= torch_patience:
+                    print(f"Early stopping after epoch {epoch} (best val_loss={best:.4f})")
+                    break
+        if best_state is not None:
+            self.net.load_state_dict(best_state)
+        return self
+
+    def predict_proba(self, features):
+        self.net.eval()
+        with torch.no_grad():
+            return torch.softmax(self.net(self._tensor(features)), dim=1).numpy()
+
+    def predict(self, features):
+        self.net.eval()
+        with torch.no_grad():
+            out = self.net(self._tensor(features))
+        if self.task == "classification":
+            return self.classes_[out.argmax(1).numpy()]
+        return out.squeeze(1).numpy() * self.scale_ + self.mean_
+
+
+class TorchClassifier(ClassifierMixin, TorchTabularModel):
+    pass
+
+
+class TorchRegressor(RegressorMixin, TorchTabularModel):
+    pass
+
+
+model = (TorchClassifier if TASK == "classification" else TorchRegressor)(TASK).fit(X_train, y_train)
+parameter_count = sum(p.numel() for p in model.net.parameters())
+print(f"Trained PyTorch MLP {torch_hidden} ({parameter_count:,} parameters) for {TASK}")
+'''
+
+[params.hidden_layers]
+type = "text"
+default = "128,64"
+description = "Neurons per hidden layer"
+
+[params.dropout]
+type = "float"
+default = 0.1
+min = 0.0
+max = 0.9
+
+[params.epochs]
+type = "int"
+default = 30
+min = 1
+max = 1000
+
+[params.batch_size]
+type = "int"
+default = 64
+min = 4
+max = 8192
+
+[params.learning_rate]
+type = "float"
+default = 0.001
+min = 1e-06
+max = 1.0
+
+[params.patience]
+type = "int"
+default = 5
+min = 1
+max = 100
+description = "Epochs without improvement before stopping"
+
+[example]
+target = "churned"
+with = { epochs = 3 }

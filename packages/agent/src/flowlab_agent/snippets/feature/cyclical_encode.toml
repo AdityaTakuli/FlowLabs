@@ -1,0 +1,26 @@
+id = "feature.cyclical_encode"
+title = "Cyclical encoding (sin/cos)"
+description = "Encode a periodic number such as hour, weekday or month as sine and cosine so its ends meet."
+tags = ["cyclical", "sine", "cosine", "periodic", "hour", "month", "weekday", "time", "feature"]
+requires = ["df"]
+provides = ["df"]
+code = '''
+cyclic_column = {{ column }}
+cycle_period = {{ period }}
+cyclic_values = pd.to_numeric(df[cyclic_column], errors="coerce")
+df[f"{cyclic_column}_sin"] = np.sin(2 * np.pi * cyclic_values / cycle_period)
+df[f"{cyclic_column}_cos"] = np.cos(2 * np.pi * cyclic_values / cycle_period)
+print(f"Added {cyclic_column}_sin and {cyclic_column}_cos (period {cycle_period})")
+'''
+
+[params.column]
+type = "column"
+
+[params.period]
+type = "float"
+default = 12.0
+min = 1.0
+max = 100000.0
+
+[example]
+with = { column = "tenure_months", period = 12.0 }

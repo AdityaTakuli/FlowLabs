@@ -1,0 +1,31 @@
+id = "feature.rolling_mean"
+title = "Rolling mean feature"
+description = "Average of the previous N rows (time-ordered, excluding the current row, so no leakage)."
+tags = ["rolling", "moving", "average", "window", "smooth", "time", "series", "feature"]
+requires = ["df"]
+provides = ["df"]
+code = '''
+rolling_column = {{ column }}
+rolling_order = {{ order_by }}
+rolling_window = {{ window }}
+df = df.sort_values(rolling_order, kind="stable")
+rolling_name = f"{rolling_column}_mean{rolling_window}"
+df[rolling_name] = df[rolling_column].shift(1).rolling(rolling_window, min_periods=1).mean()
+print(f"Added {rolling_name}")
+'''
+
+[params.column]
+type = "column"
+
+[params.order_by]
+type = "column"
+
+[params.window]
+type = "int"
+default = 7
+min = 2
+max = 365
+
+[example]
+dataset = "timeseries"
+with = { column = "sales", order_by = "date" }

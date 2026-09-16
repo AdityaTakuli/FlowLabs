@@ -1,0 +1,24 @@
+id = "prep.frequency_encode"
+title = "Frequency encode categories"
+description = "Replace each category with how often it appears in train; unseen categories become 0."
+tags = ["encode", "frequency", "count", "categorical", "category", "high", "cardinality"]
+requires = ["split"]
+provides = ["split"]
+code = '''
+frequency_columns = {{ columns }} or [
+    c for c in X_train.columns
+    if not (pd.api.types.is_numeric_dtype(X_train[c]) or pd.api.types.is_datetime64_any_dtype(X_train[c]))
+]
+for frequency_column in frequency_columns:
+    frequencies = X_train[frequency_column].astype("string").value_counts(normalize=True)
+    X_train[frequency_column] = X_train[frequency_column].astype("string").map(frequencies).astype(float).fillna(0.0)
+    X_test[frequency_column] = X_test[frequency_column].astype("string").map(frequencies).astype(float).fillna(0.0)
+print(f"Frequency encoded {len(frequency_columns)} columns")
+'''
+
+[params.columns]
+type = "columns"
+optional = true
+
+[example]
+target = "churned"

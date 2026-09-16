@@ -1,0 +1,35 @@
+id = "model.mlp_classifier"
+title = "Neural network classifier (sklearn MLP)"
+description = "Multi-layer perceptron trained with Adam. Hidden layers like '64,32'. Scale features first."
+tags = ["mlp", "neural", "network", "perceptron", "deep", "classification"]
+task = "classification"
+requires = ["split", "features_ready"]
+provides = ["model"]
+imports = [
+    "from sklearn.neural_network import MLPClassifier",
+]
+code = '''
+mlp_hidden = {{ hidden_layers }}
+model = MLPClassifier(hidden_layer_sizes=tuple(int(p) for p in mlp_hidden.split(",") if p.strip()), alpha={{ alpha }}, max_iter={{ max_iter }}, early_stopping=True, random_state=SEED)
+model.fit(X_train, y_train)
+print(f"Fitted neural network classifier (sklearn mlp) on {len(X_train):,} rows")
+'''
+
+[params.hidden_layers]
+type = "text"
+default = "64,32"
+
+[params.alpha]
+type = "float"
+default = 0.0001
+min = 0.0
+max = 10.0
+
+[params.max_iter]
+type = "int"
+default = 300
+min = 10
+max = 10000
+
+[example]
+target = "churned"

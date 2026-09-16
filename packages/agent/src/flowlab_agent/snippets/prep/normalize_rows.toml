@@ -1,0 +1,32 @@
+id = "prep.normalize_rows"
+title = "Normalize rows (unit norm)"
+description = "Scale each row of numeric features to unit length (L1, L2 or max); common before cosine-based models."
+tags = ["normalize", "normalizer", "norm", "row", "l1", "l2", "unit", "numeric"]
+requires = ["split"]
+provides = ["split"]
+imports = [
+    "from sklearn.preprocessing import Normalizer",
+]
+code = '''
+row_columns = {{ columns }} or [
+    c for c in X_train.columns
+    if pd.api.types.is_numeric_dtype(X_train[c]) and not pd.api.types.is_bool_dtype(X_train[c])
+]
+if row_columns:
+    normalizer = Normalizer(norm={{ norm }})
+    X_train[row_columns] = normalizer.fit_transform(X_train[row_columns].astype(float).fillna(0.0))
+    X_test[row_columns] = normalizer.transform(X_test[row_columns].astype(float).fillna(0.0))
+print(f"Normalized rows over {len(row_columns)} columns")
+'''
+
+[params.columns]
+type = "columns"
+optional = true
+
+[params.norm]
+type = "choice"
+choices = ["l2", "l1", "max"]
+default = "l2"
+
+[example]
+target = "churned"

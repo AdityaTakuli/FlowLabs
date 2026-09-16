@@ -103,6 +103,26 @@ flowlab serve --root path/to/your/project                # opens http://127.0.0.
 - Double-click a block (or ✎) to edit its code right on the canvas; **Save & run** re-runs it and
   downstream edges turn stale until they run again.
 
+### Build mode: pipelines without code
+
+Switch to **Build** in the toolbar (try it on `examples/ml-lab`, which includes `datasets/churn.csv`).
+
+1. **New pipeline:** pick the dataset and the column to predict.
+2. **Create node:** choose what the node is for (import data, explore, clean, engineer features,
+   split, preprocess, train a model, evaluate, explain, visualize, save). Then pick a technique:
+   114 in total, including every common scaler, encoder and imputer; classifiers, regressors and
+   clustering; and a PyTorch neural network. Each shows its description and code.
+3. **Wire the nodes** top to bottom by dragging from one card's bottom handle to the next, and set
+   each node's settings in the right panel. Checks run as you edit.
+4. **Finalize** orders the nodes, adds missing prerequisites and writes `pipelines/<name>.py`.
+   With **Connect with AI**, Groq writes short, validated glue cells only where snippets do not
+   line up; a clean pipeline costs 0 tokens. **Run** executes it in a kernel, with live state,
+   metrics and outputs on each card.
+5. **Change anything and run again.** If a step fails, **Fix with AI** sends the error for a glue
+   fix. **Open in Code Mode** shows the script as cells.
+
+See `docs/decisions/0013-build-mode.md`.
+
 ### Data analysis, ML and deep learning (cells)
 
 Try it: `flowlab serve --root examples/ml-lab`, then run `01_data_processing.py`,

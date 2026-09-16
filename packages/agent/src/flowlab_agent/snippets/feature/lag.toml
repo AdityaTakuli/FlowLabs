@@ -1,0 +1,31 @@
+id = "feature.lag"
+title = "Lag feature"
+description = "Add the value from k rows earlier (rows ordered by a time column), a basic forecasting feature."
+tags = ["lag", "shift", "previous", "time", "series", "forecast", "feature"]
+requires = ["df"]
+provides = ["df"]
+code = '''
+lag_column = {{ column }}
+lag_order = {{ order_by }}
+lag_steps = {{ lags }}
+df = df.sort_values(lag_order, kind="stable")
+lag_name = f"{lag_column}_lag{lag_steps}"
+df[lag_name] = df[lag_column].shift(lag_steps)
+print(f"Added {lag_name}")
+'''
+
+[params.column]
+type = "column"
+
+[params.order_by]
+type = "column"
+
+[params.lags]
+type = "int"
+default = 1
+min = 1
+max = 365
+
+[example]
+dataset = "timeseries"
+with = { column = "sales", order_by = "date" }

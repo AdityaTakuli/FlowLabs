@@ -1,0 +1,36 @@
+id = "evaluate.learning_curve"
+title = "Learning curve"
+description = "Cross-validated score as the training set grows; shows whether more data or a simpler model would help."
+tags = ["learning", "curve", "overfitting", "underfitting", "data", "size", "evaluate", "chart"]
+requires = ["model", "split", "features_ready"]
+imports = [
+    "import matplotlib.pyplot as plt",
+    "from sklearn.model_selection import learning_curve",
+]
+code = '''
+# models defined in the notebook itself cannot be sent to worker processes
+parallel_jobs = 1 if type(model).__module__.startswith(("__main__", "<")) else -1
+curve_scoring = "balanced_accuracy" if TASK == "classification" else "r2"
+sizes, train_scores, valid_scores = learning_curve(
+    model, X_train, y_train, cv={{ cv }}, scoring=curve_scoring, train_sizes=np.linspace(0.1, 1.0, 5), n_jobs=parallel_jobs
+)
+fig, ax = plt.subplots(figsize=(6, 4.5))
+ax.plot(sizes, train_scores.mean(axis=1), marker="o", color="black", label="train")
+ax.plot(sizes, valid_scores.mean(axis=1), marker="o", color="gray", label="cross-validation")
+ax.set(title=f"Learning curve ({curve_scoring})", xlabel="training rows", ylabel=curve_scoring)
+ax.legend()
+chart_path = OUTPUT_DIR / "learning_curve.png"
+fig.tight_layout()
+fig.savefig(chart_path, dpi=120)
+plt.close(fig)
+print(f"Final cross-validated {curve_scoring}: {valid_scores.mean(axis=1)[-1]:.3f}; saved {chart_path}")
+'''
+
+[params.cv]
+type = "int"
+default = 3
+min = 2
+max = 10
+
+[example]
+target = "churned"

@@ -1,0 +1,17 @@
+id = "clean.remove_constant_columns"
+title = "Remove constant columns"
+description = "Drop columns that hold a single value (or are entirely empty); they carry no information."
+tags = ["constant", "drop", "columns", "single", "value", "useless", "clean"]
+requires = ["df"]
+provides = ["df"]
+code = '''
+constant_columns = [c for c in df.columns if df[c].nunique(dropna={{ ignore_missing }}) <= 1]
+df = df.drop(columns=constant_columns)
+print(f"Dropped {len(constant_columns)} constant columns: {constant_columns}")
+'''
+
+[params.ignore_missing]
+type = "bool"
+default = true
+
+[example]

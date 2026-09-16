@@ -1,0 +1,34 @@
+id = "prep.knn_impute"
+title = "KNN imputation"
+description = "Fill missing numbers from the most similar train rows (k nearest neighbours)."
+tags = ["impute", "knn", "neighbours", "neighbors", "missing", "fill", "numeric"]
+requires = ["split"]
+provides = ["split"]
+imports = [
+    "from sklearn.impute import KNNImputer",
+]
+code = '''
+knn_columns = {{ columns }} or [
+    c for c in X_train.columns
+    if pd.api.types.is_numeric_dtype(X_train[c]) and not pd.api.types.is_bool_dtype(X_train[c])
+]
+if knn_columns:
+    knn_imputer = KNNImputer(n_neighbors={{ n_neighbors }}, keep_empty_features=True)
+    X_train[knn_columns] = knn_imputer.fit_transform(X_train[knn_columns].astype(float))
+    X_test[knn_columns] = knn_imputer.transform(X_test[knn_columns].astype(float))
+print(f"KNN-imputed {len(knn_columns)} numeric columns")
+'''
+
+[params.columns]
+type = "columns"
+optional = true
+
+[params.n_neighbors]
+type = "int"
+default = 5
+min = 1
+max = 100
+
+[example]
+dataset = "missing_20pct"
+target = "target"

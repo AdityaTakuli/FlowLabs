@@ -134,6 +134,32 @@ class LayoutRequest(BaseModel):
     positions: dict[str, dict[str, float]] = Field(default_factory=dict)
 
 
+class PipelineSaveRequest(BaseModel):
+    file: str
+    pipeline: dict[str, Any]
+
+
+class PipelineCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    dataset: str | None = None
+
+
+class PipelineCheckRequest(BaseModel):
+    pipeline: dict[str, Any]
+
+
+class PipelineFinalizeRequest(BaseModel):
+    file: str
+    pipeline: dict[str, Any]
+    use_llm: bool = False
+    confirm_external: bool = False
+    error: str | None = Field(default=None, max_length=8000)
+
+
+class PipelineRunRequest(BaseModel):
+    script_file: str
+
+
 class OpenProjectRequest(BaseModel):
     path: str
 
@@ -270,6 +296,53 @@ def create_app(
     @app.get("/api/project-graph")
     def project_graph(language: str | None = None) -> dict[str, Any]:
         return bench.structure.project_graph(language)
+
+    # --------------------------------------------------------------------- build
+    @app.get("/api/build/catalogue")
+    def build_catalogue() -> dict[str, Any]:
+        return bench.builder.catalogue()
+
+    @app.get("/api/build/datasets")
+    def build_datasets() -> list[str]:
+        return bench.builder.datasets()
+
+    @app.get("/api/build/dataset")
+    def build_dataset(file: str) -> dict[str, Any]:
+        return bench.builder.dataset(file)
+
+    @app.get("/api/build/pipelines")
+    def build_pipelines() -> list[dict[str, Any]]:
+        return bench.builder.pipelines()
+
+    @app.get("/api/build/pipeline")
+    def build_pipeline(file: str) -> dict[str, Any]:
+        return bench.builder.load(file)
+
+    @app.put("/api/build/pipeline")
+    def build_save(body: PipelineSaveRequest) -> dict[str, Any]:
+        return bench.builder.save(body.file, body.pipeline)
+
+    @app.post("/api/build/pipeline/new")
+    def build_new(body: PipelineCreateRequest) -> dict[str, Any]:
+        return bench.builder.create(body.name, body.dataset)
+
+    @app.post("/api/build/check")
+    def build_check(body: PipelineCheckRequest) -> dict[str, Any]:
+        return bench.builder.check(body.pipeline)
+
+    @app.post("/api/build/finalize")
+    def build_finalize(body: PipelineFinalizeRequest) -> dict[str, Any]:
+        return bench.builder.finalize(
+            body.file,
+            body.pipeline,
+            use_llm=body.use_llm,
+            confirm_external=body.confirm_external,
+            error=body.error,
+        )
+
+    @app.post("/api/build/run")
+    def build_run(body: PipelineRunRequest) -> dict[str, Any]:
+        return bench.builder.run(body.script_file)
 
     @app.get("/api/layout")
     def layout(file: str, view: str = "structure") -> dict[str, Any]:

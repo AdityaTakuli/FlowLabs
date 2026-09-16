@@ -1,0 +1,32 @@
+id = "prep.power_transform"
+title = "Power transform (Yeo-Johnson)"
+description = "Make skewed numeric features more Gaussian with a Yeo-Johnson transform fitted on train."
+tags = ["power", "transform", "yeo", "johnson", "skew", "gaussian", "normalize", "numeric"]
+requires = ["split"]
+provides = ["split"]
+imports = [
+    "from sklearn.preprocessing import PowerTransformer",
+]
+code = '''
+power_columns = {{ columns }} or [
+    c for c in X_train.columns
+    if pd.api.types.is_numeric_dtype(X_train[c]) and not pd.api.types.is_bool_dtype(X_train[c])
+]
+power_columns = [c for c in power_columns if X_train[c].nunique() > 2]
+if power_columns:
+    power = PowerTransformer(method="yeo-johnson", standardize={{ standardize }})
+    X_train[power_columns] = power.fit_transform(X_train[power_columns].astype(float))
+    X_test[power_columns] = power.transform(X_test[power_columns].astype(float))
+print(f"Yeo-Johnson transformed {len(power_columns)} columns")
+'''
+
+[params.columns]
+type = "columns"
+optional = true
+
+[params.standardize]
+type = "bool"
+default = true
+
+[example]
+target = "churned"

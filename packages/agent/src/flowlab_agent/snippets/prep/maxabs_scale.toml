@@ -1,0 +1,27 @@
+id = "prep.maxabs_scale"
+title = "Max-abs scaling"
+description = "Divide each numeric feature by its largest absolute train value (keeps zeros and sparsity)."
+tags = ["scale", "maxabs", "sparse", "normalize", "numeric"]
+requires = ["split"]
+provides = ["split"]
+imports = [
+    "from sklearn.preprocessing import MaxAbsScaler",
+]
+code = '''
+maxabs_columns = {{ columns }} or [
+    c for c in X_train.columns
+    if pd.api.types.is_numeric_dtype(X_train[c]) and not pd.api.types.is_bool_dtype(X_train[c])
+]
+if maxabs_columns:
+    maxabs = MaxAbsScaler()
+    X_train[maxabs_columns] = maxabs.fit_transform(X_train[maxabs_columns].astype(float))
+    X_test[maxabs_columns] = maxabs.transform(X_test[maxabs_columns].astype(float))
+print(f"Max-abs scaled {len(maxabs_columns)} columns")
+'''
+
+[params.columns]
+type = "columns"
+optional = true
+
+[example]
+target = "churned"

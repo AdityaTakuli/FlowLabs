@@ -24,6 +24,7 @@ import type {
 } from "./flow/types";
 import type { AnalyseRequest, ArchManifest } from "./architecture/types";
 import type { LayoutPayload, StructureGraph } from "./structure/types";
+import type { BuildCatalogue, BuildIssue, DatasetInfo, FinalizeResult, Pipeline, BlockInfo } from "./build/types";
 import type { AgentPlan, AgentPreview, AgentProposal, AgentStatus, SnippetInfo } from "./agent/AgentPanel";
 
 const TOKEN_KEY = "flowlab-token";
@@ -132,6 +133,20 @@ export class Api {
   nodeOutput = (runId: string, nodeId: string) =>
     this.request<NodeOutput>("GET", "/flow/output", undefined, { run_id: runId, node_id: nodeId });
   datasetProfile = (file: string) => this.request<DatasetProfile>("GET", "/dataset/profile", undefined, { file });
+
+  // Build mode (no-code pipelines of snippet nodes)
+  buildCatalogue = () => this.request<BuildCatalogue>("GET", "/build/catalogue");
+  buildDatasets = () => this.request<string[]>("GET", "/build/datasets");
+  buildDataset = (file: string) => this.request<DatasetInfo>("GET", "/build/dataset", undefined, { file });
+  buildPipelines = () => this.request<{ file: string; name: string; nodes: number }[]>("GET", "/build/pipelines");
+  buildLoad = (file: string) => this.request<{ file: string; pipeline: Pipeline }>("GET", "/build/pipeline", undefined, { file });
+  buildSave = (file: string, pipeline: Pipeline) => this.request<{ file: string }>("PUT", "/build/pipeline", { file, pipeline });
+  buildNew = (name: string, dataset: string | null) => this.request<{ file: string; pipeline: Pipeline }>("POST", "/build/pipeline/new", { name, dataset });
+  buildCheck = (pipeline: Pipeline) => this.request<{ issues: BuildIssue[]; order: string[] }>("POST", "/build/check", { pipeline });
+  buildFinalize = (body: { file: string; pipeline: Pipeline; use_llm: boolean; confirm_external: boolean; error?: string | null }) =>
+    this.request<FinalizeResult>("POST", "/build/finalize", body);
+  buildRun = (scriptFile: string) =>
+    this.request<{ file: string; plan: string[]; blocks: Record<string, BlockInfo> }>("POST", "/build/run", { script_file: scriptFile });
 
   // Structure graphs (any language) and saved node positions
   structure = (file: string) => this.request<StructureGraph>("GET", "/structure", undefined, { file });

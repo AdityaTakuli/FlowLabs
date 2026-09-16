@@ -1,0 +1,43 @@
+id = "prep.tfidf_text"
+title = "TF-IDF text features"
+description = "Turn a free-text column into TF-IDF word features learned on train (the text column is replaced)."
+tags = ["text", "tfidf", "words", "nlp", "vectorize", "bag", "tokens"]
+requires = ["split"]
+provides = ["split"]
+imports = [
+    "from sklearn.feature_extraction.text import TfidfVectorizer",
+]
+code = '''
+text_column = {{ column }}
+vectorizer = TfidfVectorizer(max_features={{ max_features }}, ngram_range=(1, {{ max_ngram }}))
+train_text = vectorizer.fit_transform(X_train[text_column].astype("string").fillna(""))
+tfidf_names = [f"tfidf_{w}" for w in vectorizer.get_feature_names_out()]
+
+def _tfidf(frame, matrix):
+    words = pd.DataFrame(matrix.toarray(), columns=tfidf_names, index=frame.index)
+    return pd.concat([frame.drop(columns=[text_column]), words], axis=1)
+
+X_train = _tfidf(X_train, train_text)
+X_test = _tfidf(X_test, vectorizer.transform(X_test[text_column].astype("string").fillna("")))
+print(f"TF-IDF: {len(tfidf_names)} word features from {text_column}")
+'''
+
+[params.column]
+type = "column"
+
+[params.max_features]
+type = "int"
+default = 500
+min = 10
+max = 50000
+
+[params.max_ngram]
+type = "int"
+default = 1
+min = 1
+max = 3
+
+[example]
+dataset = "mixed_messy"
+target = "rating"
+with = { column = "city" }

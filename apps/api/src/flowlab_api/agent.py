@@ -263,7 +263,9 @@ class AgentService:
             "model": model,
             "goal": goal,
             "dataset": dataset,
-            "plan": plan.model_dump(by_alias=True) if plan else None,
+            "plan": plan.model_dump(by_alias=True, exclude={"steps": {"__all__": {"node"}}})
+            if plan
+            else None,
             "steps": steps,
             "adjustments": composed.adjustments if composed else [],
             "script": composed.script if composed else None,
