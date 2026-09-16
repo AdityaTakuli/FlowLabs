@@ -224,7 +224,8 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
         const previous = next[next.length - 1];
         const continues = previous !== undefined && previous.open && previous.node === node && previous.kind === kind;
         const line: ConsoleLine = { id: ++lineId.current, ts: new Date().toLocaleTimeString(), kind, node, text: segment, open: last };
-        if (continues) next[next.length - 1] = { ...line, text: rewrite ? segment : previous.text + segment };
+        if (continues && rewrite && !segment.trim()) next.pop(); // a progress bar cleared itself (tqdm leave=False)
+        else if (continues) next[next.length - 1] = { ...line, text: rewrite ? segment : previous.text + segment };
         else if (segment.trim() || !rewrite) next.push(line);
       });
       return next.slice(-2000);

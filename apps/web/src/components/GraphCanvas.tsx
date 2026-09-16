@@ -285,7 +285,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
   );
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const layout = useMemo(() => layoutWithRoutes(graph.nodes, edges), [structure]);
-  const saved = useSavedLayout(props.api, props.file, "cells");
+  const saved = useSavedLayout(props.api, props.file, "cells", props.onSelect);
   const positions = withMoved(layout.positions, saved.moved);
 
   const related = useMemo(() => {
@@ -364,7 +364,8 @@ export function GraphCanvas(props: GraphCanvasProps) {
       style: { stroke: label.value ? "var(--accent)" : colour, strokeWidth: edge.kind === "import" ? 1 : 1.6, strokeDasharray: dash, opacity: dimmed ? 0.15 : 1 },
       markerEnd: { type: MarkerType.ArrowClosed, color: label.value ? "var(--accent)" : colour, width: 16, height: 16 },
       data: {
-        route: layout.routes[`${edge.from}>${edge.to}`] ?? null,
+        // dagre's routed bends only fit the automatic layout; a dragged card gets a plain curve
+        route: edge.from in saved.moved || edge.to in saved.moved ? null : (layout.routes[`${edge.from}>${edge.to}`] ?? null),
         names: label.names,
         value: label.value,
         stale: source?.state === "stale",

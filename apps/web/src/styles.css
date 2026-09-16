@@ -674,7 +674,7 @@ body, .workspace, .placeholder, .empty-screen {
   background-size: 100px 100px, 100px 100px, 20px 20px, 20px 20px;
 }
 .react-flow { background: var(--bg); }
-.toolbar, .sidebar, .inspector, .console { background: rgba(4, 4, 4, 0.94); backdrop-filter: blur(2px); }
+.toolbar, .sidebar, .inspector, .console { background: rgba(4, 4, 4, 0.94); }
 .code-node, .arch-node, .unit-node { background: rgba(10, 10, 10, 0.96); box-shadow: 0 1px 0 #000, 0 6px 18px rgba(0, 0, 0, 0.6); }
 .code-node.selected, .arch-node.selected { border-color: var(--text); box-shadow: 0 0 0 2px rgba(236, 236, 236, 0.25); }
 .react-flow__minimap { background: #050505 !important; border: 1px solid var(--border); }

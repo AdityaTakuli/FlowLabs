@@ -13,3 +13,4 @@ generated/
 # build output and installed packages
 node_modules/
 apps/web/dist/
+examples/ml-lab/data/

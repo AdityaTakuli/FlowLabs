@@ -8,7 +8,7 @@ export type Positions = Record<string, { x: number; y: number }>;
  * Node positions the user dragged, per file and view, stored in the project's .flowlab/layouts.
  * Nodes the user never moved keep their automatic layout; "reset" forgets every moved node.
  */
-export function useSavedLayout(api: Api, file: string | null, view: string) {
+export function useSavedLayout(api: Api, file: string | null, view: string, onSelect?: (id: string) => void) {
   const [moved, setMoved] = useState<Positions>({});
   const movedRef = useRef<Positions>({});
   movedRef.current = moved;
@@ -47,6 +47,9 @@ export function useSavedLayout(api: Api, file: string | null, view: string) {
       let next: Positions | null = null;
       let finished = false;
       for (const change of changes) {
+        // Selection is controlled by the app: pass React Flow's own selection on instead of
+        // ignoring it, or the card flips between selected and unselected on every drag frame.
+        if (change.type === "select" && change.selected) onSelect?.(change.id);
         if (change.type !== "position") continue;
         if (change.position) {
           next = next ?? { ...movedRef.current };
@@ -57,7 +60,7 @@ export function useSavedLayout(api: Api, file: string | null, view: string) {
       if (next) setMoved(next);
       if (finished) persist(next ?? movedRef.current);
     },
-    [persist],
+    [persist, onSelect],
   );
 
   const reset = useCallback(() => {

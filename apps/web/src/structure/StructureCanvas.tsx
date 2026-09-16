@@ -226,7 +226,7 @@ export function StructureCanvas(props: StructureCanvasProps) {
   const shape = visible.nodes.map((n) => n.id).join("|") + "#" + visible.edges.map((e) => `${e.from}>${e.to}`).join("|");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const auto = useMemo(() => autoLayout(visible.nodes, visible.edges), [shape]);
-  const layout = useSavedLayout(api, graph.file, "structure");
+  const layout = useSavedLayout(api, graph.file, "structure", props.onSelect);
   const { reset, hasMoved } = layout;
   const { resetSignal, onLayoutMoved } = props;
   useEffect(() => {
