@@ -30,7 +30,7 @@ describe("workspace routing", () => {
     expect(filesForLanguage(["a.py", "main.go"], info, "Go")).toEqual(["main.go"]);
     expect(filesForLanguage(["a.py", "main.go"], info, "all")).toEqual(["a.py", "main.go"]);
     expect(languageIcon("Go", "main.go")).toBe("Go");
-    expect(languageIcon("Python", "x.ipynb")).toBe("📓");
+    expect(languageIcon("Python", "x.ipynb")).toBe("NB");
   });
 });
 

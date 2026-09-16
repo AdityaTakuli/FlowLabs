@@ -1,5 +1,6 @@
 import type { GraphWarning, KernelInfo, ProjectInfo, Resources } from "../types";
 import { languageIcon, type FileKind, type LanguageSummary } from "../structure/types";
+import { Icon } from "./Icon";
 
 export type KernelAction = "start" | "stop" | "restart" | "interrupt" | "clean";
 
@@ -76,7 +77,7 @@ export function Sidebar({ project, file, files, fileInfo, languages, language, o
         <section className="kernel-panel">
           <h2>Kernel</h2>
           <div className={`kernel-status status-${kernel.status}`}>
-            <span aria-hidden>●</span> {KERNEL_LABEL[kernel.status]}
+            <Icon name="dot" size={10} /> {KERNEL_LABEL[kernel.status]}
             {kernel.running && <span className="dim"> · {kernel.running}</span>}
           </div>
           {kernel.python && (
@@ -92,7 +93,7 @@ export function Sidebar({ project, file, files, fileInfo, languages, language, o
             ) : (
               <>
                 <button disabled={kernel.status !== "busy"} onClick={() => onKernel("interrupt")}>
-                  ■ Interrupt
+                  <Icon name="stop" size={11} /> Interrupt
                 </button>
                 <button disabled={kernel.status === "busy"} onClick={() => onKernel("restart")}>
                   Restart
@@ -139,7 +140,7 @@ export function Sidebar({ project, file, files, fileInfo, languages, language, o
 
       {project && (
         <section className="privacy">
-          <div className={`badge ${project.config.local_only ? "local" : ""}`}>{project.config.local_only ? "🔒 Local-only" : "Previews enabled"}</div>
+          <div className={`badge ${project.config.local_only ? "local" : ""}`}>{project.config.local_only ? <><Icon name="lock" size={11} /> Local-only</> : "Previews enabled"}</div>
           <div className="small dim">Runs on this machine. Nothing is uploaded by this canvas.</div>
         </section>
       )}

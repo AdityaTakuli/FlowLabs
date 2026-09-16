@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { Icon } from "./Icon";
 
 export interface ConsoleLine {
   id: number;
@@ -6,6 +7,8 @@ export interface ConsoleLine {
   kind: "stdout" | "stderr" | "info" | "error";
   node: string | null;
   text: string;
+  /** The line has not ended yet (no newline): the next chunk continues or, after a carriage return, replaces it. */
+  open?: boolean;
 }
 
 interface ConsoleProps {
@@ -27,7 +30,7 @@ export function Console({ lines, open, badge, onToggle, onClear, onSelect }: Con
     <footer className="console">
       <div className="console-head">
         <button className="link-button" onClick={onToggle} aria-expanded={open}>
-          {open ? "▾" : "▸"} Console
+          <Icon name={open ? "chevronDown" : "chevronRight"} size={11} /> Console
         </button>
         <span className="dim small">{lines.length} lines</span>
         <div className="spacer" />

@@ -1,6 +1,5 @@
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import {
-  Background,
   Controls,
   Handle,
   MarkerType,
@@ -30,16 +29,18 @@ import {
   type ConnectionRequest,
 } from "./model";
 import type { CatalogueNode, CompileIssue, FlowNodeState, FlowSpec, NodeSpec } from "./types";
+import { Icon, type IconName } from "../components/Icon";
+import { PaperBackground } from "../components/PaperBackground";
 
-const STATE_ICON: Record<FlowNodeState, { icon: string; text: string }> = {
-  idle: { icon: "○", text: "idle" },
-  queued: { icon: "⋯", text: "queued" },
-  running: { icon: "◐", text: "running" },
-  success: { icon: "✓", text: "ran" },
-  cached: { icon: "⚡", text: "cached" },
-  warning: { icon: "⚠", text: "warnings" },
-  error: { icon: "✕", text: "failed" },
-  skipped: { icon: "–", text: "skipped" },
+const STATE_ICON: Record<FlowNodeState, { icon: IconName; text: string }> = {
+  idle: { icon: "dot", text: "idle" },
+  queued: { icon: "more", text: "queued" },
+  running: { icon: "refresh", text: "running" },
+  success: { icon: "check", text: "ran" },
+  cached: { icon: "bolt", text: "cached" },
+  warning: { icon: "warning", text: "warnings" },
+  error: { icon: "error", text: "failed" },
+  skipped: { icon: "minus", text: "skipped" },
 };
 
 interface FlowNodeData extends Record<string, unknown> {
@@ -79,12 +80,12 @@ const FlowNodeView = memo(function FlowNodeView({ data, selected }: NodeProps<Fl
       <div className="flow-node-badges">
         {errors.length > 0 && (
           <span className="badge-count error" title={errors.map((e) => `${e.code}: ${e.message}`).join("\n")}>
-            ✕ {errors.length}
+            <Icon name="error" size={10} /> {errors.length}
           </span>
         )}
         {warnings.length > 0 && (
           <span className="badge-count warning" title={warnings.map((w) => `${w.code}: ${w.message}`).join("\n")}>
-            ⚠ {warnings.length}
+            <Icon name="warning" size={10} /> {warnings.length}
           </span>
         )}
         {outdated && (
@@ -95,13 +96,13 @@ const FlowNodeView = memo(function FlowNodeView({ data, selected }: NodeProps<Fl
       </div>
       <div className="flow-node-head">
         <span className="flow-node-icon" aria-hidden>
-          {categoryIcon(entry?.category ?? "")}
+          <Icon name={categoryIcon(entry?.category ?? "")} size={12} />
         </span>
         <span className="flow-node-label" title={title}>
           {title}
         </span>
         <span className={`state-pill flow-state-${state}`} title={status.text}>
-          <span aria-hidden>{status.icon}</span> {status.text}
+          <span aria-hidden><Icon name={status.icon} size={10} /></span> {status.text}
         </span>
       </div>
       <div className="flow-node-sub">
@@ -367,7 +368,7 @@ function Canvas(props: FlowCanvasProps) {
           proOptions={{ hideAttribution: true }}
           colorMode="dark"
         >
-          <Background gap={20} size={1} color="var(--grid)" />
+          <PaperBackground />
           <Controls showInteractive={false} />
           <MiniMap
             pannable

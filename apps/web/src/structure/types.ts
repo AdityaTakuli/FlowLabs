@@ -77,12 +77,12 @@ export const KIND_ICON: Record<StructureNodeKind, string> = {
   function: "ƒ",
   method: "m",
   class: "C",
-  module: "▶",
-  external: "↗",
+  module: "M",
+  external: "E",
 };
 
 const LANGUAGE_ICON: Record<string, string> = {
-  Python: "🐍",
+  Python: "Py",
   TypeScript: "TS",
   JavaScript: "JS",
   Go: "Go",
@@ -98,7 +98,7 @@ const LANGUAGE_ICON: Record<string, string> = {
 };
 
 export function languageIcon(name: string | undefined, file: string): string {
-  if (file.endsWith(".ipynb")) return "📓";
+  if (file.endsWith(".ipynb")) return "NB";
   return (name && LANGUAGE_ICON[name]) || "{}";
 }
 

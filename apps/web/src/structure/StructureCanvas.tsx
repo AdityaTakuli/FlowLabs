@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import dagre from "@dagrejs/dagre";
 import {
-  Background,
   Controls,
   Handle,
   MarkerType,
@@ -17,6 +16,8 @@ import type { Api } from "../api";
 import { CodeEditor } from "../components/CodeEditor";
 import { KIND_ICON, structureNeighbours, visibleStructure, type StructureEdge, type StructureGraph, type StructureNode } from "./types";
 import { useSavedLayout, withMoved, type Positions } from "./useSavedLayout";
+import { Icon } from "../components/Icon";
+import { PaperBackground } from "../components/PaperBackground";
 
 const W = 260;
 const H = 92;
@@ -66,7 +67,7 @@ function UnitCard({ data, selected }: NodeProps<CardNode>) {
         </span>
         {node.kind === "class" && data.memberCount > 0 && (
           <button className="nodrag unit-collapse" title={data.collapsed ? "Show members" : "Fold members into the class"} onClick={(e) => (e.stopPropagation(), data.onToggle(node.id))}>
-            {data.collapsed ? `▸ ${data.memberCount}` : "▾"}
+            {data.collapsed ? <><Icon name="chevronRight" size={10} /> {data.memberCount}</> : <Icon name="chevronDown" size={10} />}
           </button>
         )}
       </div>
@@ -88,11 +89,11 @@ function UnitCard({ data, selected }: NodeProps<CardNode>) {
       <div className="code-node-actions">
         {node.editable ? (
           <button className="nodrag" title="Edit this unit here (or double-click it)" onClick={(e) => (e.stopPropagation(), data.onEdit(node.id))}>
-            ✎
+            <Icon name="edit" size={11} />
           </button>
         ) : node.kind === "external" ? (
           <button className="nodrag" title={`Open ${node.file}`} onClick={(e) => (e.stopPropagation(), data.onOpenFile(node.file))}>
-            ↗
+            <Icon name="external" size={11} />
           </button>
         ) : null}
       </div>
@@ -149,7 +150,7 @@ export function UnitEditor({ node, monaco, onSave, onClose }: { node: StructureN
         {dirty && <span className="unsaved small">unsaved</span>}
         <div className="spacer" />
         <button className="link-button" onClick={onClose} aria-label="Close editor">
-          ✕
+          <Icon name="close" size={12} />
         </button>
       </div>
       <div className="inline-editor-frame">
@@ -312,7 +313,7 @@ export function StructureCanvas(props: StructureCanvasProps) {
       proOptions={{ hideAttribution: true }}
       colorMode="dark"
     >
-      <Background gap={24} size={1} color="var(--grid)" />
+      <PaperBackground />
       <Controls showInteractive={false} />
       {!props.editingId && <MiniMap pannable zoomable nodeColor={(n) => ((n.data as CardData).node.kind === "external" ? "#8957e5" : (n.data as CardData).node.kind === "class" ? "#1f6feb" : "#30363d")} maskColor="rgba(1,4,9,0.6)" />}
     </ReactFlow>

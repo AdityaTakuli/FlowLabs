@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { CodeNode } from "../types";
 import { CodeEditor } from "./CodeEditor";
+import { Icon } from "./Icon";
 
 /** Edit a block right on the canvas. Saving rewrites only this block; downstream blocks turn stale. */
 export interface SourceProblem {
@@ -73,7 +74,7 @@ export function InlineEditor({
         {dirty && <span className="unsaved small">unsaved</span>}
         <div className="spacer" />
         <button className="link-button" onClick={onClose} aria-label="Close editor">
-          ✕
+          <Icon name="close" size={12} />
         </button>
       </div>
       <div className="inline-editor-frame">

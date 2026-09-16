@@ -14,6 +14,7 @@ import type {
   RunEvent,
   RunManifest,
 } from "./types";
+import type { IconName } from "../components/Icon";
 
 export const FLOW_NODE_WIDTH = 230;
 const NODE_BASE_HEIGHT = 70;
@@ -42,21 +43,21 @@ export const PORT_COLOUR: Record<PortType, string> = {
   report: "#8b949e",
 };
 
-const CATEGORY_ICON: Record<string, string> = {
-  source: "⛁",
-  profile: "◔",
-  clean: "✧",
-  prep: "⚙",
-  transform: "⇄",
-  stats: "∑",
-  model: "◆",
-  viz: "▦",
-  sink: "⇩",
-  control: "⎇",
+const CATEGORY_ICON: Record<string, IconName> = {
+  source: "database",
+  profile: "eye",
+  clean: "filter",
+  prep: "gear",
+  transform: "swap",
+  stats: "sigma",
+  model: "model",
+  viz: "chart",
+  sink: "download",
+  control: "branch",
 };
 
-export function categoryIcon(category: string): string {
-  return CATEGORY_ICON[category] ?? "●";
+export function categoryIcon(category: string): IconName {
+  return CATEGORY_ICON[category] ?? "dot";
 }
 
 export function sharedTypes(a: PortType[], b: PortType[]): PortType[] {

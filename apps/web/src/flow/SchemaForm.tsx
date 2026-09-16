@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { filterColumns } from "./model";
 import type { ColumnSchema, JsonSchema } from "./types";
+import { Icon } from "../components/Icon";
 
 /**
  * Param form generated from a node's JSON Schema (PRD 11.3). Adding a node to the catalogue never
@@ -419,7 +420,7 @@ function MapEditor({ valueSchema, root, value, onChange, columns }: { valueSchem
           </span>
           {renderValue(current, (v) => commit(entries.map((entry, j) => (j === i ? [key, v] : entry))))}
           <button className="link-button" aria-label={`Remove ${key}`} onClick={() => commit(entries.filter((_, j) => j !== i))}>
-            ✕
+            <Icon name="close" size={12} />
           </button>
         </div>
       ))}

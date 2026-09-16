@@ -4,6 +4,7 @@ import { OutputList } from "./RichOutput";
 import { formatCount, formatDuration } from "../layout";
 import type { CodeGraph, RunMode, SessionState } from "../types";
 import { STATE_LABEL } from "./GraphCanvas";
+import { Icon } from "./Icon";
 
 interface LinearViewProps {
   api: Api;
@@ -81,10 +82,10 @@ export function LinearView({ api, file, graph, session, selectedId, kernelReady,
                 </span>
               )}
               <button disabled={!kernelReady} onClick={(e) => (e.stopPropagation(), onRun(node.id, "node"))} title="Run this block">
-                ▶
+                <Icon name="play" size={12} />
               </button>
               <button disabled={!kernelReady} onClick={(e) => (e.stopPropagation(), onRun(node.id, "to"))} title="Run to here">
-                ⇣
+                <Icon name="runTo" size={12} />
               </button>
             </div>
             <pre className="cell-code">{node.source}</pre>

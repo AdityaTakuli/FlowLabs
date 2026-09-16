@@ -3,6 +3,7 @@ import { ApiError, type Api } from "../api";
 import type { InspectPayload } from "../types";
 import type { EdgeTarget } from "./GraphCanvas";
 import { VariableCard } from "./Inspector";
+import { Icon } from "./Icon";
 
 /** What travels along an edge: the variables the upstream block produced, as captured at its last run. */
 export function EdgePanel({
@@ -53,7 +54,7 @@ export function EdgePanel({
         <div className="spacer" />
         {data && <span className="dim small">captured {new Date(data.started_at).toLocaleTimeString()}</span>}
         <button className="link-button" onClick={onClose} aria-label="Close">
-          ✕
+          <Icon name="close" size={12} />
         </button>
       </header>
       <div className="edge-panel-body">

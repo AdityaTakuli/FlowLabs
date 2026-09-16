@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import {
-  Background,
   BaseEdge,
   Controls,
   EdgeLabelRenderer,
@@ -30,20 +29,33 @@ import {
   visibleEdges,
 } from "../layout";
 import type { Api } from "../api";
-import type { CodeGraph, CodeNode, ExecutionRecord, NodeState, RunMode, SessionState } from "../types";
+import type { CodeGraph, CodeNode, ExecutionRecord, LiveRun, MetricPoint, NodeState, RunMode, SessionState } from "../types";
+import { Icon, type IconName } from "./Icon";
+import { latestValues } from "./MetricsChart";
+import { PaperBackground } from "./PaperBackground";
 import { useSavedLayout, withMoved } from "../structure/useSavedLayout";
 import { InlineEditor, type SourceProblem } from "./InlineEditor";
 
 export type HeatMode = "off" | "time" | "memory";
 
-export const STATE_LABEL: Record<NodeState, { icon: string; text: string }> = {
-  idle: { icon: "○", text: "idle" },
-  running: { icon: "◐", text: "running" },
-  success: { icon: "✓", text: "ran" },
-  error: { icon: "✕", text: "error" },
-  stale: { icon: "↻", text: "stale" },
-  interrupted: { icon: "■", text: "stopped" },
+export const STATE_LABEL: Record<NodeState, { icon: IconName; text: string }> = {
+  idle: { icon: "dot", text: "idle" },
+  running: { icon: "refresh", text: "running" },
+  success: { icon: "check", text: "ran" },
+  error: { icon: "error", text: "error" },
+  stale: { icon: "refresh", text: "stale" },
+  interrupted: { icon: "stop", text: "stopped" },
 };
+
+const PREFERRED_METRICS = ["val_loss", "loss", "val_acc", "val_accuracy", "accuracy", "acc", "roc_auc", "f1"];
+
+/** The one metric worth showing on a card: validation loss first, then training loss, then scores. */
+export function headlineMetric(points: MetricPoint[]): [string, number] | null {
+  if (!points.length) return null;
+  const latest = latestValues(points);
+  const name = PREFERRED_METRICS.find((m) => m in latest) ?? Object.keys(latest)[0];
+  return name === undefined ? null : [name, latest[name]!];
+}
 
 export interface EdgeTarget {
   from: string;
@@ -61,6 +73,9 @@ interface NodeData extends Record<string, unknown> {
   heat: number | null;
   kernelReady: boolean;
   editing: boolean;
+  progress: number | null;
+  metric: [string, number] | null;
+  model: string | null;
   onRun: (nodeId: string, mode: RunMode) => void;
   onEdit: (nodeId: string | null) => void;
   onSaveSource: (nodeId: string, source: string) => Promise<boolean>;
@@ -124,7 +139,7 @@ function CodeNodeView({ data, selected }: NodeProps<CodeFlowNode>) {
         </span>
         {!undefinedNode && (
           <span className={`state-pill state-${state}`}>
-            <span aria-hidden>{label.icon}</span> {label.text}
+            <Icon name={label.icon} size={10} /> {label.text}
           </span>
         )}
       </div>
@@ -132,10 +147,24 @@ function CodeNodeView({ data, selected }: NodeProps<CodeFlowNode>) {
         {node.matched_pattern && <span className="chip pattern">{node.matched_pattern}</span>}
         {node.confidence !== "high" && <span className={`chip conf-${node.confidence}`}>{node.confidence} confidence</span>}
         {node.loop_carried.length > 0 && <span className="chip">⟳ loop</span>}
-        {warnings > 0 && <span className="chip warn">⚠ {warnings}</span>}
+        {data.model && (
+          <span className="chip model-chip-dl" title={data.model}>
+            <Icon name="model" size={10} /> {data.model.split(" · ").slice(1).join(" · ") || data.model}
+          </span>
+        )}
+        {data.metric && (
+          <span className="chip metric-chip" title="Latest training metric (Training tab)">
+            {data.metric[0]} {Number(data.metric[1].toPrecision(3))}
+          </span>
+        )}
+        {warnings > 0 && (
+          <span className="chip warn">
+            <Icon name="warning" size={10} /> {warnings}
+          </span>
+        )}
         {outputs > 0 && (
           <span className="chip" title={`${outputs} displayed output(s): see the Output tab`}>
-            ▣ {outputs}
+            <Icon name="output" size={10} /> {outputs}
           </span>
         )}
       </div>
@@ -143,21 +172,26 @@ function CodeNodeView({ data, selected }: NodeProps<CodeFlowNode>) {
       {!undefinedNode && (
         <div className="code-node-actions">
           <button className="nodrag" title="Edit this block here (or double-click it)" onClick={(e) => (e.stopPropagation(), data.onEdit(node.id))}>
-            ✎
+            <Icon name="edit" size={11} />
           </button>
           {data.kernelReady && (
             <>
               <button className="nodrag" title="Run this block only" onClick={(e) => (e.stopPropagation(), data.onRun(node.id, "node"))}>
-                ▶
+                <Icon name="play" size={11} />
               </button>
               <button className="nodrag" title="Run to here (ancestors first)" onClick={(e) => (e.stopPropagation(), data.onRun(node.id, "to"))}>
-                ⇣
+                <Icon name="runTo" size={11} />
               </button>
               <button className="nodrag" title="Run from here (and descendants)" onClick={(e) => (e.stopPropagation(), data.onRun(node.id, "from"))}>
-                ⇊
+                <Icon name="runFrom" size={11} />
               </button>
             </>
           )}
+        </div>
+      )}
+      {state === "running" && data.progress !== null && (
+        <div className="node-progress" role="progressbar" aria-valuenow={Math.round(data.progress * 100)} aria-valuemin={0} aria-valuemax={100}>
+          <span style={{ width: `${data.progress * 100}%` }} />
         </div>
       )}
       <Handle type="source" position={Position.Bottom} isConnectable={false} />
@@ -238,6 +272,8 @@ export interface GraphCanvasProps {
   onEdit: (nodeId: string | null) => void;
   onSaveSource: (nodeId: string, source: string) => Promise<boolean>;
   onCheckSource: (nodeId: string, source: string) => Promise<SourceProblem | null>;
+  /** Metrics and progress streamed from blocks while they run. */
+  live?: Record<string, LiveRun>;
 }
 
 export function GraphCanvas(props: GraphCanvasProps) {
@@ -279,6 +315,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
   const kernelReady = session?.kernel.status === "idle";
   const nodes: CodeFlowNode[] = graph.nodes.map((node) => {
     const entry = session?.nodes[node.id];
+    const streamed = props.live?.[node.id];
+    const points = streamed?.metrics.length ? streamed.metrics : (entry?.metrics ?? []);
+    const model = Object.values(entry?.values ?? {}).find((v) => v.kind === "model")?.text ?? null;
     return {
       id: node.id,
       type: "code",
@@ -296,6 +335,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
         heat: heatValues ? (heatValues.get(node.id) ?? 0) : null,
         kernelReady,
         editing: node.id === props.editingId,
+        progress: streamed?.progress ?? null,
+        metric: headlineMetric(points),
+        model,
         onRun: props.onRun,
         onEdit: props.onEdit,
         onSaveSource: props.onSaveSource,
@@ -357,9 +399,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
       proOptions={{ hideAttribution: true }}
       colorMode="dark"
     >
-      <Background gap={24} size={1} color="var(--grid)" />
+      <PaperBackground />
       <Controls showInteractive={false} />
-      <MiniMap pannable zoomable nodeColor={(n) => ((n.data as NodeData).node.kind === "undefined" ? "#f85149" : "#30363d")} maskColor="rgba(1,4,9,0.6)" />
+      <MiniMap pannable zoomable nodeColor={(n) => ((n.data as NodeData).node.kind === "undefined" ? "#fb7185" : "#2a2a2a")} maskColor="rgba(1,4,9,0.6)" />
     </ReactFlow>
   );
 }

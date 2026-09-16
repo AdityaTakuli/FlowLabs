@@ -267,6 +267,10 @@ def create_app(
     def structure_revert(body: FileRequest) -> dict[str, Any]:
         return bench.structure.revert(body.file)
 
+    @app.get("/api/project-graph")
+    def project_graph(language: str | None = None) -> dict[str, Any]:
+        return bench.structure.project_graph(language)
+
     @app.get("/api/layout")
     def layout(file: str, view: str = "structure") -> dict[str, Any]:
         return bench.structure.layout(file, view)

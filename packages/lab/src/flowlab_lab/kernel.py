@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 from .codegraph import CodeGraph, GraphWarning
 from .diff import DataDiff, diff_summaries, pick_variables
 from .kernel_helpers import HELPER_CODE, HELPER_NAME
+from .metrics import MAX_POINTS, METRIC_MIME, MetricParser, MetricPoint
 from .outputs import OutputStore, RichOutput
 from .project import LabProject
 from .resources import MemorySampler, host_environment, process_memory_mb, system_resources
@@ -84,6 +85,7 @@ class ExecutionRecord(BaseModel):
     rich_outputs: list[RichOutput] = Field(default_factory=list)
     error: ExecutionError | None = None
     warnings: list[GraphWarning] = Field(default_factory=list)
+    metrics: list[dict[str, Any]] = Field(default_factory=list)  # training metrics seen while running
 
 
 def _max_rows(summaries: dict[str, dict[str, Any]]) -> int | None:
@@ -352,12 +354,31 @@ class LabSession:
             stderr: list[str] = []
             outputs: list[str] = []
             rich_outputs: list[RichOutput] = []
+            parsers = {"stdout": MetricParser(), "stderr": MetricParser()}
+            metrics: list[MetricPoint] = []
+            shown_progress: list[int] = [-1]
+
+            def publish(points: list[MetricPoint]) -> None:
+                for point in points:
+                    if len(metrics) < MAX_POINTS:
+                        metrics.append(point)
+                    self._emit("metric", node_id, **point.as_dict())
 
             def hook(message: dict[str, Any]) -> None:
                 kind, content = message["header"]["msg_type"], message["content"]
                 if kind == "stream":
-                    (stdout if content.get("name") == "stdout" else stderr).append(content.get("text", ""))
-                    self._emit("stream", node_id, name=content.get("name"), text=content.get("text", ""))
+                    name = "stdout" if content.get("name") == "stdout" else "stderr"
+                    text = content.get("text", "")
+                    (stdout if name == "stdout" else stderr).append(text)
+                    self._emit("stream", node_id, name=content.get("name"), text=text)
+                    points, progress = parsers[name].feed(text)
+                    publish(points)
+                    if progress is not None and round(progress * 100) != shown_progress[0]:
+                        shown_progress[0] = round(progress * 100)
+                        self._emit("progress", node_id, fraction=progress)
+                elif kind in ("execute_result", "display_data") and METRIC_MIME in content.get("data", {}):
+                    logged = parsers["stdout"].log(content["data"][METRIC_MIME])
+                    publish([logged] if logged is not None else [])
                 elif kind in ("execute_result", "display_data"):
                     data = content.get("data", {})
                     text = data.get("text/plain", "")
@@ -396,6 +417,8 @@ class LabSession:
                     )
             duration_ms = round((time.perf_counter() - began) * 1000)
             self._running = None
+            for parser in parsers.values():
+                publish(parser.flush())
 
             if not self.is_alive():
                 self._emit("kernel_died", node_id, last_memory_mb=sampler.last_mb)
@@ -420,7 +443,7 @@ class LabSession:
                 peak_memory_mb=sampler.peak_mb, memory_delta_mb=sampler.peak_delta_mb,
                 rows_in=_max_rows(before), rows_out=_max_rows(after), execution_count=count,
                 stdout="".join(stdout), stderr="".join(stderr), outputs=outputs, rich_outputs=rich_outputs,
-                error=error, warnings=warnings,
+                error=error, warnings=warnings, metrics=[p.as_dict() for p in metrics],
             )  # fmt: skip
             self.last_run[node_id] = record
             if sampler.peak_mb is not None:

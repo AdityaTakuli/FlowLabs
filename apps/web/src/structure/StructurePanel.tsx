@@ -1,5 +1,6 @@
 import type { StructureEdge, StructureGraph, StructureNode } from "./types";
 import { KIND_ICON } from "./types";
+import { Icon } from "../components/Icon";
 
 /** Inspector for the structure graph: one unit, one call edge, or the file overview. */
 export function StructurePanel({
@@ -71,12 +72,12 @@ export function StructurePanel({
         <div className="button-row">
           {node.editable && (
             <button className="primary" onClick={() => onEdit(node.id)}>
-              ✎ Edit on canvas
+              <Icon name="edit" /> Edit on canvas
             </button>
           )}
           {node.kind === "external" && (
             <button className="primary" onClick={() => onOpenFile(node.file)}>
-              ↗ Open {node.file}
+              <Icon name="external" /> Open {node.file}
             </button>
           )}
         </div>
@@ -162,7 +163,7 @@ export function StructurePanel({
         <li>Every card is a function, method or class. Arrows are calls; the label shows the function called and the arguments travel with it (click an arrow to see each call site).</li>
         <li>Drag cards anywhere: the arrangement is saved for this file. “Reset layout” returns to the automatic one.</li>
         <li>Double-click a card to edit just that unit. Saves that would break the syntax are refused, and “Undo change” restores the file.</li>
-        <li>Purple ↗ cards live in other files; double-click to open them.</li>
+        <li>Purple cards marked E live in other files; double-click to open them.</li>
         {graph.can_run_cells && <li>This Python file can also open as runnable cells (“Open as cells”), for data analysis and ML work.</li>}
       </ul>
     </div>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, type Api } from "../api";
+import { Icon } from "../components/Icon";
 
 export interface AgentStatus {
   configured: boolean;
@@ -210,11 +211,11 @@ export function AgentPanel({ api, onClose, onOpenScript }: { api: Api; onClose: 
   return (
     <aside className="agent-panel" role="dialog" aria-label="Ask FlowLab">
       <header className="agent-head">
-        <span className="agent-title">✦ Ask FlowLab</span>
+        <span className="agent-title"><Icon name="spark" /> Ask FlowLab</span>
         {status && <span className="chip mono" title="Groq model (set FLOWLAB_LLM_MODEL to change)">{status.model}</span>}
         <div className="spacer" />
         <button className="link-button" onClick={onClose} aria-label="Close">
-          ✕
+          <Icon name="close" size={12} />
         </button>
       </header>
 
@@ -323,7 +324,7 @@ export function AgentPanel({ api, onClose, onOpenScript }: { api: Api; onClose: 
 
         <div className="button-row">
           <button className="primary" disabled={!canAsk} onClick={() => void ask()} title="Ctrl/⌘+Enter">
-            {busy === "ask" ? `Planning… ${elapsed}s` : "✦ Ask"}
+            {busy === "ask" ? `Planning… ${elapsed}s` : "Ask"}
           </button>
           {status && (
             <span className="dim small">
@@ -401,7 +402,7 @@ function ProposalView(props: {
       {draft && (
         <div className="button-row">
           <button disabled={!props.edited || props.busy !== null} onClick={props.onRecompose} title="Assemble the edited plan locally; no LLM call">
-            {props.busy === "compose" ? "Recomposing…" : "↻ Recompose (0 tokens)"}
+            {props.busy === "compose" ? "Recomposing…" : "Recompose (0 tokens)"}
           </button>
           {props.edited && <span className="dim small">Plan edited; recompose to update the script.</span>}
         </div>
@@ -531,7 +532,7 @@ function PlanStepRow({ step, onChange, onRemove }: { step: AgentPlan["steps"][nu
         }}
       />
       <button className="link-button" onClick={onRemove} aria-label={`Remove ${step.use}`}>
-        ✕
+        <Icon name="close" size={12} />
       </button>
     </div>
   );

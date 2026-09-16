@@ -84,7 +84,7 @@ class EventHub:
 def _record_summary(record: ExecutionRecord | None) -> dict[str, Any] | None:
     if record is None:
         return None
-    data = record.model_dump(mode="json")
+    data = record.model_dump(mode="json", exclude={"metrics"})  # sent separately, capped
     for key in ("stdout", "stderr"):
         if len(data[key]) > MAX_STREAM_CHARS:
             data[key] = data[key][-MAX_STREAM_CHARS:]
@@ -106,6 +106,15 @@ def _cap_samples(summaries: dict[str, Any], limit: int) -> dict[str, Any]:
             summary["sample"] = sample[:limit]
         capped[name] = summary
     return capped
+
+
+def _compact(value: Any) -> str:
+    if not isinstance(value, int | float):
+        return "?"
+    for limit, suffix in ((1e9, "B"), (1e6, "M"), (1e3, "k")):
+        if abs(value) >= limit:
+            return f"{value / limit:.1f}".rstrip("0").rstrip(".") + suffix
+    return f"{int(value):,}"
 
 
 def short_value(summary: dict[str, Any]) -> str:
@@ -131,6 +140,22 @@ def short_value(summary: dict[str, Any]) -> str:
     if kind == "estimator":
         name = str(summary.get("type", "")).rsplit(".", 1)[-1]
         return f"{name} (fitted)" if summary.get("fitted") else name
+    if kind == "tensor":
+        shape = "×".join(str(d) for d in summary.get("shape") or []) or "scalar"
+        device = str(summary.get("device") or "cpu")
+        return f"Tensor {shape} · {summary.get('dtype', '')}" + ("" if device == "cpu" else f" · {device}")
+    if kind == "model":
+        name = str(summary.get("type", "")).rsplit(".", 1)[-1]
+        return f"{name} · {_compact(summary.get('params_total'))} params"
+    if kind == "dataloader":
+        return f"DataLoader · {summary.get('batches', '?')} batches × {summary.get('batch_size', '?')}"
+    if kind == "dataset":
+        name = str(summary.get("type", "")).rsplit(".", 1)[-1]
+        return f"{name} · {_compact(summary.get('length'))} items"
+    if kind == "optimizer":
+        name = str(summary.get("type", "")).rsplit(".", 1)[-1]
+        lr = summary.get("lr")
+        return f"{name} · lr {lr:g}" if isinstance(lr, int | float) else name
     if kind == "callable":
         return "function"
     text = " ".join(str(summary.get("repr") or summary.get("type", "")).split())
@@ -406,6 +431,7 @@ class LabService:
                 "state": state,
                 "last_run": _record_summary(record),
                 "values": self._values(record.execution_id) if record else {},
+                "metrics": record.metrics[-1000:] if record else [],
             }
         hidden: list[dict[str, Any]] = []
         if session is not None and running is None and session.is_alive():

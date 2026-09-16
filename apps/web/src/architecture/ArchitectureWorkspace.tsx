@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import dagre from "@dagrejs/dagre";
-import { Background, Controls, Handle, MarkerType, MiniMap, Position, ReactFlow, type Edge, type Node, type NodeProps } from "@xyflow/react";
+import { Controls, Handle, MarkerType, MiniMap, Position, ReactFlow, type Edge, type Node, type NodeProps } from "@xyflow/react";
 import { ApiError, type Api } from "../api";
 import {
   UNASSIGNED_ID,
@@ -15,6 +15,8 @@ import {
   type ArchUnit,
   type Severity,
 } from "./types";
+import { Icon } from "../components/Icon";
+import { PaperBackground } from "../components/PaperBackground";
 
 const NODE_W = 250;
 const NODE_H = 112;
@@ -23,10 +25,10 @@ const KIND_ICON: Record<ArchUnit["kind"], string> = {
   function: "ƒ",
   method: "m",
   class: "C",
-  cell_block: "▤",
-  module_script: "▶",
-  route_handler: "⇄",
-  config_block: "⚙",
+  cell_block: "B",
+  module_script: "S",
+  route_handler: "R",
+  config_block: "K",
 };
 
 type Selection = { kind: "component"; id: string } | { kind: "unit"; id: string } | { kind: "finding"; index: number } | null;
@@ -61,7 +63,7 @@ function ComponentCard({ data, selected }: NodeProps<CardNode>) {
         </span>
         {c.decided_by === "llm" && !data.unassigned && (
           <span className="chip model-chip" title="Named or regrouped by the model">
-            ✦
+            <Icon name="spark" size={11} />
           </span>
         )}
       </div>
@@ -75,8 +77,8 @@ function ComponentCard({ data, selected }: NodeProps<CardNode>) {
         {c.responsibility}
       </div>
       <div className="arch-node-badges">
-        {data.errors > 0 && <span className="badge-count error">✕ {data.errors}</span>}
-        {data.warnings > 0 && <span className="badge-count warning">⚠ {data.warnings}</span>}
+        {data.errors > 0 && <span className="badge-count error"><Icon name="error" size={10} /> {data.errors}</span>}
+        {data.warnings > 0 && <span className="badge-count warning"><Icon name="warning" size={10} /> {data.warnings}</span>}
         {c.confidence !== "high" && <span className={`chip conf-${c.confidence}`}>{c.confidence} confidence</span>}
       </div>
       <Handle type="source" position={Position.Bottom} isConnectable={false} />
@@ -291,7 +293,7 @@ export function ArchitectureWorkspace({ api, modeSwitch, onOpenFile }: { api: Ap
       <header className="toolbar">
         <div className="brand">
           <span className="logo" aria-hidden>
-            ◆
+            <Icon name="logo" />
           </span>{" "}
           FlowLab {modeSwitch}
         </div>
@@ -302,12 +304,12 @@ export function ArchitectureWorkspace({ api, modeSwitch, onOpenFile }: { api: Ap
           </div>
         )}
         <div className="spacer" />
-        {busy && <span className="small status-busy">● {busy}</span>}
+        {busy && <span className="small status-busy"><Icon name="dot" size={10} /> {busy}</span>}
         <button disabled={busy !== null} onClick={() => void run({ use_llm: false })} title="Static analysis only: no model, no tokens">
-          {manifest ? "↻ Re-analyse" : "Analyse project"}
+          {manifest ? "Re-analyse" : "Analyse project"}
         </button>
         <button className="primary" disabled={busy !== null || !manifest} onClick={() => setModelOpen(true)} title="Name components and write responsibilities with the model">
-          ✦ Name with model…
+          <Icon name="spark" /> Name with model…
         </button>
       </header>
 
@@ -419,7 +421,7 @@ export function ArchitectureWorkspace({ api, modeSwitch, onOpenFile }: { api: Ap
               proOptions={{ hideAttribution: true }}
               colorMode="dark"
             >
-              <Background gap={24} size={1} color="var(--grid)" />
+              <PaperBackground />
               <Controls showInteractive={false} />
               <MiniMap pannable zoomable maskColor="rgba(1,4,9,0.6)" />
             </ReactFlow>
@@ -727,7 +729,7 @@ function ArchInspector({
       <ul className="small tips">
         <li>Each card is a component: units that share one responsibility. Click one to see its units and why they were grouped.</li>
         <li>Solid arrows are calls, dashed arrows are data handed from one component to another. Red arrows are dependency cycles or layer violations.</li>
-        <li>Low-confidence components have a dashed border. ✦ marks names or groupings suggested by the model; everything else is static analysis.</li>
+        <li>Low-confidence components have a dashed border. The spark icon marks names or groupings suggested by the model; everything else is static analysis.</li>
         <li>Leakage findings (a transformer fitted before the train/test split) are the most important results.</li>
       </ul>
     </div>
@@ -748,7 +750,7 @@ function UnitList({ ids, derived, onSelect, publicIds }: { ids: string[]; derive
             <span className="mono arch-unit-name">{unit.name}</span>
             {publicIds?.has(id) && (
               <span className="public-star" title="Public surface: used from outside this component">
-                ★
+                <Icon name="star" size={10} />
               </span>
             )}
             {unit.tests.length > 0 && <span className="chip">{unit.tests.length} test{unit.tests.length === 1 ? "" : "s"}</span>}
@@ -822,7 +824,7 @@ function ModelDialog({ onClose, onRun }: { onClose: () => void; onRun: (body: An
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <div className="modal arch-model-dialog" role="dialog" aria-label="Name components with the model" onMouseDown={(e) => e.stopPropagation()}>
-        <h2>✦ Name components with the model</h2>
+        <h2><Icon name="spark" /> Name components with the model</h2>
         <p className="small">
           The model receives <strong>cluster fingerprints</strong> only: unit names and kinds, signatures cut to 100 characters, first docstring lines, imported library names and edge counts. Never function bodies, tests, data or notebook outputs, and credential-looking strings are masked first.
         </p>

@@ -46,6 +46,7 @@ import type {
   RunSummary,
 } from "./types";
 import type { LabEvent } from "../types";
+import { Icon } from "../components/Icon";
 
 type InspectorTab = "params" | "output" | "docs";
 interface Selection {
@@ -447,25 +448,25 @@ export function FlowWorkspace({ api, modeSwitch }: { api: Api; modeSwitch: React
       switch (runEvent.type) {
         case "node_started":
           setRunningNode(node);
-          addLog({ kind: "info", node, text: `▶ ${String(payload.node_type ?? "")}` });
+          addLog({ kind: "info", node, text: `${String(payload.node_type ?? "")} started` });
           break;
         case "node_completed":
           setRunningNode(null);
           addLog({
             kind: "success",
             node,
-            text: payload.cache_hit ? "✓ from cache" : `✓ ${formatDuration(Number(payload.duration_ms ?? 0))}`,
+            text: payload.cache_hit ? "from cache" : `done in ${formatDuration(Number(payload.duration_ms ?? 0))}`,
           });
           break;
         case "node_warning":
-          addLog({ kind: "warning", node, text: `⚠ ${String(payload.code)}: ${String(payload.message)}` });
+          addLog({ kind: "warning", node, text: `${String(payload.code)}: ${String(payload.message)}` });
           break;
         case "node_log":
           addLog({ kind: "info", node, text: String(payload.message ?? "") });
           break;
         case "node_failed":
           setRunningNode(null);
-          addLog({ kind: "error", node, text: `✕ ${String(payload.code)}: ${String(payload.message)}` });
+          addLog({ kind: "error", node, text: `${String(payload.code)}: ${String(payload.message)}` });
           if (node) setSelection({ nodes: [node], edges: [] });
           break;
         default:
@@ -565,7 +566,7 @@ export function FlowWorkspace({ api, modeSwitch }: { api: Api; modeSwitch: React
       <header className="toolbar">
         <div className="brand">
           <span className="logo" aria-hidden>
-            ◆
+            <Icon name="logo" size={14} />
           </span>{" "}
           FlowLab {modeSwitch}
         </div>
@@ -578,14 +579,14 @@ export function FlowWorkspace({ api, modeSwitch }: { api: Api; modeSwitch: React
         </button>
         <div className="segmented" role="group" aria-label="History">
           <button disabled={!history.past.length} onClick={doUndo} title="Undo (Ctrl/⌘+Z)" aria-label="Undo">
-            ↶
+            <Icon name="undo" size={12} />
           </button>
           <button disabled={!history.future.length} onClick={doRedo} title="Redo (Ctrl/⌘+Shift+Z)" aria-label="Redo">
-            ↷
+            <Icon name="redo" size={12} />
           </button>
         </div>
         <button disabled={!spec?.nodes.length} onClick={() => spec && (apply(layoutFlow(spec, index)), setFitKey((k) => k + 1))} title="Arrange nodes left to right">
-          ⇶ Auto-layout
+          <Icon name="graph" /> Auto-layout
         </button>
         <button onClick={() => setQuickAdd(true)} disabled={!spec} title="Add a node (Tab or Ctrl/⌘+K)">
           ＋ Add node
@@ -596,21 +597,21 @@ export function FlowWorkspace({ api, modeSwitch }: { api: Api; modeSwitch: React
             : !compile
               ? "—"
               : errorCount
-                ? `✕ ${errorCount} error${errorCount === 1 ? "" : "s"}`
-                : `✓ Compiles · ${compile.order.length} steps${warningCount ? ` · ⚠ ${warningCount}` : ""}`}
+                ? `${errorCount} error${errorCount === 1 ? "" : "s"}`
+                : `Compiles · ${compile.order.length} steps${warningCount ? ` · ${warningCount} warning${warningCount === 1 ? "" : "s"}` : ""}`}
         </button>
         <div className="spacer" />
         {activeRun ? (
           <button className="danger" onClick={() => void cancel()} title="Stop after the current node">
-            ■ Cancel run
+            <Icon name="stop" /> Cancel run
           </button>
         ) : (
           <button className="primary" disabled={!spec || !compile?.ok} onClick={() => void run()} title="Run the flow (Ctrl/⌘+Enter)">
-            ▶ Run flow
+            <Icon name="play" /> Run flow
           </button>
         )}
         <span className={`conn ${connected ? "on" : "off"}`} title={connected ? "Live updates connected" : "Reconnecting…"}>
-          ● {connected ? "live" : "offline"}
+          <Icon name="dot" size={10} /> {connected ? "live" : "offline"}
         </span>
       </header>
 
@@ -752,7 +753,7 @@ export function FlowWorkspace({ api, modeSwitch }: { api: Api; modeSwitch: React
               Runs {runs.length ? `(${runs.length})` : ""}
             </button>
           </div>
-          {activeRun && <span className="small status-busy">● running {activeRun.runId.slice(-12)}</span>}
+          {activeRun && <span className="small status-busy"><Icon name="dot" size={10} /> running {activeRun.runId.slice(-12)}</span>}
           {displayedRun && !activeRun && (
             <span className={`small run-status-${displayedRun.status}`}>
               showing {displayedRun.status} run from {new Date(displayedRun.started_at).toLocaleString()}
@@ -765,7 +766,7 @@ export function FlowWorkspace({ api, modeSwitch }: { api: Api; modeSwitch: React
             </button>
           )}
           <button className="link-button" onClick={() => setPanel((p) => (p ? null : "log"))} aria-label={panel ? "Collapse panel" : "Expand panel"}>
-            {panel ? "▾" : "▴"}
+            <Icon name={panel ? "chevronDown" : "chevronRight"} size={11} />
           </button>
         </div>
         {panel === "log" && (
@@ -908,7 +909,7 @@ function FlowSidebar(props: {
             <li key={d}>
               <button className={d === props.dataset ? "active" : ""} onClick={() => props.onDataset(d)} title={`${d} — click to profile`}>
                 <span className="file-icon" aria-hidden>
-                  ⛁
+                  <Icon name="database" size={12} />
                 </span>
                 <span className="file-name">{d}</span>
               </button>
@@ -924,7 +925,7 @@ function FlowSidebar(props: {
         {groups.map(([category, nodes]) => (
           <div key={category} className="palette-group">
             <div className="palette-category">
-              {categoryIcon(category)} {category}
+              <Icon name={categoryIcon(category)} size={12} /> {category}
             </div>
             {nodes.map((node) => (
               <button
@@ -978,7 +979,7 @@ function QuickAdd({ catalogue, onPick, onClose }: { catalogue: Catalogue; onPick
           {matches.map((node, i) => (
             <button key={node.type} role="option" aria-selected={i === cursor} className={i === cursor ? "active" : ""} onMouseEnter={() => setCursor(i)} onClick={() => onPick(node.type)}>
               <span>
-                {categoryIcon(node.category)} {node.title}
+                <Icon name={categoryIcon(node.category)} size={12} /> {node.title}
               </span>
               <span className="dim small">{node.type}</span>
             </button>
@@ -1058,7 +1059,7 @@ function NodeInspector(props: {
       <div className="inspector-head">
         <div className="inspector-title">
           <span className={`cat-badge cat-${entry?.category ?? "unknown"}`} aria-hidden>
-            {categoryIcon(entry?.category ?? "")}
+            <Icon name={categoryIcon(entry?.category ?? "")} size={12} />
           </span>
           <input
             className="title-input"
@@ -1090,7 +1091,7 @@ function NodeInspector(props: {
         <div className="tabs" role="tablist">
           {(["params", "output", "docs"] as InspectorTab[]).map((t) => (
             <button key={t} role="tab" aria-selected={props.tab === t} className={props.tab === t ? "active" : ""} onClick={() => props.onTab(t)}>
-              {t === "params" ? `Params${props.issues.length ? ` ⚠${props.issues.length}` : ""}` : t === "output" ? "Output" : "Docs"}
+              {t === "params" ? `Params${props.issues.length ? ` (${props.issues.length})` : ""}` : t === "output" ? "Output" : "Docs"}
             </button>
           ))}
         </div>
@@ -1250,7 +1251,7 @@ function FlowSettings(props: {
                 setBindings(next);
               }}
             >
-              ✕
+              <Icon name="close" size={12} />
             </button>
             {compile?.datasets[ref] && compile.datasets[ref] !== value && <div className="field-help">resolves to {compile.datasets[ref]}</div>}
           </div>
@@ -1277,10 +1278,10 @@ function FlowSettings(props: {
           <div className="dim small">Compiling…</div>
         ) : compile.ok ? (
           <div className="small">
-            <span className="good-text">✓ Compiles</span> · {compile.order.length} steps in order {compile.order.join(" → ")}
+            <span className="good-text"><Icon name="check" size={11} /> Compiles</span> · {compile.order.length} steps in order {compile.order.join(" → ")}
           </div>
         ) : (
-          <div className="small error-text">✕ {compile.errors.length} error(s); the flow cannot run yet.</div>
+          <div className="small error-text"><Icon name="error" size={11} /> {compile.errors.length} error(s); the flow cannot run yet.</div>
         )}
         <IssueList issues={allIssues} onSelectNode={props.onSelectNode} />
         {props.issues.length === 0 && allIssues.length === 0 && compile?.ok && <div className="dim small">No warnings. Rigour checks passed.</div>}
@@ -1324,7 +1325,7 @@ function DatasetPanel({ api, file, spec, onBind }: { api: Api; file: string; spe
       <div className="inspector-head">
         <div className="inspector-title">
           <span className="cat-badge cat-source" aria-hidden>
-            ⛁
+            <Icon name="database" size={12} />
           </span>
           <span className="title-text mono" title={file}>
             {file}

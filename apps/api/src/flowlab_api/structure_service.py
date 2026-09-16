@@ -16,6 +16,7 @@ from typing import Any
 
 from flowlab_lab.languages import FileKind, classify, language_for, summarise
 from flowlab_lab.project import LabProject, PathError
+from flowlab_lab.project_graph import ProjectGraphBuilder
 from flowlab_lab.structure import (
     MAX_FILE_BYTES,
     StructureError,
@@ -40,6 +41,7 @@ class StructureService:
         self.hub = hub
         self._kinds: dict[str, tuple[float, int, FileKind | None]] = {}
         self._lock = threading.Lock()
+        self._project_graph = ProjectGraphBuilder(project.root)
 
     # ------------------------------------------------------------------ languages
     def check_file(self, file: str) -> str:
@@ -176,6 +178,15 @@ class StructureService:
             {"type": "file_changed", "file": file, "data": {"origin": "flowlab", "op": "revert"}}
         )
         return {"restored_from": backup.name, **self.graph(file)}
+
+    def project_graph(self, language: str | None = None) -> dict[str, Any]:
+        """Every source file, grouped by folder, with arrows for calls between files."""
+        graph = self._project_graph.build(self.project.index_code(), language=language)
+        payload = graph.model_dump(mode="json", by_alias=True)
+        for record in payload["files"]:
+            kind = self.kind(record["id"])
+            record["workspace"] = kind.workspace if kind else "structure"
+        return payload
 
     # --------------------------------------------------------------------- layout
     def _layout_path(self, file: str, view: str) -> Path:

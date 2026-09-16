@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, type Api } from "../api";
 import type { FolderListing } from "../types";
+import { Icon } from "./Icon";
 
 const LAST_FILE_KEY = "flowlab-last-file";
 
@@ -83,7 +84,7 @@ export function FolderPicker({ api, onClose }: { api: Api; onClose: () => void }
           <h2>Open folder or file</h2>
           <div className="spacer" />
           <button className="link-button" onClick={onClose} aria-label="Close">
-            ✕
+            <Icon name="close" size={12} />
           </button>
         </header>
         <p className="dim small">
@@ -102,7 +103,7 @@ export function FolderPicker({ api, onClose }: { api: Api; onClose: () => void }
         </form>
         <div className="button-row">
           <button disabled={!listing?.parent} onClick={() => listing?.parent && load(listing.parent)}>
-            ↑ Up
+            Up
           </button>
           <button disabled={!listing} onClick={() => listing && load(listing.home)}>
             ⌂ Home
@@ -138,7 +139,7 @@ export function FolderPicker({ api, onClose }: { api: Api; onClose: () => void }
                 onClick={() => (entry.kind === "dir" ? load(entry.path) : void open(entry.path))}
                 title={entry.kind === "dir" ? "Show this folder" : "Open this file (its folder becomes the project)"}
               >
-                <span aria-hidden>{entry.kind === "dir" ? "📁" : entry.name.endsWith(".ipynb") ? "📓" : "🐍"}</span>
+                <Icon name={entry.kind === "dir" ? "folder" : entry.name.endsWith(".ipynb") ? "notebook" : "file"} />
                 <span className="file-name">{entry.name}</span>
                 {entry.is_project && <span className="chip">project</span>}
               </button>
@@ -159,7 +160,7 @@ export function FolderPicker({ api, onClose }: { api: Api; onClose: () => void }
             }}
           />
           <button disabled={busy} onClick={() => fileInput.current?.click()} title="Copy one .py or .ipynb file into this project's imported/ folder">
-            ⇪ Import a file…
+            <Icon name="file" /> Import a file…
           </button>
           <div className="spacer" />
           <span className="mono small dim picker-current" title={current}>

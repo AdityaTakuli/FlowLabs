@@ -122,7 +122,10 @@ export interface Resources {
 export interface SessionState {
   file: string;
   kernel: KernelInfo;
-  nodes: Record<string, { state: NodeState; last_run: ExecutionRecord | null; values?: Record<string, { kind: string; text: string }> }>;
+  nodes: Record<
+    string,
+    { state: NodeState; last_run: ExecutionRecord | null; values?: Record<string, { kind: string; text: string }>; metrics?: MetricPoint[] }
+  >;
   hidden_state: GraphWarning[];
   resources: Resources;
 }
@@ -142,7 +145,44 @@ export interface ProjectInfo {
 export interface VariableSummary {
   name: string;
   type: string;
-  kind: "dataframe" | "series" | "ndarray" | "estimator" | "scalar" | "collection" | "response" | "callable" | "object";
+  kind:
+    | "dataframe"
+    | "series"
+    | "ndarray"
+    | "tensor"
+    | "model"
+    | "dataloader"
+    | "dataset"
+    | "optimizer"
+    | "estimator"
+    | "scalar"
+    | "collection"
+    | "response"
+    | "callable"
+    | "object";
+  // deep learning (torch / keras)
+  device?: string;
+  requires_grad?: boolean;
+  numel?: number;
+  framework?: "torch" | "keras";
+  params_total?: number | null;
+  params_trainable?: number;
+  layers?: { name: string; type: string; params: number }[];
+  training?: boolean;
+  batch_size?: number | null;
+  batches?: number | null;
+  dataset_length?: number | null;
+  dataset_type?: string;
+  num_workers?: number;
+  shuffle?: boolean;
+  drop_last?: boolean;
+  item?: string | null;
+  lr?: number | null;
+  groups?: number;
+  // fitted sklearn estimators
+  n_features?: number;
+  classes?: string[];
+  importances?: [string, number | null][];
   rows?: number;
   columns?: string[];
   dtypes?: Record<string, string>;
@@ -225,4 +265,17 @@ export interface LabEvent {
   node_id?: string | null;
   ts?: string;
   data: Record<string, unknown>;
+}
+
+/** One training step's metrics, parsed from output or sent with flowlab_log(). */
+export interface MetricPoint {
+  step: number;
+  values: Record<string, number>;
+  source: "output" | "log";
+}
+
+/** What a running block has streamed so far (cleared when it starts again). */
+export interface LiveRun {
+  progress: number | null;
+  metrics: MetricPoint[];
 }

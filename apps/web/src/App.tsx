@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Api, ApiError, initToken } from "./api";
 import { formatDuration } from "./layout";
-import type { CodeGraph, GraphPayload, LabEvent, ProjectInfo, Resources, RunMode, SessionState } from "./types";
+import type { CodeGraph, GraphPayload, LabEvent, LiveRun, MetricPoint, ProjectInfo, Resources, RunMode, SessionState } from "./types";
+import { Icon } from "./components/Icon";
 import { GraphCanvas, type HeatMode } from "./components/GraphCanvas";
 import { Sidebar, type KernelAction } from "./components/Sidebar";
 import { Inspector, type InspectorTab } from "./components/Inspector";
@@ -111,10 +112,10 @@ function Shell({ api }: { api: Api }) {
       ))}
     </span>
     <button className="open-button" onClick={() => setPickerOpen(true)} title="Open a folder or file from this computer">
-      📂 Open
+      <Icon name="folder" /> Open
     </button>
     <button className={`ask-button ${askOpen ? "active" : ""}`} onClick={() => setAskOpen((o) => !o)} title="Ask a question about a dataset; FlowLab builds a script from reviewed snippets">
-      ✦ Ask
+      <Icon name="spark" /> Ask
     </button>
     </>
   );
@@ -180,6 +181,7 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
   const [dismissedSecrets, setDismissedSecrets] = useState<Set<string>>(() => new Set());
   const [edgePanel, setEdgePanel] = useState<EdgeTarget | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [live, setLive] = useState<Record<string, LiveRun>>({});
   const [structure, setStructure] = useState<StructureGraph | null>(null);
   const [structureEdge, setStructureEdge] = useState<StructureEdge | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
@@ -208,6 +210,25 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
   const log = useCallback((line: Omit<ConsoleLine, "id" | "ts">) => {
     const entry: ConsoleLine = { ...line, id: ++lineId.current, ts: new Date().toLocaleTimeString() };
     setConsoleLines((lines) => [...lines.slice(-1999), entry]);
+  }, []);
+  /** Streamed output: chunks continue the open line, and a carriage return (tqdm) rewrites it in place. */
+  const logStream = useCallback((kind: "stdout" | "stderr", node: string | null, text: string) => {
+    setConsoleLines((lines) => {
+      const next = [...lines];
+      const parts = text.split("\n");
+      parts.forEach((part, index) => {
+        const last = index === parts.length - 1;
+        if (last && part === "") return;
+        const rewrite = part.includes("\r");
+        const segment = rewrite ? part.slice(part.lastIndexOf("\r") + 1) : part;
+        const previous = next[next.length - 1];
+        const continues = previous !== undefined && previous.open && previous.node === node && previous.kind === kind;
+        const line: ConsoleLine = { id: ++lineId.current, ts: new Date().toLocaleTimeString(), kind, node, text: segment, open: last };
+        if (continues) next[next.length - 1] = { ...line, text: rewrite ? segment : previous.text + segment };
+        else if (segment.trim() || !rewrite) next.push(line);
+      });
+      return next.slice(-2000);
+    });
   }, []);
 
   const loadGraph = useCallback(
@@ -275,6 +296,7 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
     setSession(null);
     setEdgePanel(null);
     setEditingId(null);
+    setLive({});
     setStructure(null);
     setStructureEdge(null);
     setCollapsed(new Set());
@@ -334,24 +356,25 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
     const data = event.data;
     switch (event.type) {
       case "stream":
-        log({ kind: data.name === "stderr" ? "stderr" : "stdout", node, text: String(data.text ?? "") });
+        logStream(data.name === "stderr" ? "stderr" : "stdout", node, String(data.text ?? ""));
         break;
       case "display": {
         const rich = (data.output as { kind?: string; mime?: string } | undefined) ?? {};
-        if (rich.kind && rich.kind !== "text") log({ kind: "info", node, text: `▣ ${rich.mime} output (open the block's Output tab)` });
+        if (rich.kind && rich.kind !== "text") log({ kind: "info", node, text: `${rich.mime} output (open the block's Output tab)` });
         else if (data.text) log({ kind: "stdout", node, text: String(data.text) });
         break;
       }
       case "node_started":
-        log({ kind: "info", node, text: `▶ ${node} started` });
+        if (node) setLive((current) => ({ ...current, [node]: { progress: null, metrics: [] } }));
+        log({ kind: "info", node, text: `${node} started` });
         scheduleState();
         break;
       case "node_completed":
-        log({ kind: "info", node, text: `✓ ${node} finished in ${formatDuration(data.duration_ms as number)}` });
+        log({ kind: "info", node, text: `${node} finished in ${formatDuration(data.duration_ms as number)}` });
         scheduleState();
         break;
       case "node_failed":
-        log({ kind: "error", node, text: `✕ ${node} ${String(data.status)}` });
+        log({ kind: "error", node, text: `${node} ${String(data.status)}` });
         scheduleState();
         break;
       case "run_finished": {
@@ -363,6 +386,18 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
         scheduleState();
         break;
       }
+      case "metric":
+        if (node) {
+          const point: MetricPoint = { step: Number(data.step), values: data.values as Record<string, number>, source: data.source === "log" ? "log" : "output" };
+          setLive((current) => {
+            const run = current[node] ?? { progress: null, metrics: [] };
+            return { ...current, [node]: { ...run, metrics: [...run.metrics.slice(-4999), point] } };
+          });
+        }
+        break;
+      case "progress":
+        if (node) setLive((current) => ({ ...current, [node]: { metrics: current[node]?.metrics ?? [], progress: Number(data.fraction) } }));
+        break;
       case "kernel_died":
         toast("error", `The kernel died while running ${node}. Restart it from the sidebar.`);
         scheduleState();
@@ -565,7 +600,7 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
       <div className="app console-closed structure-app">
         <header className="toolbar">
           <div className="brand">
-            <span className="logo" aria-hidden>◆</span> FlowLab {modeSwitch}
+            <span className="logo" aria-hidden><Icon name="logo" /></span> FlowLab {modeSwitch}
           </div>
           <div className="file-title" title={fileKind?.reason ?? file}>
             {file}
@@ -583,18 +618,18 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
           </button>
           <div className="spacer" />
           <button disabled={!layoutMoved} onClick={() => setResetSignal((n) => n + 1)} title="Forget where you dragged cards and use the automatic layout">
-            ⟲ Reset layout
+            <Icon name="refresh" /> Reset layout
           </button>
           <button disabled={!canRevert} onClick={() => void revertStructure()} title="Undo the last change FlowLab made to this file">
-            ↶ Undo change
+            <Icon name="undo" /> Undo change
           </button>
           {fileKind?.can_run_cells && (
             <button className="primary" onClick={() => chooseWorkspace("cells")} title="Open this Python file as runnable cells (data analysis / ML)">
-              ▶ Open as cells
+              <Icon name="notebook" /> Open as cells
             </button>
           )}
           <span className={`conn ${connected ? "on" : "off"}`} title={connected ? "Live updates connected" : "Reconnecting…"}>
-            ● {connected ? "live" : "offline"}
+            <Icon name="dot" size={10} /> {connected ? "live" : "offline"}
           </span>
         </header>
         <Sidebar
@@ -648,7 +683,7 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
               />
               {structure.problems.length > 0 && (
                 <div className="preview-note">
-                  ⚠ {structure.problems.length} syntax problem{structure.problems.length === 1 ? "" : "s"} (first on line {structure.problems[0]!.line})
+                  <Icon name="warning" /> {structure.problems.length} syntax problem{structure.problems.length === 1 ? "" : "s"} (first on line {structure.problems[0]!.line})
                 </div>
               )}
             </section>
@@ -689,7 +724,7 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
     <div className={`app ${consoleOpen ? "console-open" : "console-closed"}`}>
       <header className="toolbar">
         <div className="brand">
-          <span className="logo" aria-hidden>◆</span> FlowLab {modeSwitch}
+          <span className="logo" aria-hidden><Icon name="logo" /></span> FlowLab {modeSwitch}
         </div>
         <div className="file-title" title={file ?? ""}>
           {file ?? "no file"}
@@ -697,7 +732,7 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
         </div>
         {fileKind?.language === "python" && !file?.endsWith(".ipynb") && (
           <button onClick={() => chooseWorkspace("structure")} title="Show this file as functions, classes and calls instead of runnable cells">
-            ⧉ Structure view
+            <Icon name="graph" /> Structure view
           </button>
         )}
         <div className="segmented" role="group" aria-label="View">
@@ -727,16 +762,16 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
         </select>
         <div className="spacer" />
         <button disabled={!kernelReady} onClick={() => void run(null, "stale")} title="Re-run blocks whose code or inputs changed">
-          ↻ Run stale
+          <Icon name="refresh" /> Run stale
         </button>
         <button className="primary" disabled={!kernelReady} onClick={() => void run(null, "all")}>
-          ▶ Run all
+          <Icon name="play" /> Run all
         </button>
         <button disabled={!canRevert} onClick={() => void revert()} title="Undo the last change FlowLab made to this file">
-          ↶ Undo change
+          <Icon name="undo" /> Undo change
         </button>
         <span className={`conn ${connected ? "on" : "off"}`} title={connected ? "Live updates connected" : "Reconnecting…"}>
-          ● {connected ? "live" : "offline"}
+          <Icon name="dot" size={10} /> {connected ? "live" : "offline"}
         </span>
       </header>
 
@@ -759,7 +794,7 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
       <main className={`workspace view-${view}`}>
         {payload?.secrets_warning && file && !dismissedSecrets.has(file) && (
           <div className="banner warning" role="alert">
-            <span>🔑 {payload.secrets_warning}</span>
+            <span><Icon name="key" /> {payload.secrets_warning}</span>
             <button onClick={() => setDismissedSecrets((s) => new Set(s).add(file))}>Dismiss</button>
           </div>
         )}
@@ -779,6 +814,7 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
               onSelect={select}
               editingId={editingId}
               onOpenEdge={setEdgePanel}
+              live={live}
               onRun={(nodeId, mode) => void run(nodeId, mode)}
               onEdit={setEditingId}
               onSaveSource={(nodeId, source) => transform("edit", [nodeId], { source })}
@@ -800,7 +836,7 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
               />
             )}
             <button className={`warnings-button ${warningCount ? "has" : ""}`} onClick={() => setWarningsOpen((o) => !o)}>
-              ⚠ {warningCount} warning{warningCount === 1 ? "" : "s"}
+              <Icon name="warning" /> {warningCount} warning{warningCount === 1 ? "" : "s"}
             </button>
             {warningsOpen && (
               <div className="warnings-panel">
@@ -850,6 +886,7 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
         onTransform={transform}
         onPreview={setPreview}
         onDirty={setDirty}
+        live={selectedId ? live[selectedId] : undefined}
       />
 
       <Console

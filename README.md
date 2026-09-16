@@ -103,6 +103,27 @@ flowlab serve --root path/to/your/project                # opens http://127.0.0.
 - Double-click a block (or ✎) to edit its code right on the canvas; **Save & run** re-runs it and
   downstream edges turn stale until they run again.
 
+### Data analysis, ML and deep learning (cells)
+
+Try it: `flowlab serve --root examples/ml-lab`, then run `01_data_processing.py`,
+`02_sklearn_training.py` and `03_torch_training.ipynb` in order.
+
+- **What travels on edges.** DataFrames, arrays and fitted estimators as before, plus PyTorch
+  tensors (`Tensor 3000×8 · float32`), models (`ChurnNet · 1.4k params`), data loaders
+  (`DataLoader · 38 batches × 64`), datasets, optimizers (`AdamW · lr 0.003`) and Keras models.
+  The **Data** tab shows layer tables with parameter counts, tensor min/mean/max, loader batch
+  details, and the top feature importances of fitted sklearn models.
+- **Live training charts, no code changes.** While a cell trains, the printed metrics are charted
+  live in the **Training** tab. Supported shapes: `epoch 3 loss=0.41 val_acc=0.87`,
+  `step 120 | loss: 0.3`, Keras epoch logs, Hugging Face log dicts and `fold 2 roc_auc=0.9`.
+  Lines like `rows 2000` are ignored. For exact control, call `flowlab_log(step=3, loss=0.41)`
+  in any FlowLab kernel (no import needed).
+- **Progress.** tqdm bars drive a progress bar on the running card, and the console updates the
+  bar in place. `tqdm.auto` uses the text bar inside FlowLab, since the canvas does not draw
+  Jupyter widgets.
+- **On the cards.** The latest headline metric (validation loss first) and a model chip.
+  Details: `docs/decisions/0012-ml-dl-lab.md`.
+
 ### Any language: structure graphs, cells only for data work
 
 - Every source file in the folder is listed with its language (Python, TypeScript/JavaScript, Go,

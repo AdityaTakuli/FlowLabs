@@ -7,6 +7,8 @@ import type {
   DiffPayload,
   HistoryEntry,
   InspectPayload,
+  LiveRun,
+  MetricPoint,
   RunMode,
   SessionState,
   VariableSummary,
@@ -14,8 +16,10 @@ import type {
 import { CodeEditor } from "./CodeEditor";
 import { OutputList } from "./RichOutput";
 import { STATE_LABEL } from "./GraphCanvas";
+import { Icon } from "./Icon";
+import { MetricsChart, latestValues, metricGroups } from "./MetricsChart";
 
-export type InspectorTab = "code" | "output" | "data" | "diff" | "profile";
+export type InspectorTab = "code" | "output" | "data" | "training" | "diff" | "profile";
 
 interface InspectorProps {
   api: Api;
@@ -33,6 +37,8 @@ interface InspectorProps {
   onTransform: (op: string, nodeIds: string[], params?: Record<string, unknown>) => Promise<boolean>;
   onPreview: (graph: CodeGraph | null) => void;
   onDirty: (dirty: boolean) => void;
+  /** Metrics and progress streamed while the selected block runs. */
+  live?: LiveRun;
 }
 
 export function Inspector(props: InspectorProps) {
@@ -45,6 +51,7 @@ export function Inspector(props: InspectorProps) {
   const undefinedNode = node.kind === "undefined";
   const lastRun = entry?.last_run ?? null;
   const outputCount = (lastRun?.rich_outputs?.length ?? 0) + (lastRun?.stdout ? 1 : 0);
+  const points: MetricPoint[] = props.live?.metrics.length ? props.live.metrics : (entry?.metrics ?? []);
   return (
     <aside className="inspector">
       <header className="inspector-head">
@@ -53,23 +60,24 @@ export function Inspector(props: InspectorProps) {
           <span className="title-text" title={node.label}>{node.label}</span>
           {!undefinedNode && (
             <span className={`state-pill state-${state}`}>
-              <span aria-hidden>{STATE_LABEL[state].icon}</span> {STATE_LABEL[state].text}
+              <Icon name={STATE_LABEL[state].icon} size={11} /> {STATE_LABEL[state].text}
             </span>
           )}
         </div>
         {!undefinedNode && (
           <div className="button-row">
-            <button disabled={!props.kernelReady} onClick={() => props.onRun(node.id, "node")} title="Run this block with the current kernel state">▶ Run</button>
+            <button disabled={!props.kernelReady} onClick={() => props.onRun(node.id, "node")} title="Run this block with the current kernel state"><Icon name="play" size={12} /> Run</button>
             <button disabled={!props.kernelReady} onClick={() => props.onRun(node.id, "to")} title="Run all ancestors, then this block">Run to here</button>
             <button disabled={!props.kernelReady} onClick={() => props.onRun(node.id, "from")} title="Run this block and everything downstream">Run from here</button>
           </div>
         )}
         <nav className="tabs" role="tablist">
-          {(["code", "output", "data", "diff", "profile"] as InspectorTab[]).map((t) => (
+          {(["code", "output", "data", "training", "diff", "profile"] as InspectorTab[]).map((t) => (
             <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "active" : ""} onClick={() => props.onTab(t)}>
               {TAB_LABEL[t]}
               {t === "output" && outputCount > 0 && <span className="tab-count">{outputCount}</span>}
               {t === "output" && entry?.last_run?.status === "error" && <span className="tab-count bad">!</span>}
+              {t === "training" && points.length > 0 && <span className="tab-count">{points.length}</span>}
             </button>
           ))}
         </nav>
@@ -83,6 +91,8 @@ export function Inspector(props: InspectorProps) {
           <OutputTab api={props.api} file={file} node={node} session={session} onSelect={props.onSelect} />
         ) : tab === "data" ? (
           <DataTab api={props.api} file={file} nodeId={node.id} executionId={entry?.last_run?.execution_id ?? null} focusVariable={props.focusVariable} />
+        ) : tab === "training" ? (
+          <TrainingTab points={points} running={state === "running"} progress={props.live?.progress ?? null} />
         ) : tab === "diff" ? (
           <DiffTab api={props.api} file={file} node={node} graph={graph} session={session} />
         ) : tab === "profile" ? (
@@ -93,7 +103,141 @@ export function Inspector(props: InspectorProps) {
   );
 }
 
-const TAB_LABEL: Record<InspectorTab, string> = { code: "Code", output: "Output", data: "Data", diff: "Diff", profile: "Profile" };
+const TAB_LABEL: Record<InspectorTab, string> = { code: "Code", output: "Output", data: "Data", training: "Training", diff: "Diff", profile: "Profile" };
+
+function metricText(value: number): string {
+  const abs = Math.abs(value);
+  return abs !== 0 && (abs < 0.001 || abs >= 1e6) ? value.toExponential(2) : String(Number(value.toPrecision(4)));
+}
+
+function TrainingTab({ points, running, progress }: { points: MetricPoint[]; running: boolean; progress: number | null }) {
+  if (!points.length) {
+    return (
+      <div className="panel dim training-empty">
+        <p>No training metrics from this block yet.</p>
+        <p className="small">
+          FlowLab charts them live while the block runs, with no code changes: printed lines such as <code>epoch 3 loss=0.41 val_acc=0.87</code>, Keras
+          epoch logs, Hugging Face log dicts, or explicit <code>flowlab_log(step=3, loss=0.41)</code> calls.
+        </p>
+      </div>
+    );
+  }
+  const last = points[points.length - 1]!;
+  return (
+    <div className="training-tab">
+      <div className="dim small">
+        {points.length} points · last step {metricText(last.step)}
+        {running ? " · running" : ""}
+        {running && progress !== null ? ` · current loop ${Math.round(progress * 100)}%` : ""}
+      </div>
+      <dl className="training-latest">
+        {Object.entries(latestValues(points)).map(([name, value]) => (
+          <div key={name}>
+            <dt>{name}</dt>
+            <dd>{metricText(value)}</dd>
+          </div>
+        ))}
+      </dl>
+      {metricGroups(points).map((group) => (
+        <MetricsChart key={group.title} title={group.title} names={group.names} points={points} />
+      ))}
+    </div>
+  );
+}
+
+function ModelDetails({ summary }: { summary: VariableSummary }) {
+  const total = summary.params_total ?? 0;
+  return (
+    <div className="dl-details">
+      <table className="grid">
+        <tbody>
+          <tr><th>framework</th><td>{summary.framework}</td></tr>
+          <tr><th>parameters</th><td>{formatCount(summary.params_total)}{summary.params_trainable !== undefined && summary.params_trainable !== summary.params_total ? ` (${formatCount(summary.params_trainable)} trainable)` : ""}</td></tr>
+          {summary.device && <tr><th>device</th><td>{summary.device}</td></tr>}
+          {summary.training !== undefined && <tr><th>mode</th><td>{summary.training ? "train" : "eval"}</td></tr>}
+        </tbody>
+      </table>
+      {summary.layers && summary.layers.length > 0 && (
+        <table className="layer-table">
+          <thead><tr><th>layer</th><th>type</th><th>params</th></tr></thead>
+          <tbody>
+            {summary.layers.map((layer) => (
+              <tr key={layer.name}>
+                <td>{layer.name}</td>
+                <td className="dim">{layer.type}</td>
+                <td>
+                  {formatCount(layer.params)}
+                  {total > 0 && <span className="dim"> · {Math.round((layer.params / total) * 100)}%</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function LoaderDetails({ summary }: { summary: VariableSummary }) {
+  const rows: [string, string | number | null | undefined][] =
+    summary.kind === "dataloader"
+      ? [["batch size", summary.batch_size], ["batches", summary.batches], ["dataset", `${summary.dataset_type ?? ""} · ${formatCount(summary.dataset_length)} items`], ["shuffle", summary.shuffle ? "yes" : "no"], ["workers", summary.num_workers], ["item", summary.item]]
+      : [["items", formatCount(summary.length)], ["item", summary.item]];
+  return (
+    <table className="grid">
+      <tbody>
+        {rows.filter(([, v]) => v !== undefined && v !== null && v !== "").map(([k, v]) => (
+          <tr key={k}><th>{k}</th><td className="mono">{v}</td></tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function TensorDetails({ summary }: { summary: VariableSummary }) {
+  const stats = summary.stats?.value;
+  return (
+    <table className="grid">
+      <tbody>
+        <tr><th>shape</th><td className="mono">[{(summary.shape ?? []).join(", ")}]</td></tr>
+        <tr><th>dtype</th><td>{summary.dtype}</td></tr>
+        <tr><th>device</th><td>{summary.device}</td></tr>
+        <tr><th>requires grad</th><td>{summary.requires_grad ? "yes" : "no"}</td></tr>
+        {stats && <tr><th>min / mean / max</th><td className="mono">{num(stats.min)} / {num(stats.mean)} / {num(stats.max)}</td></tr>}
+        {summary.null_count ? <tr><th>NaN</th><td className="warn-text">{formatCount(summary.null_count)}</td></tr> : null}
+      </tbody>
+    </table>
+  );
+}
+
+function EstimatorExtras({ summary }: { summary: VariableSummary }) {
+  const top = summary.importances ?? [];
+  const max = Math.max(1e-12, ...top.map(([, v]) => v ?? 0));
+  return (
+    <div className="dl-details">
+      {(summary.n_features !== undefined || summary.classes) && (
+        <div className="dim small">
+          {summary.n_features !== undefined ? `${summary.n_features} features` : ""}
+          {summary.classes ? ` · classes ${summary.classes.join(", ")}` : ""}
+        </div>
+      )}
+      {top.length > 0 && (
+        <table className="layer-table">
+          <thead><tr><th>feature</th><th>importance</th><th /></tr></thead>
+          <tbody>
+            {top.map(([name, value]) => (
+              <tr key={name}>
+                <td>{name}</td>
+                <td style={{ width: "40%" }}><span className="importance-bar" style={{ width: `${((value ?? 0) / max) * 100}%` }} /></td>
+                <td>{num(value)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
 
 function Overview({ graph, session, onSelect }: { graph: CodeGraph; session: SessionState | null; onSelect: (id: string) => void }) {
   const code = graph.nodes.filter((n) => n.kind !== "undefined");
@@ -382,8 +526,14 @@ export function VariableCard({ summary, open }: { summary: VariableSummary; open
       ? `${formatCount(summary.rows)} × ${summary.columns?.length ?? 0}`
       : summary.kind === "series"
         ? `${formatCount(summary.rows)} values`
-        : summary.shape
-          ? summary.shape.join(" × ")
+        : summary.kind === "model"
+          ? `${formatCount(summary.params_total)} params`
+          : summary.kind === "dataloader"
+            ? `${summary.batches ?? "?"} batches × ${summary.batch_size ?? "?"}`
+            : summary.kind === "optimizer"
+              ? `lr ${summary.lr ?? "?"}`
+              : summary.shape
+          ? summary.shape.length ? summary.shape.join(" × ") : "scalar"
           : summary.kind === "response"
             ? `${summary.status ?? "?"} ${summary.reason ?? ""}`
             : summary.length !== undefined
@@ -398,7 +548,14 @@ export function VariableCard({ summary, open }: { summary: VariableSummary; open
         {summary.memory_bytes !== undefined && <span className="dim small">{formatBytes(summary.memory_bytes)}</span>}
       </summary>
       {summary.error && <div className="error-text small">{summary.error}</div>}
-      {summary.repr && <pre className="repr">{summary.repr}</pre>}
+      {summary.kind === "model" && <ModelDetails summary={summary} />}
+      {summary.kind === "tensor" && <TensorDetails summary={summary} />}
+      {(summary.kind === "dataloader" || summary.kind === "dataset") && <LoaderDetails summary={summary} />}
+      {summary.repr && (summary.kind === "model" ? (
+        <details className="model-repr"><summary className="small dim">Module structure</summary><pre className="repr">{summary.repr}</pre></details>
+      ) : (
+        <pre className="repr">{summary.repr}</pre>
+      ))}
       {summary.kind === "response" && <ResponseDetails summary={summary} />}
       {summary.preview !== undefined && (
         <pre className="repr json-preview">
@@ -406,7 +563,8 @@ export function VariableCard({ summary, open }: { summary: VariableSummary; open
           {summary.preview_truncated ? "\n… (truncated)" : ""}
         </pre>
       )}
-      {summary.kind === "estimator" && summary.params && (
+      {summary.kind === "estimator" && <EstimatorExtras summary={summary} />}
+      {(summary.kind === "estimator" || summary.kind === "optimizer") && summary.params && (
         <table className="grid">
           <tbody>
             <tr><th>fitted</th><td>{summary.fitted ? "yes" : "no"}</td></tr>
