@@ -646,6 +646,7 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
           </span>
         </header>
         <Sidebar
+          api={api}
           project={project}
           file={file}
           files={filesForLanguage(allFiles, project?.file_info ?? {}, language)}
@@ -789,6 +790,7 @@ function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: Rea
       </header>
 
       <Sidebar
+        api={api}
         project={project}
         file={file}
         files={filesForLanguage(allFiles, project?.file_info ?? {}, language)}

@@ -20,6 +20,40 @@ Compiler rules (PRD 8.5): fit-before-split leakage, target-in-features, resampli
 target definition, temporal leakage risk, class imbalance, small-n, multiple comparisons,
 plus evaluation-on-train, split-lineage mismatch and no-holdout warnings.
 
+## Install the app (Linux, macOS, Windows)
+
+**From a release build.** Download the build for your system from the project's releases, then:
+
+| System | File | Install |
+| --- | --- | --- |
+| Linux | `FlowLab-<version>-linux-x86_64.tar.gz` | extract, then `./install.sh` (adds a menu entry and the `flowlab-app` command) |
+| macOS | `FlowLab-<version>-macos-*.dmg` | open the image, drag FlowLab to Applications, right-click → Open the first time (the build is unsigned) |
+| Windows | `FlowLab-<version>-windows-x64-setup.exe` | run the installer (SmartScreen: More info → Run anyway; the build is unsigned) |
+
+**With pip**, if you already have Python 3.11+:
+
+```bash
+pipx install flowlab        # or: pip install flowlab
+flowlab app                 # desktop window, or your browser if no webview is installed
+pipx install "flowlab[desktop]"   # adds pywebview for the native window
+```
+
+The app opens the folder you used last, or creates `~/FlowLab` with the example project on first
+run. It listens on 127.0.0.1 only, with a token generated per launch.
+
+**Your code runs in your Python, not FlowLab's.** The Kernel panel lists the environments it found
+(project `.venv`, conda environments, system Python) with their versions, and marks the ones
+missing `ipykernel`. Pick one and FlowLab starts kernels from it; the choice is saved in the
+project's `.flowlab/lab.json`.
+
+### Build the app yourself
+
+```bash
+pip install -e ".[dev,build]"
+python scripts/build_app.py      # builds the canvas, freezes the app, packages it into dist/
+python scripts/smoke_app.py      # starts the built app and checks it serves the canvas
+```
+
 ## Setup
 
 Uses the existing virtualenv at `../AIEnv`.

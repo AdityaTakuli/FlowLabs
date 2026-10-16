@@ -44,5 +44,27 @@ def serve(root: Path, port: int, open_browser: bool) -> None:
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
+@click.command("app")
+@click.option(
+    "--root",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help="Workspace folder. Default: the folder you opened last, else ~/FlowLab.",
+)
+@click.option("--port", type=int, default=None, help="Server port. Default: a free one.")
+@click.option(
+    "--window/--browser",
+    default=True,
+    help="Show the desktop window (needs a webview), or open your browser instead.",
+)
+def app_command(root: Path | None, port: int | None, window: bool) -> None:
+    """Open FlowLab as a desktop app (Linux, macOS, Windows)."""
+    from .desktop import default_workspace, launch
+
+    workspace = root or default_workspace()
+    raise SystemExit(launch(workspace, port=port, window=window))
+
+
 def register(group: click.Group) -> None:
     group.add_command(serve)
+    group.add_command(app_command)

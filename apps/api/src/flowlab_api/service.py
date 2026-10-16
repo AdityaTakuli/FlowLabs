@@ -11,12 +11,14 @@ import asyncio
 import contextlib
 import dataclasses
 import re
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
 from flowlab_lab.codegraph import analyse_text
+from flowlab_lab.interpreters import InterpreterError, default_interpreter, discover, kernelspec_for
 from flowlab_lab.kernel import ExecutionRecord, KernelDied, LabEvent, LabSession, RunMode, diff_executions
 from flowlab_lab.outputs import OutputStore
 from flowlab_lab.privacy import OutboundPolicy, first_open_warning, transmission_badge
@@ -325,6 +327,7 @@ class LabService:
                 file,
                 on_event=lambda event: self._forward(file, event),
                 timeout_s=self.timeout_s,
+                python_path=self._kernel_python(),
             )
             session.start()
             self.sessions[file] = session
@@ -333,6 +336,49 @@ class LabService:
         finally:
             self.running[file] = None
         return self.kernel_info(file)
+
+    def _kernel_python(self) -> str | None:
+        """Interpreter for new kernels: the configured one, or a discovered one when packaged."""
+        configured = self.project.config.python_path
+        if configured:
+            return configured
+        if not getattr(sys, "frozen", False):
+            return None  # a dev or pip install runs kernels in its own environment
+        chosen = default_interpreter(self.project.root)
+        if chosen is None or not chosen.ipykernel:
+            raise ServiceError(
+                412,
+                "NO_PYTHON_ENVIRONMENT",
+                "Choose a Python environment with ipykernel installed in the Kernel panel.",
+            )
+        return chosen.path
+
+    # ------------------------------------------------------------------ interpreters
+    def interpreters(self) -> dict[str, Any]:
+        """Python environments kernels can run in, the configured one first."""
+        configured = self.project.config.python_path
+        found = discover(self.project.root, configured)
+        using = default_interpreter(self.project.root, configured)
+        return {
+            "configured": configured,
+            "using": using.as_dict() if using else None,
+            "interpreters": [i.as_dict() for i in found],
+            "packaged": bool(getattr(sys, "frozen", False)),
+            "running": sorted(self.sessions),
+        }
+
+    def select_interpreter(self, path: str | None) -> dict[str, Any]:
+        if path:
+            try:
+                kernelspec_for(path)
+            except InterpreterError as exc:
+                raise ServiceError(422, "INTERPRETER_UNUSABLE", str(exc)) from exc
+        config = self.project.config
+        config.python_path = path or None
+        self.project.save_config(config)
+        payload = self.interpreters()
+        payload["restart_required"] = sorted(self.sessions)
+        return payload
 
     def stop_session(self, file: str) -> dict[str, Any]:
         file = self.check_file(file)

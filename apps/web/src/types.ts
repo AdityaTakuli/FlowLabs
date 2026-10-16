@@ -279,3 +279,22 @@ export interface LiveRun {
   progress: number | null;
   metrics: MetricPoint[];
 }
+
+/** Python environments that can run kernels (flowlab_lab.interpreters). */
+export interface InterpreterInfo {
+  path: string;
+  source: "project" | "current" | "conda" | "path" | "configured" | "registered";
+  label: string;
+  version: string | null;
+  ipykernel: boolean | null;
+  prefix: string | null;
+}
+
+export interface InterpretersPayload {
+  configured: string | null;
+  using: InterpreterInfo | null;
+  interpreters: InterpreterInfo[];
+  packaged: boolean;
+  running: string[];
+  restart_required?: string[];
+}

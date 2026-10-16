@@ -15,3 +15,12 @@ node_modules/
 apps/web/dist/
 examples/ml-lab/data/
 examples/ml-lab/pipelines/outputs/
+
+# bundled build output (scripts/bundle_web.py)
+apps/api/src/flowlab_api/web/
+apps/api/src/flowlab_api/examples/
+
+# PyInstaller work directory and app bundles
+build/
+dist/
+apps/web/tsconfig.tsbuildinfo

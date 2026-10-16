@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from .codegraph import CodeGraph, GraphWarning
 from .diff import DataDiff, diff_summaries, pick_variables
+from .interpreters import kernelspec_for
 from .kernel_helpers import HELPER_CODE, HELPER_NAME
 from .metrics import MAX_POINTS, METRIC_MIME, MetricParser, MetricPoint
 from .outputs import OutputStore, RichOutput
@@ -102,12 +103,14 @@ class LabSession:
         on_event: Callable[[LabEvent], None] | None = None,
         timeout_s: float = 600.0,
         kernel_name: str = "python3",
+        python_path: str | None = None,
     ) -> None:
         self.project = project
         self.file = file
         self.on_event = on_event
         self.timeout_s = timeout_s
         self.kernel_name = kernel_name
+        self.python_path = python_path
         config = project.init()
         self.sample_rows = config.snapshot_sample_rows
         self.snapshots = SnapshotStore(project.state_dir / "snapshots", config.snapshot_max_bytes)
@@ -131,7 +134,17 @@ class LabSession:
             self.on_event(LabEvent(type=type_, node_id=node_id, data=data))
 
     def start(self) -> LabSession:
-        self.km = KernelManager(kernel_name=self.kernel_name)
+        if self.python_path:
+            # a packaged FlowLab cannot run user code in its own runtime: start the kernel from
+            # the interpreter the user chose, through a kernelspec written for it
+            from jupyter_client.kernelspec import KernelSpecManager
+
+            name, specs = kernelspec_for(self.python_path)
+            self.km = KernelManager(
+                kernel_name=name, kernel_spec_manager=KernelSpecManager(kernel_dirs=[str(specs)])
+            )
+        else:
+            self.km = KernelManager(kernel_name=self.kernel_name)
         self.km.start_kernel(cwd=str(self.project.root))
         self.kc = self.km.blocking_client()
         self.kc.start_channels()

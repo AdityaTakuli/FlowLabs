@@ -1,10 +1,14 @@
-import type { GraphWarning, KernelInfo, ProjectInfo, Resources } from "../types";
+import { useCallback, useEffect, useState } from "react";
+import type { Api } from "../api";
+import { ApiError } from "../api";
+import type { GraphWarning, InterpretersPayload, KernelInfo, ProjectInfo, Resources } from "../types";
 import { languageIcon, type FileKind, type LanguageSummary } from "../structure/types";
 import { Icon } from "./Icon";
 
 export type KernelAction = "start" | "stop" | "restart" | "interrupt" | "clean";
 
 interface SidebarProps {
+  api: Api;
   project: ProjectInfo | null;
   file: string | null;
   files: string[];
@@ -28,10 +32,11 @@ const KERNEL_LABEL: Record<KernelInfo["status"], string> = {
   dead: "Dead",
 };
 
-export function Sidebar({ project, file, files, fileInfo, languages, language, onLanguage, onOpen, showKernel, kernel, resources, hidden, onKernel }: SidebarProps) {
+export function Sidebar({ api, project, file, files, fileInfo, languages, language, onLanguage, onOpen, showKernel, kernel, resources, hidden, onKernel }: SidebarProps) {
   const used = resources ? Math.max(0, Math.min(100, 100 - (resources.ram_available_mb / resources.ram_total_mb) * 100)) : 0;
   const orphans = hidden.find((w) => w.code === "ORPHAN_VARIABLES");
   const total = languages.reduce((sum, l) => sum + l.files, 0);
+  const environment = usePythonEnvironment(api, showKernel, project?.root);
   return (
     <aside className="sidebar">
       <section>
@@ -83,6 +88,31 @@ export function Sidebar({ project, file, files, fileInfo, languages, language, o
           {kernel.python && (
             <div className="dim small">
               Python {kernel.python} · pid {kernel.pid} · {kernel.packages} packages
+            </div>
+          )}
+          {environment.payload && (
+            <div className="interpreter">
+              <label className="small dim" htmlFor="interpreter">
+                Python that runs your code
+              </label>
+              <select
+                id="interpreter"
+                value={environment.payload.configured ?? ""}
+                disabled={environment.busy}
+                onChange={(e) => void environment.choose(e.target.value || null)}
+              >
+                <option value="">
+                  Automatic{environment.payload.using ? ` · ${environment.payload.using.version ?? "?"} · ${environment.payload.using.label}` : ""}
+                </option>
+                {environment.payload.interpreters.map((interpreter) => (
+                  <option key={interpreter.path} value={interpreter.path} disabled={interpreter.ipykernel === false}>
+                    {interpreter.version ?? "?"} · {interpreter.label}
+                    {interpreter.ipykernel === false ? " · no ipykernel" : ""}
+                  </option>
+                ))}
+              </select>
+              {environment.payload.configured && <div className="small dim mono wrap">{environment.payload.configured}</div>}
+              {environment.message && <div className={`small ${environment.failed ? "error-text" : "warn-text"}`}>{environment.message}</div>}
             </div>
           )}
           <div className="button-row">
@@ -146,4 +176,45 @@ export function Sidebar({ project, file, files, fileInfo, languages, language, o
       )}
     </aside>
   );
+}
+
+/** The Python environment kernels run in: FlowLab's own, or one the user picks. */
+function usePythonEnvironment(api: Api, enabled: boolean, root: string | undefined) {
+  const [payload, setPayload] = useState<InterpretersPayload | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    api
+      .interpreters()
+      .then((next) => live && setPayload(next))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [api, enabled, root]);
+
+  const choose = useCallback(
+    async (path: string | null) => {
+      setBusy(true);
+      setMessage(null);
+      setFailed(false);
+      try {
+        const next = await api.selectInterpreter(path);
+        setPayload(next);
+        setMessage(next.restart_required?.length ? "Restart the kernel to use this environment." : null);
+      } catch (error) {
+        setFailed(true);
+        setMessage(error instanceof ApiError ? error.message : String(error));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [api],
+  );
+
+  return { payload, message, failed, busy, choose };
 }

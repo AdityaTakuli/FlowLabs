@@ -42,6 +42,9 @@ class LabConfig(BaseModel):
     snapshot_sample_rows: int = Field(20, ge=0, le=100)
     snapshot_max_bytes: int = Field(200 * 1024 * 1024, ge=1024)
     secrets_warning_acknowledged: bool = False
+    python_path: str | None = Field(
+        None, description="Interpreter that runs kernels for this project; None picks one."
+    )
 
 
 @dataclass(frozen=True)

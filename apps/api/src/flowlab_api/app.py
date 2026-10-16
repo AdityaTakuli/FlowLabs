@@ -28,7 +28,9 @@ from .service import ServiceError
 from .workbench import Workbench
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
-DEFAULT_STATIC = Path(__file__).resolve().parents[3] / "web" / "dist"
+BUNDLED_STATIC = Path(__file__).resolve().parent / "web"  # wheels carry the built canvas
+REPO_STATIC = Path(__file__).resolve().parents[3] / "web" / "dist"  # a dev checkout builds it here
+DEFAULT_STATIC = BUNDLED_STATIC if (BUNDLED_STATIC / "index.html").is_file() else REPO_STATIC
 WATCH_INTERVAL_S = 1.0
 
 
@@ -119,6 +121,10 @@ class ArchitectureFeedback(BaseModel):
     component_id: str | None = None
     unit_id: str | None = None
     correction: str = Field(min_length=3, max_length=1000)
+
+
+class InterpreterRequest(BaseModel):
+    path: str | None = None
 
 
 class StructureEditRequest(BaseModel):
@@ -355,6 +361,14 @@ def create_app(
     @app.post("/api/revert")
     def revert(body: FileRequest) -> dict[str, Any]:
         return bench.service.revert(body.file)
+
+    @app.get("/api/interpreters")
+    def interpreters() -> dict[str, Any]:
+        return bench.service.interpreters()
+
+    @app.post("/api/interpreters")
+    def select_interpreter(body: InterpreterRequest) -> dict[str, Any]:
+        return bench.service.select_interpreter(body.path)
 
     @app.post("/api/kernel/start")
     def kernel_start(body: FileRequest) -> dict[str, Any]:

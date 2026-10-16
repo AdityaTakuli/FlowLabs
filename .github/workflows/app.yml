@@ -1,0 +1,99 @@
+name: Desktop app
+
+# Builds the installable FlowLab app for Linux, macOS and Windows.
+# Run it from the Actions tab, or push a v* tag to attach the builds to a release.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04, label: linux-x86_64 }
+          - { os: macos-14, label: macos-arm64 }
+          - { os: macos-13, label: macos-x86_64 }
+          - { os: windows-latest, label: windows-x64 }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: System webview libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgirepository1.0-dev libcairo2-dev gir1.2-webkit2-4.1 \
+            libgtk-3-dev pkg-config
+
+      - name: Install FlowLab and build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[build]"
+
+      - name: Native window support
+        continue-on-error: true # without it the app opens in the browser instead
+        run: pip install "pywebview>=5.0" ${{ runner.os == 'Linux' && 'pygobject' || '' }}
+
+      - name: Build the canvas
+        run: |
+          npm ci --prefix apps/web
+          npm run build --prefix apps/web
+          python scripts/bundle_web.py --no-build
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
+      - name: macOS icon
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p build/flowlab.iconset
+          for size in 16 32 64 128 256 512; do
+            sips -z $size $size packaging/icons/flowlab.png --out build/flowlab.iconset/icon_${size}x${size}.png
+            sips -z $((size*2)) $((size*2)) packaging/icons/flowlab.png \
+              --out build/flowlab.iconset/icon_${size}x${size}@2x.png
+          done
+          iconutil -c icns build/flowlab.iconset -o packaging/icons/flowlab.icns
+
+      - name: Build the app
+        run: python scripts/build_app.py --no-web
+
+      - name: Smoke test the built app
+        run: python scripts/smoke_app.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flowlab-${{ matrix.label }}
+          path: |
+            dist/*.tar.gz
+            dist/*.dmg
+            dist/*.zip
+            dist/*setup.exe
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.dmg
+            dist/*.zip
+            dist/*setup.exe

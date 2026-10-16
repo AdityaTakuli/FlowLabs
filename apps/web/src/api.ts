@@ -24,6 +24,7 @@ import type {
 } from "./flow/types";
 import type { AnalyseRequest, ArchManifest } from "./architecture/types";
 import type { LayoutPayload, StructureGraph } from "./structure/types";
+import type { InterpretersPayload } from "./types";
 import type { BuildCatalogue, BuildIssue, DatasetInfo, FinalizeResult, Pipeline, BlockInfo } from "./build/types";
 import type { AgentPlan, AgentPreview, AgentProposal, AgentStatus, SnippetInfo } from "./agent/AgentPanel";
 
@@ -133,6 +134,10 @@ export class Api {
   nodeOutput = (runId: string, nodeId: string) =>
     this.request<NodeOutput>("GET", "/flow/output", undefined, { run_id: runId, node_id: nodeId });
   datasetProfile = (file: string) => this.request<DatasetProfile>("GET", "/dataset/profile", undefined, { file });
+
+  // Python environment that runs kernels
+  interpreters = () => this.request<InterpretersPayload>("GET", "/interpreters");
+  selectInterpreter = (path: string | null) => this.request<InterpretersPayload>("POST", "/interpreters", { path });
 
   // Build mode (no-code pipelines of snippet nodes)
   buildCatalogue = () => this.request<BuildCatalogue>("GET", "/build/catalogue");

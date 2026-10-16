@@ -30,15 +30,19 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "hypothesis>=6", "ruff>=0.5", "mypy>=1.10"]
+desktop = ["pywebview>=5.0"]
+build = ["pyinstaller>=6.6", "build>=1.2"]
 
 [project.scripts]
 flowlab = "flowlab_engine.cli:main"
+flowlab-app = "flowlab_api.desktop:main"
 
 [tool.setuptools.packages.find]
 where = ["packages/flowspec/src", "packages/nodes/src", "packages/engine/src", "packages/agent/src", "packages/lab/src", "apps/api/src"]
 
 [tool.setuptools.package-data]
 flowlab_agent = ["snippets/*/*.toml"]
+flowlab_api = ["web/**/*", "examples/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

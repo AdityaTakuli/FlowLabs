@@ -47,3 +47,12 @@ serve:
 
 clean:
 	rm -rf runs .flowlab .pytest_cache .mypy_cache .ruff_cache apps/web/dist
+
+app:
+	$(BIN)/python scripts/build_app.py
+
+bundle-web:
+	$(BIN)/python scripts/bundle_web.py
+
+smoke-app:
+	$(BIN)/python scripts/smoke_app.py
