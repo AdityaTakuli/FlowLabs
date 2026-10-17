@@ -5,7 +5,13 @@ __pycache__/
 .ruff_cache/
 .hypothesis/
 .venv/
-runs/
-.flowlab/
-generated/
 .env
+
+# build output
+node_modules/
+apps/web/dist/
+apps/web/public/synapse-core.zip
+apps/web/tsconfig.tsbuildinfo
+src/synapse_studio/web/
+build/
+dist/

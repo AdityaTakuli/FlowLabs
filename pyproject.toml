@@ -3,69 +3,82 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "flowlab"
-version = "0.1.0"
-description = "FlowLab Phase 0: Flow Spec contracts, node catalogue, compiler and local executor"
+name = "synapse-studio"
+version = "0.2.0"
+description = "Visual machine learning: load data, preprocess, train ML and deep learning models, export them. No code."
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
+authors = [{ name = "Aditya Takuli" }]
+keywords = ["machine learning", "deep learning", "no-code", "automl", "scikit-learn", "pytorch"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
-    "pydantic>=2.7",
-    "polars>=1.0",
-    "pyarrow>=15",
     "numpy>=1.26",
     "pandas>=2.2",
     "scikit-learn>=1.5",
     "scipy>=1.11",
     "joblib>=1.3",
-    "click>=8.1",
-    "jupyter_client>=8.0",
-    "ipykernel>=6.0",
-    "nbformat>=5.9",
-    "libcst>=1.1",
+    "pillow>=10",
+    "openpyxl>=3.1",
+    "pyarrow>=15",
     "psutil>=5.9",
     "fastapi>=0.110",
     "uvicorn>=0.29",
-    "websockets>=12",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "hypothesis>=6", "ruff>=0.5", "mypy>=1.10"]
+deep = ["torch>=2.2", "torchvision>=0.17", "onnx>=1.15"]
+boost = ["xgboost>=2.0", "lightgbm>=4.0"]
+desktop = ["pywebview>=5.0"]
+all = ["synapse-studio[deep,boost,desktop]"]
+dev = ["pytest>=8", "ruff>=0.5", "mypy>=1.10", "httpx>=0.27"]
+build = ["pyinstaller>=6.6", "build>=1.2"]
+
+[project.urls]
+Homepage = "https://github.com/AdityaTakuli/Synapse"
+App = "https://adityatakuli.github.io/Synapse/"
 
 [project.scripts]
-flowlab = "flowlab_engine.cli:main"
+synapse = "synapse_studio.cli:main"
+synapse-app = "synapse_studio.cli:app_main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+py-modules = ["synapse_runtime"]
 
 [tool.setuptools.packages.find]
-where = ["packages/flowspec/src", "packages/nodes/src", "packages/engine/src", "packages/agent/src", "packages/lab/src", "apps/api/src"]
+where = ["src"]
 
 [tool.setuptools.package-data]
-flowlab_agent = ["snippets/*/*.toml"]
+synapse_studio = ["core/samples/*.csv", "web/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-filterwarnings = ["ignore::DeprecationWarning"]
+pythonpath = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning"]
 
 [tool.ruff]
-line-length = 110
+line-length = 120
 target-version = "py311"
+src = ["src"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501", "E731", "SIM102", "SIM105", "SIM108", "B023"]  # the formatter owns line length
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E501"]
-"packages/agent/src/flowlab_agent/planner.py" = ["E501"]  # prompt text: line breaks are meaningful
-"packages/lab/src/flowlab_lab/kernel_helpers.py" = ["E501"]  # Python source embedded as a string
-"packages/lab/src/flowlab_lab/eject.py" = ["E501"]  # code generator: templates mirror the emitted lines
+"src/synapse_studio/core/catalogue.py" = ["E501"]
+"src/synapse_studio/core/export.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.12"
-strict = true
-files = ["packages", "apps/api/src"]
-plugins = ["pydantic.mypy"]
-
-[[tool.mypy.overrides]]
-module = ["sklearn.*", "joblib.*", "scipy.*", "pandas.*", "psutil.*"]
+files = ["src"]
 ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = ["flowlab_lab.eject"]  # nbformat's v4 builders are untyped
-disallow_untyped_calls = false
+check_untyped_defs = true

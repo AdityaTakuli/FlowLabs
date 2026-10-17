@@ -1,24 +1,19 @@
 {
-  "name": "flowlab-web",
+  "name": "synapse-web",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "typecheck": "tsc -b --noEmit",
+    "pack-core": "node scripts/pack-core.mjs",
+    "dev": "node scripts/pack-core.mjs && vite",
+    "build": "node scripts/pack-core.mjs && tsc -p tsconfig.json --noEmit && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
-    "@dagrejs/dagre": "^3.1.1",
-    "@monaco-editor/react": "^4.7.0",
     "@xyflow/react": "^12.11.6",
-    "monaco-editor": "^0.56.0",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0",
-    "vega": "^6.4.0",
-    "vega-embed": "^7.2.0",
-    "vega-lite": "^6.4.3"
+    "react-dom": "^19.3.0"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",

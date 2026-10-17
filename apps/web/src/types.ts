@@ -1,225 +1,385 @@
-// Mirrors the CodeGraph (flowlab_lab.codegraph) and local API payloads (flowlab_api.service).
+// Shapes of the JSON the engine sends and receives (see src/synapse_studio/core in the Python package).
 
-export type Confidence = "high" | "medium" | "low";
-export type Severity = "info" | "warning" | "error";
-export type NodeState = "idle" | "running" | "success" | "error" | "stale" | "interrupted";
-export type RunMode = "node" | "to" | "from" | "stale" | "all";
+export type Task = "classification" | "regression";
+export type Kind = "tabular" | "image";
+export type ColumnKind = "numeric" | "categorical" | "boolean" | "datetime" | "text";
 
-export interface CodeNode {
-  id: string;
-  kind: "code" | "undefined" | "trace";
-  file: string;
-  cell_index: number | null;
-  lines: [number, number];
-  source: string;
-  source_hash: string;
+export interface ParamOption {
+  value: string | number | boolean | null;
   label: string;
-  defines: string[];
-  uses: string[];
-  mutates: string[];
-  imports: string[];
-  calls: string[];
-  side_effects: string[];
-  conditional_defines: string[];
-  loop_carried: string[];
+}
+
+export interface Param {
+  name: string;
+  label: string;
+  type: "int" | "float" | "select" | "bool" | "text" | "columns" | "column" | "parts" | "layers";
+  default: unknown;
+  min?: number;
+  max?: number;
+  step?: number;
+  log?: boolean;
+  help?: string;
+  options?: ParamOption[];
+  kinds?: ColumnKind[];
+  layer_types?: string[];
+  activations?: string[];
+}
+
+export interface OpDef {
+  id: string;
+  stage: "clean" | "rows" | "transform";
+  group: string;
+  label: string;
+  description: string;
+  params: Param[];
+  rows: boolean;
+}
+
+export interface AlgoDef {
+  id: string;
+  label: string;
+  tasks: Task[];
+  family: string;
+  description: string;
+  params: Param[];
+  needs: string | null;
+  available: boolean;
+  needs_scaling?: boolean;
+  deep: boolean;
+  tunable?: boolean;
+}
+
+export interface Sample {
+  id: string;
+  name: string;
+  kind: Kind;
+  target: string;
+  task: Task;
+  description: string;
+}
+
+export interface Catalogue {
+  clean: OpDef[];
+  rows: OpDef[];
+  transform: OpDef[];
+  models: AlgoDef[];
+  image_models: AlgoDef[];
+  image_prep: Param[];
+  samples: Sample[];
+  metrics: Record<Task, [string, string][]>;
+  metric_labels: Record<string, string>;
+}
+
+export interface DatasetMeta {
+  id: string;
+  name: string;
+  kind: Kind;
+  file: string;
+  rows: number;
+  columns: number;
+  size: number;
+  created: string;
+  source: string;
+  classes?: Record<string, number>;
+  sample?: { target: string; task: Task };
+}
+
+export interface ColumnProfile {
+  name: string;
+  kind: ColumnKind;
+  dtype: string;
+  missing: number;
+  missing_pct: number;
+  unique: number;
+  sample: unknown[];
   flags: string[];
-  matched_pattern: string | null;
-  confidence: Confidence;
-  execution_count: number | null;
-  group: string | null;
+  stats?: Record<string, number | string>;
+  histogram?: { edges: number[]; counts: number[] };
+  top?: { value: string; count: number }[];
 }
 
-export interface CodeEdge {
-  from: string;
-  to: string;
-  variable: string;
-  kind: "dataflow" | "mutation" | "alias" | "import";
-  confidence: Confidence;
-}
-
-export interface GraphWarning {
-  node_id: string | null;
-  code: string;
+export interface Suggestion {
+  id: string;
+  level: "info" | "warning" | "error";
   message: string;
-  severity: Severity;
+  auto: boolean;
+  fix?: { stage: "clean" | "rows" | "transform"; op: string; params: Record<string, unknown>; label: string };
 }
 
-export interface CodeGraph {
-  graph_version: string;
-  source: { kind: string; files: { path: string; hash: string }[] };
-  nodes: CodeNode[];
-  edges: CodeEdge[];
-  warnings: GraphWarning[];
-  analysis_ms: number | null;
-}
-
-export interface GraphPayload {
-  file: string;
-  hash: string;
-  graph: CodeGraph;
-  secrets_warning: string | null;
-}
-
-export interface TraceFrame {
-  node_id: string | null;
-  line: number;
-  file_line: number | null;
-  text: string;
-}
-
-export interface RichOutput {
-  index: number;
-  kind: "vega" | "image" | "svg" | "html" | "markdown" | "latex" | "json" | "text";
-  mime: string;
-  plain: string;
-  size_bytes: number;
-  stored: boolean;
-  truncated: boolean;
-  width: number | null;
-  height: number | null;
-}
-
-export interface ExecutionRecord {
-  execution_id: string;
-  node_id: string;
-  source_hash: string;
-  status: "success" | "error" | "interrupted";
-  started_at: string;
-  duration_ms: number;
-  peak_memory_mb: number | null;
-  memory_delta_mb: number | null;
-  rows_in: number | null;
-  rows_out: number | null;
-  execution_count?: number | null;
-  stdout: string;
-  stderr: string;
-  outputs: string[];
-  rich_outputs?: RichOutput[];
-  error: { ename: string; evalue: string; traceback: string[]; frames: TraceFrame[] } | null;
-  warnings: GraphWarning[];
-}
-
-export interface KernelInfo {
-  status: "none" | "starting" | "idle" | "busy" | "dead";
-  running?: string | null;
-  pid?: number | null;
-  python?: string;
-  executable?: string;
-  packages?: number;
-  memory_mb?: number | null;
-}
-
-export interface Resources {
-  cpu_percent: number;
-  cpu_count: number;
-  ram_total_mb: number;
-  ram_available_mb: number;
-  ram_percent: number;
-  disk_free_mb: number;
-  kernels: Record<string, number | null>;
-}
-
-export interface SessionState {
-  file: string;
-  kernel: KernelInfo;
-  nodes: Record<string, { state: NodeState; last_run: ExecutionRecord | null; values?: Record<string, { kind: string; text: string }> }>;
-  hidden_state: GraphWarning[];
-  resources: Resources;
-}
-
-export interface ProjectInfo {
-  root: string;
+export interface TargetInfo {
   name: string;
-  files: string[];
-  badge: string;
-  config: { local_only: boolean; max_preview_rows: number };
-  sessions: string[];
+  task: Task;
+  missing?: number;
+  classes?: { value: string; count: number }[];
+  n_classes?: number;
+  minority_share?: number | null;
+  histogram?: { edges: number[]; counts: number[] };
 }
 
-export interface VariableSummary {
+export interface Profile {
+  dataset: DatasetMeta;
+  kind: Kind;
+  rows: number;
+  columns?: ColumnProfile[];
+  duplicates?: number;
+  missing_cells_pct?: number;
+  memory_mb?: number;
+  target: TargetInfo | null;
+  suggested_target: string;
+  correlations?: { columns: string[]; matrix: number[][]; with_target?: { column: string; value: number }[] };
+  suggestions: Suggestion[];
+  sampled?: boolean;
+  classes?: { value: string; count: number }[];
+  samples?: Record<string, string[]>;
+  image_size?: { min: number[]; max: number[] };
+}
+
+export interface Step {
+  id: string;
+  op: string;
+  params: Record<string, unknown>;
+  enabled: boolean;
+  note?: string;
+}
+
+export interface ModelEntry {
+  id: string;
+  algo: string;
+  label: string;
+  params: Record<string, unknown>;
+  tune: "off" | "quick" | "thorough";
+  enabled: boolean;
+}
+
+export interface Split {
+  test_size: number;
+  stratify: boolean;
+  shuffle: boolean;
+  seed: number;
+  time_column: string | null;
+  cv_folds: number;
+}
+
+export interface Project {
+  id: string;
   name: string;
-  type: string;
-  kind: "dataframe" | "series" | "ndarray" | "estimator" | "scalar" | "collection" | "response" | "callable" | "object";
-  rows?: number;
-  columns?: string[];
-  dtypes?: Record<string, string>;
-  dtype?: string;
-  shape?: number[];
-  null_counts?: Record<string, number>;
-  null_count?: number;
-  memory_bytes?: number;
-  stats?: Record<string, { min: number | null; max: number | null; mean: number | null }>;
-  sample?: { columns?: unknown[]; index?: unknown[]; data?: unknown[][] } | unknown[];
-  fitted?: boolean;
-  params?: Record<string, string>;
-  repr?: string;
-  length?: number;
-  container?: string;
-  keys?: string[];
-  preview?: string;
-  preview_truncated?: boolean;
-  // HTTP responses (requests / httpx)
-  status?: number | null;
-  reason?: string;
-  url?: string;
-  method?: string;
-  content_type?: string;
-  elapsed_ms?: number | null;
-  headers?: Record<string, string>;
-  size_bytes?: number | null;
-  body?: string;
-  body_format?: "json" | "text";
-  body_truncated?: boolean;
+  kind: Kind;
+  dataset_id: string;
+  target: string;
+  task: Task;
+  created: string;
+  updated: string;
+  clean: Step[];
+  rows: Step[];
+  transform: Step[];
+  auto_prep: boolean;
+  split: Split;
+  metric: string;
+  models: ModelEntry[];
+  image?: Record<string, unknown>;
+  notes?: string[];
+  last_run?: string | null;
+}
+
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  kind: Kind;
+  dataset_id: string;
+  target: string;
+  task: Task;
+  created: string;
+  updated: string;
+  last_run?: string | null;
+  models: number;
+}
+
+export interface Issue {
+  level: "error" | "warning" | "info";
+  stage: string;
+  message: string;
+  step: string | null;
+}
+
+export interface Preview {
+  title: string;
+  note: string;
+  before_shape: [number, number];
+  after_shape: [number, number];
+  columns: { name: string; state: "same" | "changed" | "added" | "removed"; kind: ColumnKind }[];
+  header: string[];
+  rows: unknown[][];
+  report?: { column: string; action: string; detail: string }[];
+}
+
+export interface EpochPoint {
+  epoch: number;
+  [metric: string]: number;
+}
+
+export interface ModelResult {
+  id: string;
+  algo: string;
+  label: string;
+  family: string;
+  status: "running" | "done" | "failed" | "cancelled";
   error?: string;
+  params: Record<string, unknown>;
+  best_params?: Record<string, unknown>;
+  trials?: { params: Record<string, unknown>; score: number | null }[];
+  metrics?: Record<string, number>;
+  train_metrics?: Record<string, number>;
+  cv?: { metric: string; folds: number[]; mean: number | null; std: number | null };
+  fit_seconds?: number;
+  predict_ms_per_row?: number;
+  history?: EpochPoint[];
+  backend?: string;
+  device?: string;
+  parameters?: number;
+  details?: {
+    confusion?: { labels: string[]; matrix: number[][] };
+    per_class?: { label: string; precision: number; recall: number; f1: number; support: number }[];
+    roc?: [number, number][];
+    pr?: [number, number][];
+    calibration?: [number, number, number][];
+    positive_class?: string;
+    scatter?: [number, number][];
+    residual_histogram?: { edges: number[]; counts: number[] };
+    range?: [number, number];
+    mistakes?: { image: string; true: string; predicted: string; confidence: number }[];
+  };
+  importance?: { native?: { feature: string; value: number }[]; permutation?: { feature: string; value: number; std: number }[] };
+  artifact?: string;
+  size_kb?: number;
 }
 
-export interface FolderListing {
-  path: string;
-  parent: string | null;
-  home: string;
-  root: string;
-  entries: { name: string; path: string; kind: "dir" | "file"; is_project?: boolean }[];
-  truncated: boolean;
+export interface SchemaColumn {
+  name: string;
+  kind: ColumnKind;
+  used: boolean;
+  min?: number;
+  max?: number;
+  median?: number;
+  integer?: boolean;
+  values?: string[];
+  example?: unknown;
 }
 
-export interface InspectPayload {
-  execution_id: string;
-  node_id: string;
+export interface RunResult {
+  id: string;
+  project_id: string;
+  status: "completed" | "failed";
+  started: string;
+  finished: string;
+  seconds: number;
+  task: Task;
+  target: string;
+  metric: string;
+  metric_label: string;
+  classes: string[];
+  best_model_id: string | null;
+  kind?: Kind;
+  data: {
+    rows: number;
+    labelled: number;
+    train_rows: number;
+    test_rows: number;
+    val_rows?: number;
+    features_in?: number;
+    features_out?: number | null;
+    auto_prep?: { column: string; action: string; detail: string }[];
+    row_steps?: string;
+    time_ordered?: boolean;
+    train_classes?: number[] | null;
+    image_size?: number;
+  };
+  models: ModelResult[];
+  warnings: string[];
+  project: Project;
+  schema?: { columns: SchemaColumn[] };
+}
+
+export interface RunSummary {
+  id: string;
   status: string;
-  started_at: string;
-  duration_ms: number;
-  source_hash: string;
-  before: Record<string, VariableSummary>;
-  after: Record<string, VariableSummary>;
+  finished: string;
+  seconds: number;
+  metric: string;
+  metric_label: string;
+  best_label: string | null;
+  best_value: number | null;
+  models: number;
 }
 
-export interface HistoryEntry {
-  execution_id: string;
-  status: string;
-  started_at: string;
-  duration_ms: number;
-  peak_memory_mb: number | null;
-  rows_in: number | null;
-  rows_out: number | null;
-  source_hash: string;
+export interface ExportResult {
+  id: string;
+  folder: string;
+  zip: { name: string; path: string; size: number };
+  files: { name: string; path: string; size: number }[];
+  notes: string[];
+  model_card: string;
 }
 
-export interface DiffPayload {
-  label_a: string;
-  label_b: string;
-  rows_a: number | null;
-  rows_b: number | null;
-  added: string[];
-  removed: string[];
-  retyped: [string, string, string][];
-  row_delta: number | null;
-  text: string;
+export interface EngineInfo {
+  synapse: string;
+  python: string;
+  executable: string;
+  platform: string;
+  browser: boolean;
+  cpus: number;
+  memory: { total_gb: number; available_gb: number } | null;
+  packages: Record<string, string | null>;
+  gpus: { kind: string; name: string; memory_gb: number | null }[];
+  workspace?: string;
 }
 
-export interface LabEvent {
-  type: string;
-  file: string | null;
-  node_id?: string | null;
-  ts?: string;
-  data: Record<string, unknown>;
+export interface Interpreter {
+  path: string | null;
+  source: string;
+  label: string;
+  version: string | null;
+  packages: Record<string, string | null>;
+  ready: boolean;
+  missing: string[];
 }
+
+export interface KernelState {
+  status: "starting" | "ready" | "dead" | "stopped";
+  python: string | null;
+  info: EngineInfo | Record<string, never>;
+  error: string | null;
+  stderr: string[];
+  install?: { running?: boolean; packages?: string[]; code?: number | null };
+}
+
+export interface JobEvent {
+  type: "job";
+  job_id: string;
+  kind: "started" | "stage" | "model" | "epoch" | "trial" | "progress" | "log" | "done" | "error" | "cancelled";
+  run_id?: string;
+  models?: { id: string; label: string }[];
+  model_id?: string;
+  status?: string;
+  index?: number;
+  total?: number;
+  label?: string;
+  metrics?: Record<string, number>;
+  epoch?: number;
+  epochs?: number;
+  fraction?: number;
+  trial?: number;
+  of?: number;
+  score?: number;
+  stage?: string;
+  message?: string;
+  error?: string;
+  best_model_id?: string | null;
+}
+
+export type EngineEvent =
+  | JobEvent
+  | { type: "kernel"; status: string; message?: string; info?: EngineInfo }
+  | { type: "install"; line?: string; done?: boolean; code?: number }
+  | { type: "log"; text: string }
+  | { type: "connection"; status: "online" | "offline" }
+  | { type: "boot"; stage: string; message: string; progress?: number };

@@ -1,628 +1,197 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Api, ApiError, initToken } from "./api";
-import { formatDuration } from "./layout";
-import type { CodeGraph, GraphPayload, LabEvent, ProjectInfo, Resources, RunMode, SessionState } from "./types";
-import { GraphCanvas, type HeatMode } from "./components/GraphCanvas";
-import { Sidebar, type KernelAction } from "./components/Sidebar";
-import { Inspector, type InspectorTab } from "./components/Inspector";
-import { LinearView } from "./components/LinearView";
-import { Console, type ConsoleLine } from "./components/Console";
-import { ConfirmDialog, type ConfirmRequest } from "./components/ConfirmDialog";
-import { FlowWorkspace } from "./flow/FlowWorkspace";
-import { AgentPanel } from "./agent/AgentPanel";
-import { ArchitectureWorkspace } from "./architecture/ArchitectureWorkspace";
-import { EdgePanel } from "./components/EdgePanel";
-import { FolderPicker } from "./components/FolderPicker";
-import type { EdgeTarget } from "./components/GraphCanvas";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AppContext, type AppState, type Toast } from "./context";
+import { BrowserEngine, chooseEngine, EngineError, type Engine } from "./engine/engine";
+import { EngineDialog } from "./components/EngineDialog";
+import { Icon } from "./components/Icon";
+import { Bar, Spinner } from "./components/ui";
+import { Home } from "./pages/Home";
+import { ProjectPage, type Tab } from "./pages/ProjectPage";
+import type { Catalogue, EngineEvent, EngineInfo } from "./types";
 
-type View = "graph" | "linear" | "split";
-interface Toast {
-  id: number;
-  kind: "info" | "error" | "success";
-  text: string;
+type Route = { page: "home" } | { page: "project"; id: string; tab: Tab };
+
+function readRoute(): Route {
+  const query = new URLSearchParams(location.search);
+  const id = query.get("project");
+  return id ? { page: "project", id, tab: (query.get("tab") as Tab) || "pipeline" } : { page: "home" };
 }
 
-const LAST_FILE_KEY = "flowlab-last-file";
-
-function storageGet(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
+function writeRoute(route: Route, replace = false) {
+  const query = new URLSearchParams();
+  if (route.page === "project") {
+    query.set("project", route.id);
+    query.set("tab", route.tab);
   }
-}
-
-function storageSet(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    /* private mode: remembering the file is only a convenience */
-  }
+  const url = `${location.pathname}${query.size ? `?${query}` : ""}`;
+  if (replace) history.replaceState(null, "", url);
+  else history.pushState(null, "", url);
 }
 
 export function App() {
-  const [token] = useState(() => initToken());
-  const api = useMemo(() => (token ? new Api(token) : null), [token]);
-  if (!api) {
-    return (
-      <div className="empty-screen">
-        <h1>FlowLab</h1>
-        <p>This page needs the private link printed by the server.</p>
-        <pre>flowlab serve --root path/to/your/project</pre>
-        <p className="dim">Open the <code>http://127.0.0.1:8765/?token=…</code> URL it prints.</p>
-      </div>
-    );
-  }
-  return <Shell api={api} />;
-}
-
-type Mode = "code" | "flow" | "architecture";
-const MODE_KEY = "flowlab-mode";
-
-function Shell({ api }: { api: Api }) {
-  const [mode, setMode] = useState<Mode>(() => {
-    const stored = storageGet(MODE_KEY);
-    return stored === "flow" || stored === "architecture" ? stored : "code";
-  });
-  const [askOpen, setAskOpen] = useState(false);
-  const [openRequest, setOpenRequest] = useState<{ file: string; at: number } | null>(null);
-  const closeAsk = useCallback(() => setAskOpen(false), []);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const closePicker = useCallback(() => setPickerOpen(false), []);
-  // Another tab (or this one) opened a different folder: start fresh on the new project.
-  useEffect(
-    () =>
-      api.events(
-        (event) => {
-          if (event.type === "project_changed") window.location.reload();
-        },
-        () => undefined,
-      ),
-    [api],
-  );
-  const modeSwitch = (
-    <>
-    <span className="mode-switch" role="group" aria-label="Mode">
-      {(["code", "flow", "architecture"] as Mode[]).map((m) => (
-        <button
-          key={m}
-          className={mode === m ? "active" : ""}
-          aria-pressed={mode === m}
-          onClick={() => {
-            setMode(m);
-            storageSet(MODE_KEY, m);
-          }}
-        >
-          {m === "code" ? "Code Mode" : m === "flow" ? "Flow Mode" : "Architecture"}
-        </button>
-      ))}
-    </span>
-    <button className="open-button" onClick={() => setPickerOpen(true)} title="Open a folder or file from this computer">
-      📂 Open
-    </button>
-    <button className={`ask-button ${askOpen ? "active" : ""}`} onClick={() => setAskOpen((o) => !o)} title="Ask a question about a dataset; FlowLab builds a script from reviewed snippets">
-      ✦ Ask
-    </button>
-    </>
-  );
-  return (
-    <>
-      {mode === "architecture" ? (
-        <ArchitectureWorkspace
-          api={api}
-          modeSwitch={modeSwitch}
-          onOpenFile={(file) => {
-            storageSet(LAST_FILE_KEY, file);
-            storageSet(MODE_KEY, "code");
-            setMode("code");
-            setOpenRequest({ file, at: Date.now() });
-          }}
-        />
-      ) : mode === "flow" ? (
-        <FlowWorkspace api={api} modeSwitch={modeSwitch} />
-      ) : (
-        <Workspace api={api} modeSwitch={modeSwitch} openRequest={openRequest} />
-      )}
-      {askOpen && (
-        <AgentPanel
-          api={api}
-          onClose={closeAsk}
-          onOpenScript={(file) => {
-            storageSet(LAST_FILE_KEY, file);
-            storageSet(MODE_KEY, "code");
-            setMode("code");
-            setOpenRequest({ file, at: Date.now() });
-            setAskOpen(false);
-          }}
-        />
-      )}
-      {pickerOpen && <FolderPicker api={api} onClose={closePicker} />}
-    </>
-  );
-}
-
-function Workspace({ api, modeSwitch, openRequest }: { api: Api; modeSwitch: ReactNode; openRequest: { file: string; at: number } | null }) {
-  const [project, setProject] = useState<ProjectInfo | null>(null);
-  const [file, setFile] = useState<string | null>(null);
-  const [payload, setPayload] = useState<GraphPayload | null>(null);
-  const [preview, setPreview] = useState<CodeGraph | null>(null);
-  const [session, setSession] = useState<SessionState | null>(null);
-  const [resources, setResources] = useState<Resources | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedVariable, setSelectedVariable] = useState<string | null>(null);
-  const [tab, setTab] = useState<InspectorTab>("code");
-  const [view, setView] = useState<View>("graph");
-  const [focus, setFocus] = useState(false);
-  const [search, setSearch] = useState("");
-  const [heat, setHeat] = useState<HeatMode>("off");
-  const [showImports, setShowImports] = useState(false);
-  const [consoleLines, setConsoleLines] = useState<ConsoleLine[]>([]);
-  const [consoleOpen, setConsoleOpen] = useState(true);
-  const [warningsOpen, setWarningsOpen] = useState(false);
+  const [engine, setEngine] = useState<Engine | null>(null);
+  const [catalogue, setCatalogue] = useState<Catalogue | null>(null);
+  const [info, setInfo] = useState<EngineInfo | null>(null);
+  const [boot, setBoot] = useState<{ message: string; progress?: number } | null>({ message: "Starting…" });
+  const [bootError, setBootError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [connected, setConnected] = useState(false);
-  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
-  const [canRevert, setCanRevert] = useState(false);
-  const [dirty, setDirty] = useState(false);
-  const [dismissedSecrets, setDismissedSecrets] = useState<Set<string>>(() => new Set());
-  const [edgePanel, setEdgePanel] = useState<EdgeTarget | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [route, setRoute] = useState<Route>(readRoute);
+  const [engineOpen, setEngineOpen] = useState(false);
+  const toastId = useRef(0);
 
-  const fileRef = useRef<string | null>(null);
-  fileRef.current = file;
-  const lineId = useRef(0);
-  const stateTimer = useRef<number | null>(null);
-
-  const toast = useCallback((kind: Toast["kind"], text: string) => {
-    const id = Date.now() + Math.random();
-    setToasts((current) => [...current.slice(-4), { id, kind, text }]);
-    window.setTimeout(() => setToasts((current) => current.filter((t) => t.id !== id)), kind === "error" ? 10000 : 4000);
+  const notify = useCallback((message: string, level: Toast["level"] = "info") => {
+    const id = ++toastId.current;
+    setToasts((list) => [...list.slice(-3), { id, level, message }]);
+    setTimeout(() => setToasts((list) => list.filter((t) => t.id !== id)), level === "error" ? 9000 : 4500);
   }, []);
   const fail = useCallback(
-    (error: unknown) => toast("error", error instanceof ApiError ? error.message : String(error)),
-    [toast],
+    (error: unknown) => {
+      const message = error instanceof EngineError || error instanceof Error ? error.message : String(error);
+      if (message !== "stopped") notify(message, "error");
+    },
+    [notify],
   );
-  const log = useCallback((line: Omit<ConsoleLine, "id" | "ts">) => {
-    const entry: ConsoleLine = { ...line, id: ++lineId.current, ts: new Date().toLocaleTimeString() };
-    setConsoleLines((lines) => [...lines.slice(-1999), entry]);
+
+  const load = useCallback(async (next: Engine) => {
+    setBootError(null);
+    setBoot({ message: next.kind === "browser" ? "Starting Python in your browser…" : "Connecting to the engine…" });
+    try {
+      const [loadedInfo, loadedCatalogue] = await Promise.all([
+        next.call<EngineInfo>("engine.info", { probe_gpu: next.kind !== "browser" }),
+        next.call<Catalogue>("catalogue.get"),
+      ]);
+      setInfo(loadedInfo);
+      setCatalogue(loadedCatalogue);
+      setBoot(null);
+    } catch (error) {
+      setBootError((error as Error).message);
+    }
   }, []);
 
-  const loadGraph = useCallback(
-    async (target: string) => {
-      const next = await api.graph(target);
-      if (fileRef.current === target) setPayload(next);
+  const switchEngine = useCallback(
+    async (next: Engine) => {
+      setEngine((previous) => {
+        if (previous && previous !== next) previous.close();
+        return next;
+      });
+      setCatalogue(null);
+      await load(next);
     },
-    [api],
+    [load],
   );
-  const loadState = useCallback(
-    async (target: string) => {
-      const next = await api.state(target);
-      if (fileRef.current === target) {
-        setSession(next);
-        setResources(next.resources);
-      }
-    },
-    [api],
-  );
-  const scheduleState = useCallback(() => {
-    if (stateTimer.current !== null) return;
-    stateTimer.current = window.setTimeout(() => {
-      stateTimer.current = null;
-      const target = fileRef.current;
-      if (target) loadState(target).catch(() => undefined);
-    }, 120);
-  }, [loadState]);
-
-  // project + first file
-  useEffect(() => {
-    api
-      .project()
-      .then((info) => {
-        setProject(info);
-        const remembered = storageGet(LAST_FILE_KEY);
-        const initial =
-          (remembered && info.files.includes(remembered) ? remembered : null) ??
-          info.files.find((f) => f.endsWith(".ipynb")) ??
-          info.files[0] ??
-          null;
-        setFile(initial);
-      })
-      .catch(fail);
-  }, [api, fail]);
 
   useEffect(() => {
-    if (!file) return;
-    storageSet(LAST_FILE_KEY, file);
-    setSelectedId(null);
-    setPreview(null);
-    setDirty(false);
-    setCanRevert(false);
-    setPayload(null);
-    setSession(null);
-    setEdgePanel(null);
-    setEditingId(null);
-    loadGraph(file).catch(fail);
-    loadState(file).catch(fail);
-  }, [file, loadGraph, loadState, fail]);
+    let cancelled = false;
+    chooseEngine().then(({ engine: chosen, notice }) => {
+      if (cancelled) return;
+      if (notice) notify(notice, "error");
+      void switchEngine(chosen);
+    });
+    const onPop = () => setRoute(readRoute());
+    window.addEventListener("popstate", onPop);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("popstate", onPop);
+    };
+  }, [notify, switchEngine]);
 
-  // a script saved from the Ask panel
   useEffect(() => {
-    if (!openRequest) return;
-    api
-      .project()
-      .then((info) => {
-        setProject(info);
-        if (info.files.includes(openRequest.file)) setFile(openRequest.file);
-      })
-      .catch(fail);
-  }, [api, openRequest, fail]);
+    if (!engine) return;
+    return engine.subscribe((event: EngineEvent) => {
+      if (event.type === "boot" && event.stage !== "ready") setBoot((b) => (b ? { message: event.message, progress: event.progress } : b));
+      if (event.type === "kernel" && event.status === "dead") notify(`The engine stopped: ${event.message ?? ""}`, "error");
+      if (event.type === "kernel" && event.status === "ready" && event.info) setInfo((old) => ({ ...(old ?? ({} as EngineInfo)), ...event.info! }));
+      if (event.type === "connection") notify(event.status === "offline" ? "Lost the connection to the engine. Retrying…" : "Reconnected to the engine.", event.status === "offline" ? "error" : "ok");
+    });
+  }, [engine, notify]);
 
-  // live events
-  const handler = useRef<(event: LabEvent) => void>(() => undefined);
-  handler.current = (event: LabEvent) => {
-    if (event.type === "resources") {
-      setResources(event.data as unknown as Resources);
-      return;
-    }
-    if (event.type === "file_changed") {
-      if (event.data.kind === "added" || event.data.kind === "deleted") api.project().then(setProject).catch(() => undefined);
-      if (event.file === file && file) {
-        if (dirty && event.data.origin === "disk") toast("info", `${file} changed on disk while you were editing`);
-        loadGraph(file).catch(() => undefined);
-        scheduleState();
-      }
-      return;
-    }
-    if (!file || event.file !== file) return;
-    const node = event.node_id ?? null;
-    const data = event.data;
-    switch (event.type) {
-      case "stream":
-        log({ kind: data.name === "stderr" ? "stderr" : "stdout", node, text: String(data.text ?? "") });
-        break;
-      case "display": {
-        const rich = (data.output as { kind?: string; mime?: string } | undefined) ?? {};
-        if (rich.kind && rich.kind !== "text") log({ kind: "info", node, text: `▣ ${rich.mime} output (open the block's Output tab)` });
-        else if (data.text) log({ kind: "stdout", node, text: String(data.text) });
-        break;
-      }
-      case "node_started":
-        log({ kind: "info", node, text: `▶ ${node} started` });
-        scheduleState();
-        break;
-      case "node_completed":
-        log({ kind: "info", node, text: `✓ ${node} finished in ${formatDuration(data.duration_ms as number)}` });
-        scheduleState();
-        break;
-      case "node_failed":
-        log({ kind: "error", node, text: `✕ ${node} ${String(data.status)}` });
-        scheduleState();
-        break;
-      case "run_finished": {
-        const error = data.error as { message: string } | null;
-        if (error) {
-          toast("error", error.message);
-          log({ kind: "error", node: null, text: error.message });
-        }
-        scheduleState();
-        break;
-      }
-      case "kernel_died":
-        toast("error", `The kernel died while running ${node}. Restart it from the sidebar.`);
-        scheduleState();
-        break;
-      default:
-        if (event.type.startsWith("kernel") || event.type === "run_started") scheduleState();
-    }
-  };
-  useEffect(() => api.events((event) => handler.current(event), setConnected), [api]);
-
-  // actions
-  async function run(nodeId: string | null, mode: RunMode) {
-    if (!file) return;
-    try {
-      const { plan } = await api.execute(file, nodeId, mode);
-      log({ kind: "info", node: null, text: `run ${mode}${nodeId ? ` ${nodeId}` : ""}: ${plan.join(" → ")}` });
-      scheduleState();
-    } catch (error) {
-      fail(error);
-    }
-  }
-
-  async function kernel(action: KernelAction) {
-    if (!file) return;
-    try {
-      if (action === "clean") {
-        const { removed } = await api.cleanKernel(file);
-        toast("success", removed.length ? `Removed ${removed.join(", ")}` : "Nothing to clean");
-      } else {
-        if (action === "start") toast("info", "Starting a kernel in your environment…");
-        await api.kernel(action, file);
-        if (action === "restart") log({ kind: "info", node: null, text: "kernel restarted" });
-      }
-      scheduleState();
-    } catch (error) {
-      fail(error);
-    }
-  }
-
-  async function transform(op: string, nodeIds: string[], params: Record<string, unknown> = {}, confirmed = false): Promise<boolean> {
-    if (!file || !payload) return false;
-    try {
-      const result = await api.transform(file, op, nodeIds, params, { confirm: confirmed, expectedHash: payload.hash });
-      setPayload((current) => (current && current.file === file ? { ...current, hash: result.hash, graph: result.graph } : current));
-      setPreview(null);
-      setDirty(false);
-      setCanRevert(true);
-      if (op !== "edit") toast("success", result.message);
-      if (selectedId && !result.graph.nodes.some((n) => n.id === selectedId)) setSelectedId(null);
-      scheduleState();
-      return true;
-    } catch (error) {
-      if (error instanceof ApiError && error.code === "CONFIRM_REQUIRED") {
-        setConfirm({
-          title: `Delete ${nodeIds[0]}?`,
-          message: error.message,
-          confirmLabel: "Delete anyway",
-          danger: true,
-          onConfirm: () => void transform(op, nodeIds, params, true),
-        });
-        return false;
-      }
-      if (error instanceof ApiError && error.code === "FILE_CHANGED") {
-        toast("error", "The file changed on disk. Reloaded it; check your edit and try again.");
-        await loadGraph(file).catch(() => undefined);
-        return false;
-      }
-      if (error instanceof ApiError && error.code === "DEPENDENCY_VIOLATION") {
-        const edge = error.details.blocking_edge as { from: string; to: string; variable: string } | undefined;
-        if (edge) {
-          setSelectedId(edge.to);
-          setSearch(edge.variable);
-        }
-      }
-      fail(error);
-      return false;
-    }
-  }
-
-  async function revert() {
-    if (!file) return;
-    try {
-      const result = await api.revert(file);
-      setPayload({ file: result.file, hash: result.hash, graph: result.graph, secrets_warning: result.secrets_warning });
-      setPreview(null);
-      setDirty(false);
-      toast("success", `Restored ${file} from ${result.restored_from}`);
-      scheduleState();
-    } catch (error) {
-      if (error instanceof ApiError && error.code === "NO_BACKUP") setCanRevert(false);
-      fail(error);
-    }
-  }
-
-  function select(nodeId: string | null) {
-    if (nodeId !== selectedId && dirty) {
-      setPreview(null);
-      setDirty(false);
-    }
-    setSelectedId(nodeId);
-    setSelectedVariable(null);
-  }
-
-  const graph = preview ?? payload?.graph ?? null;
-  const savedGraph = payload?.graph ?? null;
-  const warningCount = (graph?.warnings.length ?? 0) + (session?.hidden_state.length ?? 0);
-  const kernelStatus = session?.kernel.status ?? "none";
-  const kernelReady = kernelStatus === "idle";
-  const selectedNode = graph?.nodes.find((n) => n.id === selectedId) ?? null;
-
-  // Notebook-style shortcuts (ignored while typing in an input or the code editor).
-  const shortcuts = useRef<(event: KeyboardEvent) => void>(() => undefined);
-  shortcuts.current = (event: KeyboardEvent) => {
-    const target = event.target instanceof HTMLElement ? event.target : null;
-    if (target && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.closest(".monaco-editor"))) return;
-    if (event.key === "Escape") {
-      if (editingId) setEditingId(null);
-      else if (edgePanel) setEdgePanel(null);
-      else select(null);
-      return;
-    }
-    if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey || event.shiftKey) || !selectedId || !graph) return;
-    event.preventDefault();
-    if (!kernelReady) {
-      toast("info", kernelStatus === "busy" ? "The kernel is still running" : "Start a kernel in the sidebar first");
-      return;
-    }
-    void run(selectedId, "node");
-    if (event.shiftKey) {
-      const blocks = graph.nodes.filter((n) => n.kind === "code");
-      const next = blocks[blocks.findIndex((n) => n.id === selectedId) + 1];
-      if (next) select(next.id);
-    }
-  };
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => shortcuts.current(event);
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+  const navigate = useCallback((next: Route, replace = false) => {
+    writeRoute(next, replace);
+    setRoute(next);
   }, []);
-  const savedNode = savedGraph?.nodes.find((n) => n.id === selectedId) ?? null;
+
+  const refreshInfo = useCallback(async () => {
+    if (!engine) return;
+    const [nextInfo, nextCatalogue] = await Promise.all([
+      engine.call<EngineInfo>("engine.info", { probe_gpu: engine.kind !== "browser" }),
+      engine.call<Catalogue>("catalogue.get"),
+    ]);
+    setInfo(nextInfo);
+    setCatalogue(nextCatalogue);
+  }, [engine]);
+
+  const state: AppState | null = useMemo(
+    () => (engine && catalogue && info ? { engine, catalogue, info, notify, fail, openEngine: () => setEngineOpen(true), refreshInfo } : null),
+    [engine, catalogue, info, notify, fail, refreshInfo],
+  );
 
   return (
-    <div className={`app ${consoleOpen ? "console-open" : "console-closed"}`}>
-      <header className="toolbar">
-        <div className="brand">
-          <span className="logo" aria-hidden>◆</span> FlowLab {modeSwitch}
-        </div>
-        <div className="file-title" title={file ?? ""}>
-          {file ?? "no file"}
-          {dirty && <span className="unsaved"> · unsaved</span>}
-        </div>
-        <div className="segmented" role="group" aria-label="View">
-          {(["graph", "linear", "split"] as View[]).map((v) => (
-            <button key={v} className={view === v ? "active" : ""} onClick={() => setView(v)}>
-              {v === "graph" ? "Graph" : v === "linear" ? "Linear" : "Split"}
-            </button>
-          ))}
-        </div>
-        <input
-          className="search"
-          placeholder="Find variable…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          aria-label="Search by variable name"
-        />
-        <label className="toggle" title="Dim everything not connected to the selected block">
-          <input type="checkbox" checked={focus} onChange={(e) => setFocus(e.target.checked)} /> Focus
-        </label>
-        <label className="toggle" title="Show edges from import blocks">
-          <input type="checkbox" checked={showImports} onChange={(e) => setShowImports(e.target.checked)} /> Imports
-        </label>
-        <select value={heat} onChange={(e) => setHeat(e.target.value as HeatMode)} aria-label="Heat map">
-          <option value="off">Heat map: off</option>
-          <option value="time">Heat map: time</option>
-          <option value="memory">Heat map: memory</option>
-        </select>
-        <div className="spacer" />
-        <button disabled={!kernelReady} onClick={() => void run(null, "stale")} title="Re-run blocks whose code or inputs changed">
-          ↻ Run stale
-        </button>
-        <button className="primary" disabled={!kernelReady} onClick={() => void run(null, "all")}>
-          ▶ Run all
-        </button>
-        <button disabled={!canRevert} onClick={() => void revert()} title="Undo the last change FlowLab made to this file">
-          ↶ Undo change
-        </button>
-        <span className={`conn ${connected ? "on" : "off"}`} title={connected ? "Live updates connected" : "Reconnecting…"}>
-          ● {connected ? "live" : "offline"}
-        </span>
-      </header>
-
-      <Sidebar
-        project={project}
-        file={file}
-        onOpen={(next) => {
-          if (dirty && !window.confirm("Discard your unsaved edit?")) return;
-          setFile(next);
-        }}
-        kernel={session?.kernel ?? { status: "none" }}
-        resources={resources}
-        hidden={session?.hidden_state ?? []}
-        onKernel={(action) => void kernel(action)}
-      />
-
-      <main className={`workspace view-${view}`}>
-        {payload?.secrets_warning && file && !dismissedSecrets.has(file) && (
-          <div className="banner warning" role="alert">
-            <span>🔑 {payload.secrets_warning}</span>
-            <button onClick={() => setDismissedSecrets((s) => new Set(s).add(file))}>Dismiss</button>
+    <>
+      {state ? (
+        <AppContext.Provider value={state}>
+          {route.page === "home" ? (
+            <Home open={(id) => navigate({ page: "project", id, tab: "data" })} />
+          ) : (
+            <ProjectPage
+              key={route.id}
+              projectId={route.id}
+              tab={route.tab}
+              setTab={(tab) => navigate({ page: "project", id: route.id, tab }, true)}
+              goHome={() => navigate({ page: "home" })}
+            />
+          )}
+          {engineOpen && <EngineDialog onClose={() => setEngineOpen(false)} onSwitch={(next) => void switchEngine(next).then(() => navigate({ page: "home" }))} />}
+        </AppContext.Provider>
+      ) : (
+        <div className="shell">
+          <div className="topbar">
+            <span className="brand">
+              <Icon name="logo" size={18} className="logo" /> Synapse
+            </span>
           </div>
-        )}
-        {!graph && <div className="placeholder">{file ? "Analysing…" : "No Python or notebook files in this folder."}</div>}
-        {graph && view !== "linear" && file && (
-          <section className="canvas-pane">
-            <GraphCanvas
-              file={file}
-              graph={graph}
-              session={session}
-              selectedId={selectedId}
-              focus={focus}
-              search={search}
-              heat={heat}
-              showImports={showImports}
-              onSelect={select}
-              editingId={editingId}
-              onOpenEdge={setEdgePanel}
-              onRun={(nodeId, mode) => void run(nodeId, mode)}
-              onEdit={setEditingId}
-              onSaveSource={(nodeId, source) => transform("edit", [nodeId], { source })}
-              onCheckSource={async (nodeId, source) => {
-                if (!file) return null;
-                const result = await api.preview(file, nodeId, source);
-                return result.parse_error ? { message: result.parse_error, line: result.parse_error_line } : null;
-              }}
-            />
-            {edgePanel && file && (
-              <EdgePanel
-                api={api}
-                file={file}
-                edge={edgePanel}
-                executionId={session?.nodes[edgePanel.from]?.last_run?.execution_id ?? null}
-                stale={session?.nodes[edgePanel.from]?.state === "stale"}
-                onClose={() => setEdgePanel(null)}
-                onSelect={select}
-              />
-            )}
-            <button className={`warnings-button ${warningCount ? "has" : ""}`} onClick={() => setWarningsOpen((o) => !o)}>
-              ⚠ {warningCount} warning{warningCount === 1 ? "" : "s"}
-            </button>
-            {warningsOpen && (
-              <div className="warnings-panel">
-                {[...(graph.warnings ?? []), ...(session?.hidden_state ?? [])].map((w, i) => (
-                  <button key={i} className={`warning-row sev-${w.severity}`} onClick={() => w.node_id && select(w.node_id)}>
-                    <span className="code">{w.code}</span>
-                    {w.node_id && <span className="node-ref">{w.node_id}</span>}
-                    <span>{w.message}</span>
+          <div />
+        </div>
+      )}
+      {(boot || bootError) && (
+        <div className="boot">
+          <div className="boot-card">
+            {bootError ? (
+              <>
+                <Icon name="error" size={28} className="error-text" />
+                <h2>The engine did not start</h2>
+                <p className="dim">{bootError}</p>
+                <div className="row">
+                  <button onClick={() => engine && void load(engine)}>
+                    <Icon name="refresh" /> Try again
                   </button>
-                ))}
-                {warningCount === 0 && <div className="dim">No warnings.</div>}
-              </div>
+                  {engine?.kind !== "browser" && <button onClick={() => void switchEngine(new BrowserEngine())}>Use this browser instead</button>}
+                </div>
+              </>
+            ) : (
+              <>
+                <Spinner big />
+                <h2>{boot?.message}</h2>
+                {boot?.progress !== undefined && (
+                  <div style={{ width: "100%" }}>
+                    <Bar value={boot.progress} />
+                  </div>
+                )}
+                {engine?.kind === "browser" && <p className="dim small">Synapse runs Python inside this tab. The first visit downloads about 40 MB; later visits load from the cache. Your data stays on this device.</p>}
+              </>
             )}
-            {preview && <div className="preview-note">Previewing unsaved edit — edges reflect your draft</div>}
-          </section>
-        )}
-        {graph && view !== "graph" && (
-          <section className="linear-pane">
-            <LinearView
-              api={api}
-              file={file ?? ""}
-              graph={graph}
-              session={session}
-              selectedId={selectedId}
-              kernelReady={kernelReady}
-              onSelect={select}
-              onRun={(nodeId, mode) => void run(nodeId, mode)}
-              onReorder={(moving, anchor, before) => void transform("reorder", [moving], before ? { before: anchor } : { after: anchor })}
-            />
-          </section>
-        )}
-      </main>
-
-      <Inspector
-        api={api}
-        file={file}
-        graph={graph}
-        node={selectedNode}
-        savedNode={savedNode}
-        session={session}
-        tab={tab}
-        onTab={setTab}
-        focusVariable={selectedVariable}
-        kernelReady={kernelReady}
-        onSelect={select}
-        onRun={(nodeId, mode) => void run(nodeId, mode)}
-        onTransform={transform}
-        onPreview={setPreview}
-        onDirty={setDirty}
-      />
-
-      <Console
-        lines={consoleLines}
-        open={consoleOpen}
-        onToggle={() => setConsoleOpen((o) => !o)}
-        onClear={() => setConsoleLines([])}
-        onSelect={select}
-        badge={project?.badge ?? ""}
-      />
-
+          </div>
+        </div>
+      )}
       <div className="toasts" aria-live="polite">
-        {toasts.map((t) => (
-          <div key={t.id} className={`toast ${t.kind}`}>
-            {t.text}
+        {toasts.map((toast) => (
+          <div key={toast.id} className={`toast ${toast.level}`}>
+            <Icon name={toast.level === "error" ? "error" : toast.level === "ok" ? "check" : "info"} className={toast.level === "error" ? "error-text" : toast.level === "ok" ? "ok-text" : "accent-text"} />
+            <span style={{ flex: 1 }}>{toast.message}</span>
+            <button className="ghost icon-only" onClick={() => setToasts((list) => list.filter((t) => t.id !== toast.id))} aria-label="Dismiss">
+              <Icon name="close" size={12} />
+            </button>
           </div>
         ))}
       </div>
-      {confirm && <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />}
-    </div>
+    </>
   );
 }
