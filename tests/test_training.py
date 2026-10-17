@@ -226,3 +226,20 @@ def test_runtime_column_step_keeps_names():
     assert list(out.columns) == ["size", "colour_blue", "colour_red"]
     missing = step.transform(pd.DataFrame({"size": [1.0]}))  # a column absent at prediction time
     assert list(missing.columns) == ["size", "colour_blue", "colour_red"]
+
+
+@needs_torch
+def test_network_retries_on_the_cpu_when_the_gpu_fails(monkeypatch):
+    real = rt._NeuralNet._fit_torch
+
+    def flaky_gpu(self, *args):
+        if not self._force_cpu:
+            self.device_ = "mps"
+            raise RuntimeError("MPS backend out of memory")
+        return real(self, *args)
+
+    monkeypatch.setattr(rt._NeuralNet, "_fit_torch", flaky_gpu)
+    X = np.random.default_rng(0).normal(size=(80, 3))
+    y = (X[:, 0] > 0).astype(int)
+    model = rt.NeuralNetClassifier(epochs=3, backend="torch").fit(X, y)
+    assert model.device_ == "cpu" and len(model.history_) == 3 and model.predict(X).shape == (80,)

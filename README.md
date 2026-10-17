@@ -9,15 +9,15 @@ Data → Clean → Split → Training rows → Transform → Models → Evaluate
 ```
 
 Everything happens on a visual pipeline. Every step shows its effect on the data before you train,
-and every technique explains what it does.
+and every technique explains what it does. When you want more control, any step or model can be
+opened as Python and edited by hand.
 
-## Four ways to run it
+## Three ways to run it
 
 | | How | Good for |
 | --- | --- | --- |
 | **In the browser** | Open the hosted app (GitHub Pages). Python runs inside the tab via [Pyodide](https://pyodide.org). | Trying it, teaching, small and medium tables. Nothing to install, and data never leaves your device. |
 | **Desktop app** | From Releases: `.deb` for Ubuntu/Debian (double-click, or `sudo apt install ./FlowLabs-*.deb`), `.tar.gz` for other Linux (`sh FlowLabs/install.sh`), `.dmg` for macOS, `setup.exe`/`.zip` for Windows. | Larger data and every feature, offline. |
-| **Android app** | Install `FlowLabs-<version>-android.apk` from Releases. Python and its packages are inside the app. | Training on your phone with no internet, or using your PC's GPU from your phone over Wi-Fi. |
 | **pip** | `pip install "flowlabs[deep]"`, then `flowlabs app` | People who already have Python, a GPU, or a server. |
 
 ### The engine: use your own computer's power from the browser
@@ -35,8 +35,6 @@ flowlabs engine                       # prints a link that opens the web app con
   can install what is missing.
 - **Another machine** (a GPU server): `flowlabs engine --host 0.0.0.0` and open the address it
   prints. Every request needs the engine's token.
-- **From your phone:** run `flowlabs engine --host 0.0.0.0` on the PC, then in the Android app open
-  Engine → Connect and enter the address it prints (e.g. `http://192.168.1.20:8899`) and the token.
 - Each engine keeps its own datasets, projects and models (in `~/FlowLabs` by default; the browser
   engine uses the browser's storage).
 
@@ -75,6 +73,21 @@ balance classes (oversample, undersample, SMOTE, class weights).
 - *images:* a custom CNN (convolution, pooling, batch norm, dropout, dense), or transfer learning
   from ResNet-18/50, MobileNet V3 or EfficientNet-B0, with augmentation.
 
+**Your own code.** Select any step or model and switch to **Python** to see the code it runs
+with your current settings. **Edit as code** turns it into a code step you can change line by line
+(the original is kept, switched off, so you can go back). You can also add code steps directly:
+
+| Where | You write | Runs on |
+| --- | --- | --- |
+| Clean | `clean(df)` returning the table | the whole table, and new data when predicting |
+| Training rows | `rows(X, y)` returning `X, y` | training rows only |
+| Transform | `fit(X, y)` and `transform(X, state)`, or `transformer = <any scikit-learn transformer>` | learned from training rows, applied everywhere |
+| Models | `model = <anything with fit and predict>` | the prepared training rows |
+
+`pd`, `np` and `math` are ready to use. Errors point at the line that failed. Code steps travel with
+the export, so `predict.py` and `train.py` run them too. They run on the engine you are connected
+to, so only connect to engines you trust and share engine tokens only with people you trust.
+
 Optional automatic tuning on any model. Training is live: per-epoch loss curves, tuning trials,
 progress.
 
@@ -102,7 +115,7 @@ classify uploaded images.
 ## How it is built
 
 ```
-apps/android/        the Android shell: a WebView serving the bundled app and Python offline
+apps/android/        an experimental Android shell (not released yet)
 apps/web/            React + TypeScript app (Vite, React Flow, hand-made SVG charts)
   src/engine/        one Engine interface: BrowserEngine (Pyodide worker) and RemoteEngine (HTTP)
 src/flowlabs_runtime.py   what exported models need: transformers, auto-prep, NumPy networks
@@ -135,7 +148,7 @@ cd apps/web && npm run dev            # terminal 2: http://localhost:5173 (brows
                                       #   open the link the engine prints to use it
 python scripts/bundle_web.py          # put the built app inside the Python package
 python scripts/build_app.py           # desktop app for this OS (dist/)
-python scripts/build_apk.py           # Android APK (needs a JDK and the Android SDK; no Gradle)
+python scripts/build_apk.py           # Android APK (experimental, not released yet; needs a JDK and the Android SDK)
 ```
 
 **Add a technique:** add an entry to `core/catalogue.py` (parameters plus a builder that returns a

@@ -47,6 +47,9 @@ analysis = Analysis(
         "jupyter_server", "notebook", "nbformat", "bokeh", "babel", "polars", "dask", "sympy", "plotly",
         "numba", "llvmlite", "sqlalchemy", "pytest", "mypy", "ruff", "tkinter", "PyQt5", "PyQt6", "PySide6",
     ],
+    # Linux window (GTK): the page draws its own UI, so GTK's default icons and theme are enough;
+    # without this PyInstaller copies every icon theme on the build machine (over 200 MB)
+    hooksconfig={"gi": {"icons": ["Adwaita"], "themes": ["Adwaita"], "languages": ["en_US"]}},
     noarchive=False,
 )
 pyz = PYZ(analysis.pure)

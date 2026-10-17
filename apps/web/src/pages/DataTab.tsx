@@ -132,10 +132,10 @@ export function DataTab({ api }: { api: ProjectApi }) {
           {target?.classes && project.task === "classification" && (
             <>
               <h3 className="section-title">Classes</h3>
-              <Bars items={target.classes.slice(0, 15).map((c) => ({ label: c.value, value: c.count }))} format={(v) => fmt(v)} colour="#f472b6" />
+              <Bars items={target.classes.slice(0, 15).map((c) => ({ label: c.value, value: c.count }))} format={(v) => fmt(v)} colour="var(--c-orange)" />
             </>
           )}
-          {target?.histogram && project.task === "regression" && <Histogram edges={target.histogram.edges} counts={target.histogram.counts} colour="#f472b6" />}
+          {target?.histogram && project.task === "regression" && <Histogram edges={target.histogram.edges} counts={target.histogram.counts} colour="var(--c-orange)" />}
         </div>
         <div className="card">
           <div className="card-head"><Icon name="sparkles" className="accent-text" /><h2>Suggested fixes</h2></div>
@@ -169,7 +169,7 @@ export function DataTab({ api }: { api: ProjectApi }) {
                     </div>
                   </td>
                   <td className="num dim">{c.unique.toLocaleString()}</td>
-                  <td>{c.histogram ? <Spark counts={c.histogram.counts} /> : c.top ? <Spark counts={c.top.slice(0, 10).map((t) => t.count)} colour="#c4b5fd" /> : null}</td>
+                  <td>{c.histogram ? <Spark counts={c.histogram.counts} /> : c.top ? <Spark counts={c.top.slice(0, 10).map((t) => t.count)} colour="var(--c-purple)" /> : null}</td>
                   <td className="small dim">
                     {c.stats && "mean" in c.stats ? `${fmt(c.stats.min)} – ${fmt(c.stats.max)}, mean ${fmt(c.stats.mean)}` : c.top ? c.top.slice(0, 3).map((t) => `${t.value} (${t.count})`).join(", ") : c.stats ? `${String(c.stats.min ?? "").slice(0, 10)} → ${String(c.stats.max ?? "").slice(0, 10)}` : ""}
                   </td>

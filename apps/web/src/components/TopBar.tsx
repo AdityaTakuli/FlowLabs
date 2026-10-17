@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useApp } from "../context";
 import { androidBridge } from "../engine/engine";
 import { Icon } from "./Icon";
@@ -25,7 +25,49 @@ export function EngineChip() {
       <span className="dot ok" />
       <Icon name={engine.kind === "browser" ? "globe" : engine.kind === "local" ? "laptop" : "link"} size={14} />
       <span className="engine-label">{label}</span>
-      {gpu ? <span className="badge ok">GPU</span> : <span className="badge">{info.cpus} CPU</span>}
+      <span className="faint engine-spec">{gpu ? "GPU" : `${info.cpus} CPU`}</span>
+    </button>
+  );
+}
+
+type Theme = "light" | "dark";
+const THEME_KEY = "flowlabs-theme";
+
+/** The chosen theme, or none to follow the system. Applied before the first paint (see main.tsx). */
+export function applyStoredTheme() {
+  try {
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === "light" || stored === "dark") document.documentElement.dataset.theme = stored;
+  } catch {
+    /* storage blocked: follow the system */
+  }
+}
+
+function currentTheme(): Theme {
+  const set = document.documentElement.dataset.theme;
+  if (set === "light" || set === "dark") return set;
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function ThemeButton() {
+  const [theme, setTheme] = useState<Theme>(currentTheme);
+  const next: Theme = theme === "dark" ? "light" : "dark";
+  return (
+    <button
+      className="ghost icon-only"
+      onClick={() => {
+        document.documentElement.dataset.theme = next;
+        try {
+          localStorage.setItem(THEME_KEY, next);
+        } catch {
+          /* not remembered, still switched */
+        }
+        setTheme(next);
+      }}
+      title={`Switch to the ${next} theme`}
+      aria-label={`Switch to the ${next} theme`}
+    >
+      <Icon name={theme === "dark" ? "sun" : "moon"} />
     </button>
   );
 }
@@ -41,6 +83,7 @@ export function TopBar({ children, actions, onHome }: { children?: ReactNode; ac
       <span className="spacer" />
       {actions}
       <EngineChip />
+      <ThemeButton />
     </header>
   );
 }

@@ -50,6 +50,62 @@ def p_text(name: str, label: str, default: str = "", help: str = "") -> Param:
     return {"name": name, "label": label, "type": "text", "default": default, "help": help}
 
 
+def p_code(name: str, label: str, default: str, help: str = "", needs: tuple[str, ...] = ()) -> Param:
+    """Python source edited in a code editor. ``needs``: names the code must define."""
+    return {"name": name, "label": label, "type": "code", "default": default, "help": help, "needs": list(needs)}
+
+
+CLEAN_CODE = '''def clean(df):
+    """df is the whole table as a pandas DataFrame. Return the cleaned table.
+
+    pd (pandas), np (NumPy) and math are ready to use.
+    """
+    df = df.copy()
+    # for example: df["price"] = df["price"].clip(lower=0)
+    return df
+'''
+
+ROWS_CODE = '''def rows(X, y):
+    """Change the training rows only. Test rows never pass through here, so scores stay honest.
+
+    X holds the input columns, y the target (class numbers for classification).
+    clean(X) gives X after the Clean steps. Return X, y.
+    """
+    return X, y
+'''
+
+TRANSFORM_CODE = '''# Either use any scikit-learn transformer:
+#     from sklearn.preprocessing import StandardScaler
+#     transformer = StandardScaler()
+# or write fit and transform yourself:
+
+
+def fit(X, y):
+    """Learn from the training rows. Whatever you return is passed to transform."""
+    return X.median(numeric_only=True)
+
+
+def transform(X, state):
+    """Runs on training rows, test rows and new data. Return the new table, with every row."""
+    return X.fillna(state)
+'''
+
+MODEL_CODE = {
+    "classification": """# Any model with fit() and predict(): scikit-learn, XGBoost, LightGBM,
+# or the neural networks in flowlabs_runtime.
+from sklearn.ensemble import RandomForestClassifier
+
+model = RandomForestClassifier(n_estimators=300, min_samples_leaf=2, random_state=0)
+""",
+    "regression": """# Any model with fit() and predict(): scikit-learn, XGBoost, LightGBM,
+# or the neural networks in flowlabs_runtime.
+from sklearn.ensemble import RandomForestRegressor
+
+model = RandomForestRegressor(n_estimators=300, min_samples_leaf=2, random_state=0)
+""",
+}
+
+
 @dataclass(frozen=True)
 class Op:
     """A step in the Clean, Training-set or Transform stage."""
@@ -118,6 +174,10 @@ CLEAN_OPS = [
     Op("sample_rows", "clean", "Rows", "Use a sample",
        "Train on a random subset of rows. Handy for a quick first look at a very large file.",
        [p_int("rows", "Rows to keep", 10000, 10, 10_000_000), p_int("seed", "Random seed", 0, 0, 99999)], rows=True),
+    Op("custom_clean", "clean", "Code", "Python code",
+       "Write your own cleaning in pandas. It runs on the whole table, and on new data when predicting.",
+       [p_code("code", "Code", CLEAN_CODE, needs=("clean",)),
+        p_bool("training_only", "Only while training (for code that removes rows)", False)]),
 ]  # fmt: skip
 
 # ------------------------------------------------------------------------- training-set steps
@@ -137,6 +197,9 @@ ROW_OPS = [
                                                     ("class_weight", "Weight rare classes (no new rows)"),
                                                     ("smote", "SMOTE (synthetic rows, numbers only)")])],
        rows=True),
+    Op("custom_rows", "rows", "Code", "Python code",
+       "Add, remove or reweight training rows with your own code.",
+       [p_code("code", "Code", ROWS_CODE, needs=("rows",))], rows=True),
 ]  # fmt: skip
 
 
@@ -299,6 +362,12 @@ TRANSFORM_OPS = [
        "Compress many numeric columns into fewer components. Below 1 keeps that share of variance.",
        [p_columns("columns", "Columns", ["@numeric"], kinds=["numeric"]),
         p_float("components", "Components (or variance share)", 0.95, 0.5, 500, step=0.05)], build=_pca),
+    Op("custom_transform", "transform", "Code", "Python code",
+       "Your own transform, learned from training rows only: a scikit-learn transformer or fit and transform "
+       "functions.",
+       [p_columns("columns", "Columns", ["@all"]),
+        p_code("code", "Code", TRANSFORM_CODE, needs=("transform", "transformer"))],
+       build=lambda p: rt.CodeTransformer(p.get("code") or "")),
 ]  # fmt: skip
 
 OPS: dict[str, Op] = {op.id: op for op in [*CLEAN_OPS, *ROW_OPS, *TRANSFORM_OPS]}
@@ -482,6 +551,10 @@ def _nn(task: str, p: dict[str, Any], ctx: dict[str, Any]) -> Any:
     )
 
 
+def _custom_model(task: str, p: dict[str, Any], ctx: dict[str, Any]) -> Any:
+    return rt.code_model(p.get("code") or "")
+
+
 def _baseline(task: str, p: dict[str, Any], ctx: dict[str, Any]) -> Any:
     from sklearn.dummy import DummyClassifier, DummyRegressor
 
@@ -589,6 +662,9 @@ ALGOS = [
     Algo("neural_network", "Neural network", ("classification", "regression"), "Deep learning",
          "A network you design layer by layer. Trains on the GPU with PyTorch when available, NumPy otherwise.",
          [NN_LAYERS, *NN_TRAINING], _nn, needs_scaling=True, deep=True),
+    Algo("custom_model", "Python model", ("classification", "regression"), "Code",
+         "Write the model yourself: any model with fit and predict, with your own settings.",
+         [p_code("code", "Code", MODEL_CODE["classification"], needs=("model",))], _custom_model),
 ]  # fmt: skip
 
 ALGO_BY_ID: dict[str, Algo] = {a.id: a for a in ALGOS}

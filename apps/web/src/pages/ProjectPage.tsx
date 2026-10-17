@@ -3,6 +3,7 @@ import { useApp } from "../context";
 import { Icon } from "../components/Icon";
 import { TopBar } from "../components/TopBar";
 import { CommitInput, Spinner } from "../components/ui";
+import { metricValue } from "../format";
 import type { Issue, Profile, Project, RunResult, RunSummary } from "../types";
 import { DataTab } from "./DataTab";
 import { ExportTab } from "./ExportTab";
@@ -184,6 +185,15 @@ export function ProjectPage({ projectId, tab, setTab, goHome }: { projectId: str
     predict: run ? "done" : "todo",
     export: exported ? "done" : "todo",
   };
+  const best = run?.models.find((m) => m.id === run.best_model_id);
+  const stepCount = project.clean.length + project.rows.length + project.transform.length;
+  const notes: Record<Tab, string> = {
+    data: profile ? `${profile.rows.toLocaleString()} ${project.kind === "image" ? "images" : "rows"}` : "Loading",
+    pipeline: errors.length ? `${errors.length} to fix` : `${stepCount} ${stepCount === 1 ? "step" : "steps"}, ${enabledModels} ${enabledModels === 1 ? "model" : "models"}`,
+    results: training?.running ? "Training now" : best ? `Best ${metricValue(run!.metric, best.metrics?.[run!.metric])} ${run!.metric_label}` : "Not trained yet",
+    predict: run ? "Try the best model" : "After training",
+    export: exported ? "Exported" : run ? "Ready to export" : "After training",
+  };
   const trainButton = training?.running ? (
     <button className="danger" onClick={() => void stop()}>
       <Icon name="stop" /> <span className="label">Stop</span>
@@ -207,7 +217,7 @@ export function ProjectPage({ projectId, tab, setTab, goHome }: { projectId: str
         onHome={goHome}
         actions={
           <>
-            {saving && <span className="faint tiny">saving…</span>}
+            {saving && <span className="faint tiny">Saving</span>}
             {trainButton}
           </>
         }
@@ -219,21 +229,26 @@ export function ProjectPage({ projectId, tab, setTab, goHome }: { projectId: str
           <Icon name="chevronRight" size={12} className="crumb-sep" />
           <CommitInput value={project.name} onCommit={(name) => update((p) => ({ ...p, name: name || p.name }))} aria-label="Project name" />
         </div>
-        <nav className="steps" aria-label="Steps">
+      </TopBar>
+      <div className="workspace">
+        <nav className="rail" aria-label="Steps">
           {TABS.map((t, i) => (
             <button key={t.id} className={tab === t.id ? "active" : ""} onClick={() => setTab(t.id)} aria-current={tab === t.id ? "page" : undefined} title={t.label}>
               <StepDot state={states[t.id]} index={i} />
-              <span className="label">{t.label}</span>
+              <span className="rail-text">
+                <span className="rail-label">{t.label}</span>
+                <span className={`rail-note ${states[t.id] === "error" ? "error-text" : ""}`}>{notes[t.id]}</span>
+              </span>
             </button>
           ))}
         </nav>
-      </TopBar>
-      <div className="content" style={tab === "pipeline" ? { overflow: "hidden" } : undefined}>
-        {tab === "data" && <DataTab api={api} />}
-        {tab === "pipeline" && <PipelineTab api={api} training={training} />}
-        {tab === "results" && <ResultsTab api={api} training={training} onTrain={() => void start(latest.current ?? project)} trainable={trainable} />}
-        {tab === "predict" && <PredictTab api={api} />}
-        {tab === "export" && <ExportTab api={api} />}
+        <div className="content" style={tab === "pipeline" ? { overflow: "hidden" } : undefined}>
+          {tab === "data" && <DataTab api={api} />}
+          {tab === "pipeline" && <PipelineTab api={api} training={training} />}
+          {tab === "results" && <ResultsTab api={api} training={training} onTrain={() => void start(latest.current ?? project)} trainable={trainable} />}
+          {tab === "predict" && <PredictTab api={api} />}
+          {tab === "export" && <ExportTab api={api} />}
+        </div>
       </div>
       <nav className="bottom-nav" aria-label="Steps">
         {TABS.map((t, i) => (

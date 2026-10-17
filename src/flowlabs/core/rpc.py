@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from . import catalogue as cat
-from . import datasets, env, evaluation, export, predict, training
+from . import codegen, datasets, env, evaluation, export, predict, training
 from . import project as projects
 from .training import Job
 from .util import Cancelled, UserError, jsonable
@@ -127,7 +127,9 @@ METHODS: dict[str, Callable[[Engine, dict[str, Any]], Any]] = {
     "projects.check": lambda e, p: projects.check(e.ws, _p(p, "project"), env.packages()),
     "projects.preview": lambda e, p: projects.preview(e.ws, _p(p, "project"), p.get("step_id")),
     "projects.new_step": _new_step,
-    "projects.new_model": lambda e, p: projects.model_entry(_p(p, "algo"), p.get("params"), bool(p.get("image"))),
+    "projects.new_model": lambda e, p: projects.model_entry(_p(p, "algo"), p.get("params"), bool(p.get("image")),
+                                                            p.get("task")),
+    "projects.step_code": lambda e, p: codegen.step_code(e.ws, _p(p, "project"), _p(p, "stage"), _p(p, "item_id")),
     "train.start": lambda e, p: e.start_training(_p(p, "project"), _p(p, "job_id")),
     "train.cancel": _cancel,
     "runs.list": lambda e, p: training.list_runs(e.ws, _p(p, "project_id")),

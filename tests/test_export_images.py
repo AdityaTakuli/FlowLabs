@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -17,8 +18,10 @@ from flowlabs.core.training import Job
 
 
 def _run(args: list[str], cwd: Path) -> str:
+    # a bare environment, except what Windows needs to start Python's networking (SYSTEMROOT and friends)
+    keep = {k: v for k, v in os.environ.items() if k.upper() in ("SYSTEMROOT", "WINDIR", "TEMP", "TMP", "COMSPEC")}
     finished = subprocess.run([sys.executable, *args], cwd=cwd, capture_output=True, text=True, timeout=300,
-                              env={"PATH": "/usr/bin:/bin", "HOME": str(cwd)})  # fmt: skip
+                              env={**keep, "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(cwd)})  # fmt: skip
     assert finished.returncode == 0, finished.stderr[-3000:]
     return finished.stdout
 
@@ -34,6 +37,7 @@ def test_tabular_export_runs_without_flowlabs(ws, churn, algo, tmp_path):
         project["models"][0]["params"].update(n_estimators=30)
     result = training.run(ws, project, Job("job"))
     record = result["models"][0]
+    assert record["status"] == "done", record.get("error")
     built = export.build(ws, project["id"], result["id"], record["id"], include_data=True)
     names = {f["name"] for f in built["files"]}
     assert {"model.joblib", "flowlabs_runtime.py", "predict.py", "serve.py", "train.py", "schema.json", "example.csv",

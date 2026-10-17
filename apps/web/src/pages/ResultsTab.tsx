@@ -29,8 +29,8 @@ const EXPLAIN: Record<string, string> = {
 
 function curves(history: EpochPoint[]): { loss: Series[]; score: Series[] } {
   const pick = (key: string) => history.filter((h) => typeof h[key] === "number").map((h) => [h.epoch, h[key]!] as [number, number]);
-  const loss: Series[] = [{ name: "training loss", points: pick("loss") }, { name: "validation loss", points: pick("val_loss"), colour: "#f472b6" }].filter((s) => s.points.length);
-  const score: Series[] = ["val_accuracy", "val_r2"].map((k) => ({ name: k.replace("val_", "validation "), points: pick(k), colour: "#86efac" })).filter((s) => s.points.length);
+  const loss: Series[] = [{ name: "training loss", points: pick("loss") }, { name: "validation loss", points: pick("val_loss"), colour: "var(--c-orange)" }].filter((s) => s.points.length);
+  const score: Series[] = ["val_accuracy", "val_r2"].map((k) => ({ name: k.replace("val_", "validation "), points: pick(k), colour: "var(--c-green)" })).filter((s) => s.points.length);
   return { loss, score };
 }
 
@@ -68,7 +68,7 @@ function TrainingPanel({ training }: { training: Training }) {
               {(m.status === "running" || m.status === "explaining") && m.progress !== undefined && <div className="bar" style={{ marginTop: 4 }}><span style={{ width: `${m.progress * 100}%` }} /></div>}
               {m.error && <div className="error-text small">{m.error}</div>}
             </div>
-            <span className="small num">{m.metrics ? Object.entries(m.metrics).slice(0, 2).map(([k, v]) => `${LABELS[k] ?? k} ${metricValue(k, v)}`).join(" · ") : ""}</span>
+            <span className="small num">{m.metrics ? Object.entries(m.metrics).slice(0, 2).map(([k, v]) => `${LABELS[k] ?? k} ${metricValue(k, v)}`).join(", ") : ""}</span>
           </div>
         ))}
       </div>
@@ -106,7 +106,7 @@ function ModelDetail({ run, model, api }: { run: RunResult; model: ModelResult; 
       <div className="card-head" style={{ marginBottom: 0 }}>
         <h2>{model.label}</h2>
         <span className="badge">{model.family}</span>
-        {model.device && <span className="badge">{model.backend} · {model.device}</span>}
+        {model.device && <span className="badge">{model.backend} on {model.device}</span>}
         {model.parameters && <span className="badge">{model.parameters.toLocaleString()} parameters</span>}
         <span className="spacer" />
         <button onClick={() => api.setTab("predict")}><Icon name="target" /> Try it</button>
@@ -116,7 +116,7 @@ function ModelDetail({ run, model, api }: { run: RunResult; model: ModelResult; 
         {metrics.map((name) => (
           <div className="stat" key={name} title={EXPLAIN[name]}>
             <div className="value">{metricValue(name, model.metrics?.[name])}</div>
-            <div className="label">{LABELS[name]} {name === run.metric && <span className="accent-text">· ranking</span>}</div>
+            <div className="label">{LABELS[name]} {name === run.metric && <span className="faint">(ranks models)</span>}</div>
             {model.train_metrics?.[name] !== undefined && <div className="faint tiny">training rows: {metricValue(name, model.train_metrics[name])}</div>}
           </div>
         ))}
@@ -142,20 +142,20 @@ function ModelDetail({ run, model, api }: { run: RunResult; model: ModelResult; 
         )}
         {d.roc && (
           <div className="chart-card">
-            <h3>ROC curve · AUC {metricValue("roc_auc", model.metrics?.roc_auc)}</h3>
+            <h3>ROC curve, AUC {metricValue("roc_auc", model.metrics?.roc_auc)}</h3>
             <LineChart series={[{ name: `positive = ${d.positive_class}`, points: d.roc }]} diagonal domain={{ x: [0, 1], y: [0, 1] }} xLabel="false positive rate" area />
           </div>
         )}
         {d.pr && (
           <div className="chart-card">
             <h3>Precision vs recall</h3>
-            <LineChart series={[{ name: "precision", points: d.pr, colour: "#c4b5fd" }]} domain={{ x: [0, 1], y: [0, 1] }} xLabel="recall" />
+            <LineChart series={[{ name: "precision", points: d.pr, colour: "var(--c-purple)" }]} domain={{ x: [0, 1], y: [0, 1] }} xLabel="recall" />
           </div>
         )}
         {d.calibration && d.calibration.length > 2 && (
           <div className="chart-card">
             <h3>Are probabilities honest?</h3>
-            <LineChart series={[{ name: "observed share", points: d.calibration.map(([p, o]) => [p, o] as [number, number]), colour: "#fbbf24" }]} diagonal domain={{ x: [0, 1], y: [0, 1] }} xLabel="predicted probability" />
+            <LineChart series={[{ name: "observed share", points: d.calibration.map(([p, o]) => [p, o] as [number, number]), colour: "var(--c-orange)" }]} diagonal domain={{ x: [0, 1], y: [0, 1] }} xLabel="predicted probability" />
           </div>
         )}
         {d.scatter && (
@@ -167,7 +167,7 @@ function ModelDetail({ run, model, api }: { run: RunResult; model: ModelResult; 
         {d.residual_histogram && (
           <div className="chart-card">
             <h3>Errors (actual − predicted)</h3>
-            <Histogram edges={d.residual_histogram.edges} counts={d.residual_histogram.counts} colour="#f472b6" height={160} />
+            <Histogram edges={d.residual_histogram.edges} counts={d.residual_histogram.counts} colour="var(--c-orange)" height={160} />
           </div>
         )}
         {importance && importance.length > 0 && (
@@ -279,15 +279,12 @@ export function ResultsTab({ api, training, onTrain, trainable }: { api: Project
           <div className="row">
             <h2>Results</h2>
             <select value={run.id} onChange={(e) => void openRun(e.target.value)} style={{ marginLeft: 8 }}>
-              {runs.map((r) => <option key={r.id} value={r.id}>{ago(r.finished)} · {r.best_label ?? "no model"} {r.best_value !== null ? `(${metricValue(r.metric, r.best_value)})` : ""}</option>)}
+              {runs.map((r) => <option key={r.id} value={r.id}>Run {ago(r.finished)}: {r.best_label ?? "no model"} {r.best_value !== null ? `(${metricValue(r.metric, r.best_value)})` : ""}</option>)}
             </select>
-            <span className="dim small">{duration(run.seconds)} · {run.data.train_rows.toLocaleString()} training rows · {run.data.test_rows.toLocaleString()} test rows{run.data.features_out ? ` · ${run.data.features_in} inputs → ${run.data.features_out} features` : ""}</span>
+            <span className="dim small">Took {duration(run.seconds)}. Trained on {run.data.train_rows.toLocaleString()} rows, tested on {run.data.test_rows.toLocaleString()}{run.data.features_out ? `, ${run.data.features_in} inputs became ${run.data.features_out} features` : ""}.</span>
           </div>
           {best && (
             <div className="winner">
-              <span className="trophy">
-                <Icon name="trophy" size={22} />
-              </span>
               <div style={{ flex: 1, minWidth: 220 }}>
                 <div className="dim small">Best model</div>
                 <h2 style={{ fontSize: 20 }}>{best.label}</h2>
@@ -296,7 +293,7 @@ export function ResultsTab({ api, training, onTrain, trainable }: { api: Project
                 </div>
               </div>
               <div style={{ textAlign: "right" }}>
-                <div className="big gradient-text">{metricValue(run.metric, best.metrics?.[run.metric])}</div>
+                <div className="big num">{metricValue(run.metric, best.metrics?.[run.metric])}</div>
                 <div className="dim small">{run.metric_label}</div>
               </div>
               <div className="row">
@@ -319,7 +316,7 @@ export function ResultsTab({ api, training, onTrain, trainable }: { api: Project
                   <tr>
                     <th />
                     <th>Model</th>
-                    {columns.map((c) => <th key={c} title={EXPLAIN[c]} style={c === run.metric ? { color: "var(--accent)" } : undefined}>{LABELS[c]}</th>)}
+                    {columns.map((c) => <th key={c} title={EXPLAIN[c]} className={c === run.metric ? "metric-col" : undefined}>{LABELS[c]}</th>)}
                     <th title="Cross-validation on training rows">CV</th>
                     <th title="Score on the rows it learned from: a big gap means overfitting">Train score</th>
                     <th>Time</th>
@@ -330,7 +327,7 @@ export function ResultsTab({ api, training, onTrain, trainable }: { api: Project
                     <tr key={m.id} className={`clickable ${m.id === selected ? "selected" : ""}`} onClick={() => setSelected(m.id)}>
                       <td><span className={`rank ${m.id === run.best_model_id ? "first" : ""}`}>{m.status === "done" ? i + 1 : "–"}</span></td>
                       <td><b>{m.label}</b> <span className="faint tiny">{m.family}</span>{m.status === "failed" && <span className="badge error" style={{ marginLeft: 6 }}>failed</span>}</td>
-                      {columns.map((c) => <td key={c} className={c === run.metric ? "accent-text" : ""}>{metricValue(c, m.metrics?.[c])}</td>)}
+                      {columns.map((c) => <td key={c} className={`num ${c === run.metric ? "metric-col" : ""}`}>{metricValue(c, m.metrics?.[c])}</td>)}
                       <td className="dim">{m.cv?.mean !== undefined && m.cv?.mean !== null ? `${metricValue(m.cv.metric, m.cv.mean)} ± ${fmt(m.cv.std, 2)}` : "–"}</td>
                       <td className="dim">{metricValue(run.metric, m.train_metrics?.[run.metric])}</td>
                       <td className="dim">{duration(m.fit_seconds)}</td>

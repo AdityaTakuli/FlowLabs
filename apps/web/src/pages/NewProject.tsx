@@ -38,7 +38,7 @@ export function DropZone({ onFile, accept, label }: { onFile: (file: File) => vo
   );
 }
 
-export function NewProject({ onClose, onCreated, initialDataset }: { onClose: () => void; onCreated: (id: string) => void; initialDataset?: DatasetMeta }) {
+export function NewProject({ onClose, onCreated, initialDataset, initialFile }: { onClose: () => void; onCreated: (id: string) => void; initialDataset?: DatasetMeta; initialFile?: File }) {
   const { engine, catalogue, fail } = useApp();
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -102,6 +102,15 @@ export function NewProject({ onClose, onCreated, initialDataset }: { onClose: ()
       setBusy(null);
     }
   };
+
+  const dropped = useRef(false);
+  useEffect(() => {
+    if (initialFile && !dropped.current) {
+      dropped.current = true; // a file dropped on the home page
+      void upload(initialFile);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialFile]);
 
   const create = async () => {
     if (!dataset) return;
@@ -233,7 +242,7 @@ export function NewProject({ onClose, onCreated, initialDataset }: { onClose: ()
                   <span className="dim">Classes:</span>
                   {profile.target.classes.slice(0, 12).map((c) => (
                     <span key={c.value} className="badge solid">
-                      {c.value} · {c.count}
+                      {c.value} ({c.count})
                     </span>
                   ))}
                 </div>
@@ -284,7 +293,7 @@ export function NewProject({ onClose, onCreated, initialDataset }: { onClose: ()
               <div className="row wrap">
                 {profile.classes?.map((c) => (
                   <span key={c.value} className="badge solid">
-                    {c.value} · {c.count}
+                    {c.value} ({c.count})
                   </span>
                 ))}
               </div>

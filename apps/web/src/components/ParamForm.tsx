@@ -1,6 +1,8 @@
 // Forms generated from the engine's parameter definitions (see core/catalogue.py).
 import { useState } from "react";
 import type { ColumnKind, Param } from "../types";
+import { lineOf } from "../format";
+import { CodeEditor } from "./LazyCodeEditor";
 import { Icon } from "./Icon";
 import { CommitInput, KindBadge, Segmented, Switch } from "./ui";
 
@@ -244,7 +246,7 @@ function LayersField({ param, value, onChange }: { param: Param; value: Layer[];
 
 // ------------------------------------------------------------------------------- the form
 
-export function ParamField({ param, value, onChange, columns, owner }: { param: Param; value: unknown; onChange: (v: unknown) => void; columns: ColumnInfo[]; owner?: string }) {
+export function ParamField({ param, value, onChange, columns, owner, codeError }: { param: Param; value: unknown; onChange: (v: unknown) => void; columns: ColumnInfo[]; owner?: string; codeError?: string | null }) {
   const [open, setOpen] = useState(false);
   void owner;
   let control: React.ReactNode;
@@ -322,6 +324,13 @@ export function ParamField({ param, value, onChange, columns, owner }: { param: 
     case "layers":
       control = <LayersField param={param} value={(value as Layer[]) ?? (param.default as Layer[])} onChange={onChange} />;
       break;
+    case "code":
+      return (
+        <div className="field">
+          <CodeEditor value={String(value ?? "")} onChange={onChange} label={param.label} minLines={12} errorAt={lineOf(codeError)} />
+          {param.help && <span className="help">{param.help}</span>}
+        </div>
+      );
   }
   return (
     <div className="field">
@@ -339,14 +348,14 @@ export function ParamField({ param, value, onChange, columns, owner }: { param: 
   );
 }
 
-export function ParamForm({ params, values, onChange, columns, owner, skip }: { params: Param[]; values: Record<string, unknown>; onChange: (name: string, value: unknown) => void; columns: ColumnInfo[]; owner: string; skip?: string[] }) {
+export function ParamForm({ params, values, onChange, columns, owner, skip, codeError }: { params: Param[]; values: Record<string, unknown>; onChange: (name: string, value: unknown) => void; columns: ColumnInfo[]; owner: string; skip?: string[]; codeError?: string | null }) {
   return (
     <div>
       {params
         .filter((p) => !skip?.includes(p.name))
         .filter((p) => VISIBLE[`${owner}.${p.name}`]?.(values) ?? true)
         .map((param) => (
-          <ParamField key={param.name} param={param} owner={owner} value={values[param.name] ?? param.default} onChange={(v) => onChange(param.name, v)} columns={columns} />
+          <ParamField key={param.name} param={param} owner={owner} value={values[param.name] ?? param.default} onChange={(v) => onChange(param.name, v)} columns={columns} codeError={codeError} />
         ))}
     </div>
   );

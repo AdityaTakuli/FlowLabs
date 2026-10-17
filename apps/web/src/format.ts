@@ -59,3 +59,9 @@ export function cell(value: unknown): string {
 export function uid(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 }
+
+/** "line 3: KeyError: ..." -> 3 (errors from code steps name their line) */
+export function lineOf(message: string | undefined | null): number | null {
+  const match = /line (\d+)/.exec(message ?? "");
+  return match ? Number(match[1]) : null;
+}

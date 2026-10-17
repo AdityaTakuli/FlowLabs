@@ -12,7 +12,7 @@ export interface ParamOption {
 export interface Param {
   name: string;
   label: string;
-  type: "int" | "float" | "select" | "bool" | "text" | "columns" | "column" | "parts" | "layers";
+  type: "int" | "float" | "select" | "bool" | "text" | "columns" | "column" | "parts" | "layers" | "code";
   default: unknown;
   min?: number;
   max?: number;
@@ -23,6 +23,7 @@ export interface Param {
   kinds?: ColumnKind[];
   layer_types?: string[];
   activations?: string[];
+  needs?: string[];
 }
 
 export interface OpDef {
@@ -384,3 +385,9 @@ export type EngineEvent =
   | { type: "log"; text: string }
   | { type: "connection"; status: "online" | "offline" }
   | { type: "boot"; stage: string; message: string; progress?: number };
+
+/** projects.step_code: the Python for one step or model, and the code step that would replace it. */
+export interface StepCode {
+  code: string;
+  replacement: { op?: string; algo?: string; label?: string; params: Record<string, unknown> };
+}

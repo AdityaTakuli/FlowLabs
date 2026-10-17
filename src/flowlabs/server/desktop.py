@@ -90,9 +90,14 @@ def launch(root: Path, *, port: int | None = None, window: bool = True, quiet: b
             settings = getattr(webview, "settings", None)
             if isinstance(settings, dict):
                 settings["ALLOW_DOWNLOADS"] = True  # exports and scored files
-            webview.create_window(WINDOW_TITLE, server.url, width=WINDOW_SIZE[0], height=WINDOW_SIZE[1])
-            webview.start()  # returns when the window closes
-            return 0
+            try:
+                webview.create_window(WINDOW_TITLE, server.url, width=WINDOW_SIZE[0], height=WINDOW_SIZE[1])
+                webview.start()  # returns when the window closes
+                return 0
+            except Exception as error:  # no usable GUI backend (missing GTK/Qt, no display)
+                if not quiet:
+                    print(f"  the app window could not open ({error})")
+                window = True
         if window and not quiet:
             print("  no native webview available: opening your browser instead")
         webbrowser.open(server.url)

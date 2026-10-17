@@ -48,7 +48,8 @@ def _step(stage: str, op: str, params: dict[str, Any] | None = None) -> dict[str
     return {"id": new_id(stage[0]), "op": op, "params": merged, "enabled": True}
 
 
-def model_entry(algo_id: str, params: dict[str, Any] | None = None, image: bool = False) -> dict[str, Any]:
+def model_entry(algo_id: str, params: dict[str, Any] | None = None, image: bool = False,
+                task: str | None = None) -> dict[str, Any]:  # fmt: skip
     if image:
         definition = next((m for m in cat.IMAGE_ALGOS if m["id"] == algo_id), None)
         if definition is None:
@@ -59,6 +60,8 @@ def model_entry(algo_id: str, params: dict[str, Any] | None = None, image: bool 
             raise UserError(f"unknown model {algo_id}")
         algo = cat.ALGO_BY_ID[algo_id]
         label, defaults = algo.label, cat.defaults(algo.params)
+        if algo_id == "custom_model" and task in cat.MODEL_CODE:
+            defaults = {**defaults, "code": cat.MODEL_CODE[task]}
     return {"id": new_id("m"), "algo": algo_id, "label": label, "params": {**copy.deepcopy(defaults), **(params or {})},
             "tune": "off", "enabled": True}  # fmt: skip
 
@@ -242,6 +245,10 @@ def check(ws: Workspace, project: dict[str, Any], packages: dict[str, Any] | Non
         if algo is None:
             add("error", "models", f"Unknown model {model['algo']}.", model["id"])
             continue
+        if algo.id == "custom_model":
+            problem = rt.check_code((model.get("params") or {}).get("code") or "", ["model"])
+            if problem:
+                add("error", "models", f"{model.get('label') or algo.label}: {problem}", model["id"])
         if project.get("task") not in algo.tasks:
             add("error", "models", f"{algo.label} cannot do {project.get('task')}.", model["id"])
         if not cat.algo_available(algo, packages):
@@ -316,6 +323,12 @@ def check(ws: Workspace, project: dict[str, Any], packages: dict[str, Any] | Non
         text = [c for c in features if not (rt.is_numeric_series(sample[c]) or rt.is_bool_series(sample[c]))]
         if text:
             add("warning", "transform", "Auto-prep is off and some columns are not numbers; most models will fail.")
+    for stage, needs in (("rows", ["rows"]), ("transform", ["transform", "transformer"])):
+        for step in enabled(project.get(stage)):
+            if step["op"] == f"custom_{stage}":
+                problem = rt.check_code((step.get("params") or {}).get("code") or "", needs)
+                if problem:
+                    add("error", stage, f"Python code: {problem}", step["id"])
     for step in enabled(project.get("rows")):
         if step["op"] == "balance_classes" and task != "classification":
             add("error", "rows", "Balancing classes only applies to classification.", step["id"])

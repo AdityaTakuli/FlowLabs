@@ -88,13 +88,19 @@ export function summarize(step: Step, catalogue: Catalogue): string {
     const param = op?.params.find((x) => x.name === name);
     return param?.options?.find((o) => o.value === p[name])?.label ?? String(p[name] ?? "");
   };
+  if (step.op.startsWith("custom_")) {
+    const code = String(p.code ?? "");
+    const lines = code.split("\n").filter((l) => l.trim() && !l.trim().startsWith("#")).length;
+    const name = /def (\w+)\(/.exec(code)?.[1] ?? (/^transformer\s*=/m.test(code) ? "transformer" : "code");
+    return `Python: ${name}, ${lines} ${lines === 1 ? "line" : "lines"}`;
+  }
   switch (step.op) {
     case "drop_columns":
       return columnsText(p.columns) || "choose columns";
     case "change_type":
       return `${columnsText(p.columns) || "choose columns"} → ${option("to")}`;
     case "clean_text":
-      return `${columnsText(p.columns)} · ${option("case")}`;
+      return `${columnsText(p.columns)}, ${option("case")}`;
     case "replace_values":
       return p.column ? `${p.column}: “${p.find ?? ""}” → “${p.replace ?? ""}”` : "choose a column";
     case "extract_datetime":
@@ -110,23 +116,23 @@ export function summarize(step: Step, catalogue: Catalogue): string {
     case "sample_rows":
       return `${fmt(p.rows)} random rows`;
     case "remove_outliers":
-      return `${option("method")} · ${columnsText(p.columns)}`;
+      return `${option("method")}, ${columnsText(p.columns)}`;
     case "balance_classes":
       return option("method");
     case "impute":
-      return `${option("strategy")} · ${columnsText(p.columns)}`;
+      return `${option("strategy")}, ${columnsText(p.columns)}`;
     case "encode":
     case "scale":
     case "power":
-      return `${option("method")} · ${columnsText(p.columns)}`;
+      return `${option("method")}, ${columnsText(p.columns)}`;
     case "clip_outliers":
-      return `${option("method")} · ${columnsText(p.columns)}`;
+      return `${option("method")}, ${columnsText(p.columns)}`;
     case "select_k_best":
-      return `top ${p.k} · ${columnsText(p.columns)}`;
+      return `top ${p.k}, ${columnsText(p.columns)}`;
     case "pca":
       return Number(p.components) < 1 ? `keep ${Math.round(Number(p.components) * 100)}% variance` : `${p.components} components`;
     case "polynomial":
-      return `degree ${p.degree} · ${columnsText(p.columns)}`;
+      return `degree ${p.degree}, ${columnsText(p.columns)}`;
     default:
       return columnsText(p.columns);
   }
@@ -137,10 +143,14 @@ function modelSubtitle(model: Project["models"][number], catalogue: Catalogue, k
   if (model.algo === "neural_network" || model.algo === "cnn") {
     const layers = (model.params.layers as { type: string; units?: number; filters?: number }[] | undefined) ?? [];
     const sizes = layers.filter((l) => l.type === "dense" || l.type === "conv").map((l) => l.units ?? l.filters);
-    return `${layers.length} layers (${sizes.join("→")}) · ${model.params.epochs} epochs`;
+    return `${layers.length} layers (${sizes.join("→")}), ${model.params.epochs} epochs`;
   }
-  if (model.algo === "pretrained") return `${model.params.arch}${model.params.freeze ? " · last layer only" : " · fine-tune all"}`;
-  const tune = model.tune !== "off" ? ` · tune ${model.tune}` : "";
+  if (model.algo === "custom_model") {
+    const made = /^model\s*=\s*([\w.]+)\(/m.exec(String(model.params.code ?? ""))?.[1];
+    return made ? `Python: ${made}` : "Python model";
+  }
+  if (model.algo === "pretrained") return `${model.params.arch}${model.params.freeze ? ", last layer only" : ", fine-tune all"}`;
+  const tune = model.tune !== "off" ? `, tuning ${model.tune}` : "";
   return `${algo?.family ?? ""}${tune}`;
 }
 
@@ -177,7 +187,7 @@ export function buildGraph(
       ids.push(node.id);
     };
     if (stage === "data") {
-      push({ id: "dataset", kind: "dataset", title: "Dataset", subtitle: `predict ${project.target} · ${project.task}`, level: levelFor("", "data") });
+      push({ id: "dataset", kind: "dataset", title: "Dataset", subtitle: `predict ${project.target}, ${project.task}`, level: levelFor("", "data") });
     } else if (stage === "clean" || stage === "rows" || stage === "transform") {
       for (const step of project[stage]) {
         const op = catalogue[stage].find((o) => o.id === step.op);
@@ -192,11 +202,11 @@ export function buildGraph(
       if (s.time_column) parts.push(`by ${s.time_column}`);
       else if (s.stratify && project.task === "classification") parts.push("stratified");
       if (s.cv_folds >= 2) parts.push(`${s.cv_folds}-fold CV`);
-      push({ id: "split", kind: "split", title: "Train / test split", subtitle: parts.join(" · "), level: levelFor("", "split") });
+      push({ id: "split", kind: "split", title: "Train / test split", subtitle: parts.join(", "), level: levelFor("", "split") });
     } else if (stage === "prep") {
       const prep = project.image ?? {};
       const aug = ["hflip", "vflip"].filter((k) => prep[k]).length + (Number(prep.rotation) > 0 ? 1 : 0) + (Number(prep.color_jitter) > 0 ? 1 : 0);
-      push({ id: "image_prep", kind: "imageprep", title: "Resize & augment", subtitle: `${prep.size}×${prep.size}px${prep.grayscale ? " grey" : ""} · ${aug} augmentations`, level: levelFor("", "prep") });
+      push({ id: "image_prep", kind: "imageprep", title: "Resize & augment", subtitle: `${prep.size}×${prep.size}px${prep.grayscale ? " grey" : ""}, ${aug} augmentations`, level: levelFor("", "prep") });
     } else if (stage === "models") {
       for (const model of project.models) {
         const result = results.get(model.id);

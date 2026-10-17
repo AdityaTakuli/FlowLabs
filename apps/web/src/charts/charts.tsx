@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import { fmt } from "../format";
 
-export const PALETTE = ["#7dd3fc", "#f472b6", "#fbbf24", "#86efac", "#c4b5fd", "#fb923c", "#ececec", "#94a3b8"];
+export const PALETTE = ["var(--c-blue)", "var(--c-orange)", "var(--c-green)", "var(--c-red)", "var(--c-purple)", "var(--c-brown)", "var(--c-pink)", "var(--c-grey)"];
 
 function ticks(min: number, max: number, count = 4): number[] {
   if (!Number.isFinite(min) || !Number.isFinite(max)) return [];
@@ -89,8 +89,8 @@ export function LineChart({
             {fmt(t)}
           </text>
         ))}
-        <line className="axis" x1={P.l} x2={W - P.r} y1={H - P.b} y2={H - P.b} stroke="#363636" />
-        {diagonal && <line x1={sx(Math.max(x0, y0))} y1={sy(Math.max(x0, y0))} x2={sx(Math.min(x1, y1))} y2={sy(Math.min(x1, y1))} stroke="#444" strokeDasharray="4 4" />}
+        <line className="axis" x1={P.l} x2={W - P.r} y1={H - P.b} y2={H - P.b} stroke="var(--rule-strong)" />
+        {diagonal && <line x1={sx(Math.max(x0, y0))} y1={sy(Math.max(x0, y0))} x2={sx(Math.min(x1, y1))} y2={sy(Math.min(x1, y1))} stroke="var(--edge)" strokeDasharray="4 4" />}
         {series.map((s, i) => {
           const colour = s.colour ?? PALETTE[i % PALETTE.length];
           const d = s.points.map((p, j) => `${j ? "L" : "M"}${sx(p[0]).toFixed(1)},${sy(p[1]).toFixed(1)}`).join("");
@@ -106,7 +106,7 @@ export function LineChart({
         })}
         {hover !== null && (
           <g>
-            <line x1={hover} x2={hover} y1={P.t} y2={H - P.b} stroke="#555" />
+            <line x1={hover} x2={hover} y1={P.t} y2={H - P.b} stroke="var(--edge)" />
             {series.map((s, i) => {
               const p = nearest(s);
               return p ? <circle key={s.name} cx={sx(p[0])} cy={sy(p[1])} r={3.5} fill={s.colour ?? PALETTE[i % PALETTE.length]} /> : null;
@@ -141,7 +141,7 @@ export function LineChart({
   );
 }
 
-export function Bars({ items, max, colour = "#7dd3fc", format = fmt, signed }: { items: { label: string; value: number; extra?: string }[]; max?: number; colour?: string; format?: (v: number) => string; signed?: boolean }) {
+export function Bars({ items, max, colour = "var(--c-blue)", format = fmt, signed }: { items: { label: string; value: number; extra?: string }[]; max?: number; colour?: string; format?: (v: number) => string; signed?: boolean }) {
   const top = max ?? Math.max(...items.map((i) => Math.abs(i.value)), 1e-12);
   return (
     <div className="col" style={{ gap: 5 }}>
@@ -150,8 +150,8 @@ export function Bars({ items, max, colour = "#7dd3fc", format = fmt, signed }: {
           <span className="ellipsis mono" title={item.label} style={{ fontSize: 11.5 }}>
             {item.label}
           </span>
-          <div style={{ height: 10, background: "#141414", borderRadius: 3, overflow: "hidden" }}>
-            <div style={{ width: `${(Math.abs(item.value) / top) * 100}%`, height: "100%", background: signed && item.value < 0 ? "#fb7185" : colour, borderRadius: 3 }} />
+          <div style={{ height: 10, background: "var(--sheet-2)", borderRadius: 3, overflow: "hidden" }}>
+            <div style={{ width: `${(Math.abs(item.value) / top) * 100}%`, height: "100%", background: signed && item.value < 0 ? "var(--c-red)" : colour, borderRadius: 3 }} />
           </div>
           <span className="num dim" style={{ textAlign: "right" }} title={item.extra}>
             {format(item.value)}
@@ -176,8 +176,8 @@ export function Heatmap({ labels, columns, matrix, diverging, format = fmt, norm
   const size = Math.max(18, Math.min(46, Math.floor(420 / Math.max(cols.length, 1))));
   const colour = (v: number) => {
     const t = Math.abs(v) / max;
-    if (diverging && v < 0) return `rgba(251,113,133,${0.08 + 0.85 * t})`;
-    return `rgba(125,211,252,${0.06 + 0.85 * t})`;
+    if (diverging && v < 0) return `color-mix(in srgb, var(--c-red) ${Math.round(8 + 85 * t)}%, var(--sheet))`;
+    return `color-mix(in srgb, var(--c-blue) ${Math.round(6 + 85 * t)}%, var(--sheet))`;
   };
   const showText = size >= 26;
   return (
@@ -206,7 +206,7 @@ export function Heatmap({ labels, columns, matrix, diverging, format = fmt, norm
                   <td
                     key={c}
                     title={title ? title(row, c) : `${row} × ${c}: ${format(raw)}`}
-                    style={{ width: size, height: size, minWidth: size, padding: 0, border: "none", borderRadius: 3, textAlign: "center", fontSize: 10, background: colour(v), color: Math.abs(v) / max > 0.55 ? "#000" : "#bbb" }}
+                    style={{ width: size, height: size, minWidth: size, padding: 0, border: "none", borderRadius: 3, textAlign: "center", fontSize: 10, background: colour(v), color: Math.abs(v) / max > 0.55 ? "#fff" : "var(--text-dim)" }}
                   >
                     {showText ? format(raw) : ""}
                   </td>
@@ -220,7 +220,7 @@ export function Heatmap({ labels, columns, matrix, diverging, format = fmt, norm
   );
 }
 
-export function Histogram({ edges, counts, height = 120, colour = "#7dd3fc", label }: { edges: number[]; counts: number[]; height?: number; colour?: string; label?: string }) {
+export function Histogram({ edges, counts, height = 120, colour = "var(--c-blue)", label }: { edges: number[]; counts: number[]; height?: number; colour?: string; label?: string }) {
   const W = 420;
   const H = height;
   const P = { l: 36, r: 8, t: 6, b: 20 };
@@ -287,9 +287,9 @@ export function Scatter({ points, range, xLabel, yLabel }: { points: [number, nu
           </text>
         </g>
       ))}
-      <line x1={sx(lo)} y1={sy(lo)} x2={sx(hi)} y2={sy(hi)} stroke="#555" strokeDasharray="4 4" />
+      <line x1={sx(lo)} y1={sy(lo)} x2={sx(hi)} y2={sy(hi)} stroke="var(--edge)" strokeDasharray="4 4" />
       {points.map((p, i) => (
-        <circle key={i} cx={sx(p[0])} cy={sy(p[1])} r={2.4} fill="#7dd3fc" opacity={0.6} />
+        <circle key={i} cx={sx(p[0])} cy={sy(p[1])} r={2.4} fill="var(--c-blue)" opacity={0.6} />
       ))}
       <text x={(W + P.l) / 2} y={H - 4} textAnchor="middle">
         {xLabel}
@@ -302,7 +302,7 @@ export function Scatter({ points, range, xLabel, yLabel }: { points: [number, nu
 }
 
 /** A tiny histogram for table cells. */
-export function Spark({ counts, width = 90, height = 22, colour = "#7dd3fc" }: { counts: number[]; width?: number; height?: number; colour?: string }) {
+export function Spark({ counts, width = 90, height = 22, colour = "var(--c-blue)" }: { counts: number[]; width?: number; height?: number; colour?: string }) {
   if (!counts.length) return null;
   const top = Math.max(...counts, 1);
   const bw = width / counts.length;

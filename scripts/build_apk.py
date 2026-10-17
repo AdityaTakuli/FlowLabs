@@ -53,10 +53,19 @@ def sdk() -> tuple[Path, Path]:
     home = Path(os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT") or Path.home() / "Android" / "Sdk")
     tools = sorted((home / "build-tools").glob("*/"), key=lambda p: [int(x) for x in p.name.split(".") if x.isdigit()])
     tools = [t for t in tools if (t / "d8").exists() or (t / "d8.bat").exists()]
-    jars = sorted((home / "platforms").glob("android-*/android.jar"), key=lambda p: int(p.parent.name.split("-")[1]))
+    jars = sorted((home / "platforms").glob("android-*/android.jar"), key=lambda p: platform_version(p.parent.name))
+    jars = [j for j in jars if platform_version(j.parent.name) > (0,)]
     if not tools or not jars:
         raise SystemExit(f"Android SDK build-tools and a platform are needed in {home} (set ANDROID_HOME)")
     return tools[-1], jars[-1]
+
+
+def platform_version(name: str) -> tuple[int, ...]:
+    """android-36 -> (36,), android-37.1 -> (37, 1); preview names like android-Baklava -> (0,)."""
+    try:
+        return tuple(int(part) for part in name.removeprefix("android-").split("."))
+    except ValueError:
+        return (0,)
 
 
 def tool(folder: Path, name: str) -> str:
@@ -164,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
     unsigned = BUILD / "unsigned.apk"
     run([tool(tools, "aapt2"), "link", "-o", str(unsigned), "-I", str(android_jar),
          "--manifest", str(ANDROID / "AndroidManifest.xml"), "-A", str(BUILD / "assets"),
-         "--min-sdk-version", str(MIN_SDK), "--target-sdk-version", android_jar.parent.name.split("-")[1],
+         "--min-sdk-version", str(MIN_SDK), "--target-sdk-version", str(platform_version(android_jar.parent.name)[0]),
          "--version-code", str(version_code()), "--version-name", VERSION,
          "-0", "wasm", "-0", "whl", "-0", "zip", "-0", "woff2", str(compiled)])  # fmt: skip
 

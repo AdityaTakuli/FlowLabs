@@ -241,12 +241,12 @@ export function EngineDialog({ onClose, onSwitch }: { onClose: () => void; onSwi
             <h3 className="section-title">Current engine</h3>
             <div className="col" style={{ gap: 4 }}>
               <div className="row">
-                <Icon name="cpu" /> {info.platform} · Python {info.python} · {info.cpus} CPU cores {memory && `· ${memory}`}
+                <Icon name="cpu" /> {info.platform}, Python {info.python}, {info.cpus} CPU cores{memory && `, ${memory}`}
               </div>
               {info.gpus?.length ? (
                 info.gpus.map((gpu) => (
                   <div className="row ok-text" key={gpu.name}>
-                    <Icon name="gpu" /> {gpu.name} {gpu.memory_gb ? `· ${gpu.memory_gb} GB` : ""}
+                    <Icon name="gpu" /> {gpu.name} {gpu.memory_gb ? `, ${gpu.memory_gb} GB` : ""}
                   </div>
                 ))
               ) : (

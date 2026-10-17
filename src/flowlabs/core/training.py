@@ -333,8 +333,9 @@ def run(ws: Workspace, project: dict[str, Any], job: Job, packages: dict[str, An
                                              "std": float(np.std(finite)) if finite else None})  # fmt: skip
             pipeline = build_pipeline(project, entry, params, ctx)
             model = pipeline.steps[-1][1]
-            if algo.deep:
-                epochs = int(params.get("epochs", 60))
+            deep = algo.deep or isinstance(model, rt._NeuralNet)  # a network written in a model code step
+            if deep:
+                epochs = int(getattr(model, "epochs", params.get("epochs", 60)))
 
                 def on_epoch(epoch: int, values: dict[str, float], _id: str = entry["id"], _n: int = epochs) -> bool:
                     job.emit("epoch", model_id=_id, epoch=epoch, epochs=_n, metrics=round_floats(values))
@@ -346,7 +347,7 @@ def run(ws: Workspace, project: dict[str, Any], job: Job, packages: dict[str, An
                 pipeline.fit(X_train, y_train)
             job.check()
             record["fit_seconds"] = round(time.monotonic() - fit_clock, 3)
-            if algo.deep:
+            if deep:
                 model._on_epoch = None
                 record["history"] = round_floats(model.history_)
                 record["backend"] = model.backend_
@@ -486,6 +487,11 @@ def _result_warnings(done: list[dict[str, Any]], best: dict[str, Any] | None, me
 
 def _friendly(error: Exception) -> str:
     text = str(error) or type(error).__name__
+    if isinstance(error, rt.CodeError):
+        return f"Python code, {text}"[:800]
+    line = rt.code_line(error)
+    if line is not None:  # raised inside a model written in a code step
+        return f"Python code, line {line}: {type(error).__name__}: {text}"[:800]
     if isinstance(error, MemoryError):
         return "Out of memory. Use a sample of the rows or a lighter model."
     if "could not convert string to float" in text or "dtype('O')" in text:

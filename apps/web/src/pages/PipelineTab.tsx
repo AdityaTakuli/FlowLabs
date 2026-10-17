@@ -2,11 +2,12 @@ import { Background, BackgroundVariant, Controls, Handle, Position, ReactFlow, t
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../context";
 import { Icon, type IconName } from "../components/Icon";
+import { CodeEditor } from "../components/LazyCodeEditor";
 import { NetworkDiagram, ParamForm, type ColumnInfo, type Layer } from "../components/ParamForm";
 import { CommitInput, KindBadge, Modal, Notice, Segmented, Spinner, Switch } from "../components/ui";
 import { cell, metricValue, pct } from "../format";
 import { buildGraph, move, STAGE_COLOURS, STAGE_TITLES, type PipeNode } from "../pipeline";
-import type { AlgoDef, ModelEntry, OpDef, Preview, Project, Step } from "../types";
+import type { AlgoDef, ModelEntry, OpDef, Preview, Project, Step, StepCode } from "../types";
 import type { ProjectApi } from "./ProjectPage";
 import type { Training } from "./useTraining";
 
@@ -42,11 +43,11 @@ function PipelineNode({ data }: NodeProps<Node<FlowData>>) {
   const icon = data.kind === "step" ? STAGE_ICON[data.stage] ?? "dot" : KIND_ICON[data.kind] ?? "dot";
   const classes = ["node", data.selected ? "selected" : "", data.disabled ? "disabled" : "", data.level === "error" ? "has-error" : data.level === "warning" ? "has-warning" : ""];
   return (
-    <div className={classes.join(" ")}>
+    <div className={classes.join(" ")} style={{ "--stage": colour } as React.CSSProperties}>
       <Handle type="target" position={Position.Left} id="left" />
       <Handle type="target" position={Position.Top} id="top" />
       <div className="node-title">
-        <span className="node-icon" style={{ color: colour, background: `color-mix(in srgb, ${colour} 14%, transparent)` }}>
+        <span className="node-icon" style={{ color: colour }}>
           <Icon name={data.kind === "model" && data.title.toLowerCase().includes("neural") ? "brain" : icon} size={14} />
         </span>
         <span className="ellipsis" style={{ flex: 1 }}>{data.title}</span>
@@ -143,6 +144,48 @@ function ModelPicker({ project, onPick, onClose }: { project: Project; onPick: (
   );
 }
 
+// ------------------------------------------------------------------------------- code view
+
+type CodeStage = StepStage | "models";
+
+/** The Python a step or model runs, read-only, with a button that turns it into an editable code step. */
+function CodeView({ project, stage, itemId, onConvert }: { project: Project; stage: CodeStage; itemId: string; onConvert: (answer: StepCode) => void }) {
+  const { engine } = useApp();
+  const [answer, setAnswer] = useState<StepCode | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    const timer = setTimeout(() => {
+      engine
+        .call<StepCode>("projects.step_code", { project, stage, item_id: itemId })
+        .then((next) => live && (setAnswer(next), setError(null)))
+        .catch((e) => live && setError((e as Error).message));
+    }, 250);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [engine, project, stage, itemId]);
+  const what = stage === "models" ? "model" : "step";
+  return (
+    <div className="code-view">
+      <p className="dim small">The Python this {what} runs, with your current settings. Edit it as code to change any line.</p>
+      {error && <Notice level="error">{error}</Notice>}
+      {answer ? <CodeEditor value={answer.code} readOnly label={`Python for this ${what}`} minLines={6} /> : !error && <Spinner />}
+      <div className="row wrap" style={{ marginTop: 12 }}>
+        <button className="primary" disabled={!answer} onClick={() => answer && onConvert(answer)}>
+          <Icon name="code" size={14} /> Edit as code
+        </button>
+        <span className="faint tiny">Adds a code {what} and turns this one off, so you can switch back.</span>
+      </div>
+    </div>
+  );
+}
+
+function ViewSwitch({ view, setView }: { view: "settings" | "python"; setView: (view: "settings" | "python") => void }) {
+  return <Segmented value={view} onChange={setView} options={[{ value: "settings", label: "Settings" }, { value: "python", label: "Python" }]} />;
+}
+
 // ------------------------------------------------------------------------------- inspector
 
 function stepColumns(preview: Preview | null, fallback: ColumnInfo[]): ColumnInfo[] {
@@ -150,9 +193,42 @@ function stepColumns(preview: Preview | null, fallback: ColumnInfo[]): ColumnInf
   return preview.columns.filter((c) => c.state !== "added").map((c) => ({ name: c.name, kind: c.kind }));
 }
 
-function Inspector({ api, selected, setSelected, preview, training }: { api: ProjectApi; selected: string; setSelected: (id: string) => void; preview: Preview | null; training: Training | null }) {
-  const { catalogue, engine, fail } = useApp();
+function Inspector({ api, selected, setSelected, preview, previewError, training }: { api: ProjectApi; selected: string; setSelected: (id: string) => void; preview: Preview | null; previewError: string | null; training: Training | null }) {
+  const { catalogue, engine, fail, notify } = useApp();
   const { project, update, issues, profile, run } = api;
+  const [view, setView] = useState<"settings" | "python">("settings");
+  useEffect(() => setView("settings"), [selected]);
+  const firstError = (id: string) => issues.find((i) => i.step === id && i.level === "error")?.message ?? null;
+
+  /** Edit as code: add the code version right after the original and turn the original off. */
+  const convert = async (stage: CodeStage, id: string, answer: StepCode) => {
+    try {
+      if (stage === "models") {
+        const entry = await engine.call<ModelEntry>("projects.new_model", { algo: "custom_model", params: answer.replacement.params, task: project.task });
+        const labelled = { ...entry, label: answer.replacement.label ?? entry.label };
+        update((p) => {
+          const at = p.models.findIndex((m) => m.id === id);
+          const models = p.models.map((m) => (m.id === id ? { ...m, enabled: false } : m));
+          models.splice(at + 1, 0, labelled);
+          return { ...p, models };
+        });
+        setSelected(labelled.id);
+      } else {
+        const step = await engine.call<Step>("projects.new_step", { op: answer.replacement.op, params: answer.replacement.params });
+        update((p) => {
+          const list = p[stage];
+          const at = list.findIndex((s) => s.id === id);
+          const next = list.map((s) => (s.id === id ? { ...s, enabled: false } : s));
+          next.splice(at + 1, 0, step);
+          return { ...p, [stage]: next };
+        });
+        setSelected(step.id);
+      }
+      notify("Added the code version and turned the original off. Delete the original when you no longer need it.", "ok");
+    } catch (error) {
+      fail(error);
+    }
+  };
   const raw: ColumnInfo[] = (profile?.columns ?? []).filter((c) => c.name !== project.target).map((c) => ({ name: c.name, kind: c.kind }));
   const issuesFor = (id: string, stage?: string) => issues.filter((i) => i.step === id || (!i.step && stage && i.stage === stage));
   const issueList = (id: string, stage?: string) =>
@@ -165,11 +241,12 @@ function Inspector({ api, selected, setSelected, preview, training }: { api: Pro
     const step = steps[index]!;
     const op = catalogue[stage].find((o) => o.id === step.op);
     const setSteps = (next: Step[]) => update((p) => ({ ...p, [stage]: next }));
-    const columns = stage === "clean" ? stepColumns(preview, raw) : stepColumns(preview, raw);
+    const columns = stepColumns(preview, raw);
+    const isCode = step.op.startsWith("custom_");
     return (
       <>
         <div className="inspector-head">
-          <span className="stage-kicker" style={{ color: STAGE_COLOURS[stage] }}>{STAGE_TITLES[stage].toUpperCase()} · STEP {index + 1}</span>
+          <span className="stage-kicker" style={{ color: STAGE_COLOURS[stage] }}>{STAGE_TITLES[stage]} step {index + 1} of {steps.length}</span>
           <h2>{op?.label ?? step.op}</h2>
           <p className="dim small">{op?.description}</p>
           {step.note && <p className="small accent-text">Added because: {step.note}</p>}
@@ -183,14 +260,21 @@ function Inspector({ api, selected, setSelected, preview, training }: { api: Pro
         </div>
         <div className="inspector-body">
           {issueList(step.id)}
-          {op && (
-            <ParamForm
-              owner={op.id}
-              params={op.params}
-              values={step.params}
-              columns={columns}
-              onChange={(name, value) => setSteps(steps.map((s) => (s.id === step.id ? { ...s, params: { ...s.params, [name]: value } } : s)))}
-            />
+          {isCode && step.enabled && previewError && !firstError(step.id) && <Notice level="error">{previewError}</Notice>}
+          {project.kind === "tabular" && !isCode && <div style={{ marginBottom: 16 }}><ViewSwitch view={view} setView={setView} /></div>}
+          {view === "python" && !isCode ? (
+            <CodeView project={project} stage={stage} itemId={step.id} onConvert={(answer) => void convert(stage, step.id, answer)} />
+          ) : (
+            op && (
+              <ParamForm
+                owner={op.id}
+                params={op.params}
+                values={step.params}
+                columns={columns}
+                codeError={firstError(step.id) ?? (isCode ? previewError : null)}
+                onChange={(name, value) => setSteps(steps.map((s) => (s.id === step.id ? { ...s, params: { ...s.params, [name]: value } } : s)))}
+              />
+            )
           )}
         </div>
       </>
@@ -207,7 +291,7 @@ function Inspector({ api, selected, setSelected, preview, training }: { api: Pro
     return (
       <>
         <div className="inspector-head">
-          <span className="stage-kicker" style={{ color: STAGE_COLOURS.models }}>MODEL · {algo?.family?.toUpperCase()}</span>
+          <span className="stage-kicker" style={{ color: STAGE_COLOURS.models }}>{algo?.family ?? "Model"}</span>
           <CommitInput value={model.label} onCommit={(label) => setModel({ label: label || algo?.label || model.label })} style={{ fontSize: 16, fontWeight: 600 }} />
           <p className="dim small">{algo?.description}</p>
           <div className="row">
@@ -236,6 +320,11 @@ function Inspector({ api, selected, setSelected, preview, training }: { api: Pro
             </div>
           )}
           {result?.status === "failed" && <Notice level="error">Last run failed: {result.error}</Notice>}
+          {project.kind === "tabular" && model.algo !== "custom_model" && <div style={{ marginBottom: 16 }}><ViewSwitch view={view} setView={setView} /></div>}
+          {view === "python" && model.algo !== "custom_model" ? (
+            <CodeView project={project} stage="models" itemId={model.id} onConvert={(answer) => void convert("models", model.id, answer)} />
+          ) : (
+          <>
           {algo?.tunable && (
             <div className="field">
               <label>Automatic tuning</label>
@@ -244,10 +333,12 @@ function Inspector({ api, selected, setSelected, preview, training }: { api: Pro
             </div>
           )}
           {algo && (
-            <ParamForm owner={algo.id} params={algo.params} values={model.params} columns={raw} onChange={(name, value) => setModel({ params: { ...model.params, [name]: value } })} />
+            <ParamForm owner={algo.id} params={algo.params} values={model.params} columns={raw} codeError={firstError(model.id) ?? (result?.status === "failed" ? result.error : null)} onChange={(name, value) => setModel({ params: { ...model.params, [name]: value } })} />
           )}
           {model.algo === "neural_network" && <p className="faint tiny">Output layer: {outputs}{project.task === "classification" ? " with softmax" : ", linear"}. Inputs are standardized automatically.</p>}
           {model.algo === "cnn" && <NetworkDiagram layers={(model.params.layers as Layer[]) ?? []} inputs="image" outputs={outputs} />}
+          </>
+          )}
         </div>
       </>
     );
@@ -260,7 +351,7 @@ function Inspector({ api, selected, setSelected, preview, training }: { api: Pro
     return (
       <>
         <div className="inspector-head">
-          <span className="stage-kicker" style={{ color: STAGE_COLOURS.split }}>SPLIT</span>
+          <span className="stage-kicker" style={{ color: STAGE_COLOURS.split }}>Split</span>
           <h2>Train / test split</h2>
           <p className="dim small">Models learn from training rows and are scored on test rows they never saw, like an exam with new questions.</p>
         </div>
@@ -307,7 +398,7 @@ function Inspector({ api, selected, setSelected, preview, training }: { api: Pro
     return (
       <>
         <div className="inspector-head">
-          <span className="stage-kicker" style={{ color: STAGE_COLOURS.transform }}>TRANSFORM · FINAL STEP</span>
+          <span className="stage-kicker" style={{ color: STAGE_COLOURS.transform }}>Transform, final step</span>
           <h2>Auto-prep</h2>
           <p className="dim small">Makes the table model-ready after your transforms: numbers only, no gaps. Categories become one column per value (or frequencies when there are many), yes/no becomes 1/0, dates become year, month and weekday, and IDs are dropped. Models that need scaled inputs (linear, SVM, k-NN, neural networks) are also standardized when you have not added a Scale step.</p>
           <Switch on={project.auto_prep} onChange={(on) => update((p) => ({ ...p, auto_prep: on }))} label={project.auto_prep ? "On (recommended)" : "Off"} />
@@ -329,7 +420,7 @@ function Inspector({ api, selected, setSelected, preview, training }: { api: Pro
     return (
       <>
         <div className="inspector-head">
-          <span className="stage-kicker" style={{ color: STAGE_COLOURS.prep }}>IMAGE PREP</span>
+          <span className="stage-kicker" style={{ color: STAGE_COLOURS.prep }}>Image prep</span>
           <h2>Resize & augment</h2>
           <p className="dim small">Every image is resized to a square. Augmentations show the network slightly changed copies while training, so it learns what matters rather than memorising pictures. Test images are never augmented.</p>
         </div>
@@ -355,7 +446,7 @@ function Inspector({ api, selected, setSelected, preview, training }: { api: Pro
   return (
     <>
       <div className="inspector-head">
-        <span className="stage-kicker" style={{ color: STAGE_COLOURS.data }}>DATA</span>
+        <span className="stage-kicker" style={{ color: STAGE_COLOURS.data }}>Data</span>
         <h2>{profile?.dataset.name ?? "Dataset"}</h2>
         <p className="dim small">{profile ? `${profile.rows.toLocaleString()} ${project.kind === "image" ? "images" : "rows"}` : ""}</p>
       </div>
@@ -506,7 +597,7 @@ export function PipelineTab({ api, training }: { api: ProjectApi; training: Trai
         targetHandle: e.targetHandle,
         type: "smoothstep",
         animated: training?.running && (e.target === "results" || graph.nodes.find((n) => n.id === e.target)?.kind === "model"),
-        style: { stroke: e.dashed ? "#2e333b" : "#4b525d", strokeWidth: 1.8, strokeDasharray: e.dashed ? "5 5" : undefined },
+        style: { stroke: e.dashed ? "var(--edge-faint)" : "var(--edge)", strokeWidth: 1.6, strokeDasharray: e.dashed ? "5 5" : undefined },
       })),
     [graph, training?.running],
   );
@@ -597,8 +688,8 @@ export function PipelineTab({ api, training }: { api: ProjectApi; training: Trai
           nodesConnectable={false}
           proOptions={{ hideAttribution: true }}
         >
-          <Background id="minor" variant={BackgroundVariant.Lines} gap={20} lineWidth={0.5} color="var(--paper-minor)" />
-          <Background id="major" variant={BackgroundVariant.Lines} gap={100} lineWidth={1} color="var(--paper-major)" />
+          <Background id="minor" variant={BackgroundVariant.Lines} gap={20} lineWidth={0.5} color="var(--grid-minor)" />
+          <Background id="major" variant={BackgroundVariant.Lines} gap={100} lineWidth={1} color="var(--grid-major)" />
           <Controls showInteractive={false} onFitView={() => void fit()} />
         </ReactFlow>
       </div>
@@ -609,7 +700,7 @@ export function PipelineTab({ api, training }: { api: ProjectApi; training: Trai
             <Icon name="close" />
           </button>
         </div>
-        <Inspector api={api} selected={selected} setSelected={select} preview={preview} training={training} />
+        <Inspector api={api} selected={selected} setSelected={select} preview={preview} previewError={previewError} training={training} />
       </aside>
       {project.kind === "tabular" && <PreviewDrawer preview={preview} loading={loading} error={previewError} open={drawerOpen} setOpen={setDrawerOpen} />}
       {adding && adding !== "models" && <StepPicker stage={adding} onPick={(op) => void addStep(op)} onClose={() => setAdding(null)} />}

@@ -136,6 +136,134 @@ def _to_frame(out: Any, transformer: Any, columns: list[str], index: pd.Index, p
     return pd.DataFrame(array, columns=names, index=index)
 
 
+# --------------------------------------------------------------------------------- your own code
+
+CODE_FILE = "<your code>"
+_CODE_CACHE: dict[str, dict[str, Any]] = {}
+
+
+class CodeError(ValueError):
+    """A code step failed. The message says which line and why."""
+
+
+def code_line(error: BaseException) -> int | None:
+    """The line of a code step where ``error`` was raised, if it came from one."""
+    line = None
+    trace = error.__traceback__
+    while trace is not None:
+        if trace.tb_frame.f_code.co_filename == CODE_FILE:
+            line = trace.tb_lineno
+        trace = trace.tb_next
+    return line
+
+
+def _code_error(error: BaseException) -> CodeError:
+    line = code_line(error)
+    where = f"line {line}: " if line else ""
+    return CodeError(f"{where}{type(error).__name__}: {error}")
+
+
+def run_code(code: str) -> dict[str, Any]:
+    """Run a code step's source once and return what it defines. pandas (pd), NumPy (np) and math are ready."""
+    found = _CODE_CACHE.get(code)
+    if found is not None:
+        return found
+    namespace: dict[str, Any] = {"__name__": "flowlabs_code", "pd": pd, "np": np, "math": math}
+    try:
+        exec(compile(code or "", CODE_FILE, "exec"), namespace)  # noqa: S102 - the user's own code, by design
+    except SyntaxError as error:
+        raise CodeError(f"line {error.lineno}: {error.msg}") from None
+    except Exception as error:  # noqa: BLE001 - reported with its line number
+        raise _code_error(error) from error
+    if len(_CODE_CACHE) > 64:
+        _CODE_CACHE.clear()
+    _CODE_CACHE[code] = namespace
+    return namespace
+
+
+def check_code(code: str, needs: Sequence[str]) -> str | None:
+    """None when the code runs and defines one of ``needs``; otherwise what is wrong."""
+    try:
+        namespace = run_code(code)
+    except CodeError as error:
+        return str(error)
+    if not any(namespace.get(name) is not None for name in needs):
+        names = " or ".join(f"{n}(...)" if n in ("clean", "rows", "transform") else f"{n} = ..." for n in needs)
+        return f"define {names}"
+    return None
+
+
+def call_code(code: str, function: str, *args: Any, **extra: Any) -> Any:
+    """Call ``function`` from a code step, with ``extra`` names available to it."""
+    namespace = run_code(code)
+    target = namespace.get(function)
+    if not callable(target):
+        raise CodeError(f"define a function called {function}(...)")
+    namespace.update(extra)
+    try:
+        return target(*args)
+    except CodeError:
+        raise
+    except Exception as error:  # noqa: BLE001 - reported with its line number
+        raise _code_error(error) from error
+
+
+class CodeTransformer(TransformerMixin, BaseEstimator):
+    """A transform written in Python. The code either sets ``transformer = <a scikit-learn transformer>``
+    or defines ``fit(X, y)`` (learns from training rows, returns a state) and ``transform(X, state)``."""
+
+    def __init__(self, code: str = "") -> None:
+        self.code = code
+
+    def fit(self, X: Any, y: Any = None) -> CodeTransformer:
+        frame = _frame(X)
+        namespace = run_code(self.code)
+        self.transformer_, self.state_ = None, None
+        if callable(namespace.get("transform")):
+            if callable(namespace.get("fit")):
+                self.state_ = call_code(self.code, "fit", frame.copy(), y)
+        elif namespace.get("transformer") is not None:
+            transformer = clone(namespace["transformer"])
+            if hasattr(transformer, "set_output"):
+                try:
+                    transformer.set_output(transform="pandas")
+                except Exception:  # noqa: BLE001 - sparse outputs; converted below
+                    pass
+            transformer.fit(frame, y)
+            self.transformer_ = transformer
+        else:
+            raise CodeError("define transform(X, state), or set transformer = ...")
+        return self
+
+    def transform(self, X: Any) -> pd.DataFrame:
+        frame = _frame(X)
+        if self.transformer_ is not None:
+            out = self.transformer_.transform(frame)
+            return _to_frame(out, self.transformer_, [str(c) for c in frame.columns], frame.index, "code")
+        out = call_code(self.code, "transform", frame.copy(), self.state_)
+        if out is None:
+            raise CodeError("transform(X, state) must return the new table")
+        if len(out) != len(frame):
+            raise CodeError("transform(X, state) must keep every row; remove rows in a Training-set code step")
+        return _to_frame(out, None, [str(c) for c in frame.columns], frame.index, "code")
+
+
+def code_model(code: str) -> Any:
+    """The ``model`` a model code step defines, as a fresh unfitted copy."""
+    namespace = run_code(code)
+    model = namespace.get("model")
+    if model is None:
+        raise CodeError("set model = ... (any model with fit and predict)")
+    if not (hasattr(model, "fit") and hasattr(model, "predict")):
+        raise CodeError(f"model is a {type(model).__name__}, which has no fit and predict")
+    try:
+        return clone(model)
+    except Exception:  # noqa: BLE001 - not a scikit-learn estimator; a deep copy works the same
+        import copy
+
+        return copy.deepcopy(model)
+
+
 # ------------------------------------------------------------------------------------ clean ops
 
 TRUTHY = {"true", "yes", "y", "1", "t", "on"}
@@ -178,6 +306,13 @@ def date_parts(series: pd.Series, parts: Iterable[str], name: str) -> pd.DataFra
 def apply_clean_op(frame: pd.DataFrame, op: str, params: dict[str, Any], *, rows: bool) -> pd.DataFrame:
     """Apply one Clean step. Row steps run only when ``rows`` is true (training data)."""
     p = params or {}
+    if op == "custom_clean":
+        if p.get("training_only") and not rows:
+            return frame
+        out = call_code(p.get("code") or "", "clean", frame.copy())
+        if not isinstance(out, pd.DataFrame):
+            raise CodeError("clean(df) must return a table (a pandas DataFrame)")
+        return out
     if op in ROW_OPS:
         if not rows:
             return frame
@@ -365,6 +500,16 @@ def training_rows(steps: list[dict[str, Any]], X: pd.DataFrame, y: pd.Series, ta
                 continue
             messages.append(f"Removed {int(outlier.sum())} outlier rows of {len(X)} training rows.")
             X, y = X.loc[keep[keep].index], y.loc[keep[keep].index]
+        elif step["op"] == "custom_rows":
+            out = call_code(params.get("code") or "", "rows", X.copy(), y.copy(), clean=cleaner.transform)
+            if not (isinstance(out, tuple) and len(out) == 2):
+                raise CodeError("rows(X, y) must return X, y")
+            new_X, new_y = _frame(out[0]), out[1]
+            new_y = new_y if isinstance(new_y, pd.Series) else pd.Series(np.asarray(new_y), index=new_X.index)
+            if len(new_X) != len(new_y) or len(new_X) < 2:
+                raise CodeError("rows(X, y) must return as many targets as rows, and at least two rows")
+            messages.append(f"Your code: {len(X)} → {len(new_X)} training rows.")
+            X, y = new_X, new_y
         elif step["op"] == "balance_classes":
             if task != "classification":
                 continue
@@ -907,7 +1052,17 @@ class _NeuralNet(BaseEstimator):
         backend = self._backend()
         self.backend_ = backend
         fit = self._fit_torch if backend == "torch" else self._fit_numpy
-        self.params_ = fit(features, target, weights, outputs, train_idx, val_idx, rng)
+        self._force_cpu = False
+        try:
+            self.params_ = fit(features, target, weights, outputs, train_idx, val_idx, rng)
+        except RuntimeError:
+            # a GPU that reports itself available can still fail (e.g. Apple's MPS in a virtual machine)
+            if backend != "torch" or getattr(self, "device_", "cpu") == "cpu":
+                raise
+            self._force_cpu, self.history_ = True, []
+            self.params_ = fit(
+                features, target, weights, outputs, train_idx, val_idx, np.random.default_rng(self.random_state)
+            )
         return self
 
     def _sample_weights(self, target: np.ndarray) -> np.ndarray | None:
@@ -1047,7 +1202,7 @@ class _NeuralNet(BaseEstimator):
         from torch import nn
 
         torch.manual_seed(self.random_state)
-        device = torch.device(pick_device(self.device))
+        device = torch.device("cpu" if getattr(self, "_force_cpu", False) else pick_device(self.device))
         self.device_ = str(device)
         modules: list[Any] = []
         width = X.shape[1]

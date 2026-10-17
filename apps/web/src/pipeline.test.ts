@@ -50,8 +50,8 @@ describe("buildGraph", () => {
   it("marks issues and summarises steps", () => {
     expect(nodes.find((n) => n.id === "m1")?.level).toBe("error");
     expect(nodes.find((n) => n.id === "split")?.subtitle).toContain("5-fold CV");
-    expect(nodes.find((n) => n.id === "m1")?.subtitle).toContain("tune quick");
-    expect(summarize(project.transform[0]!, catalogue)).toBe("Median · all numbers");
+    expect(nodes.find((n) => n.id === "m1")?.subtitle).toContain("tuning quick");
+    expect(summarize(project.transform[0]!, catalogue)).toBe("Median, all numbers");
   });
 });
 
