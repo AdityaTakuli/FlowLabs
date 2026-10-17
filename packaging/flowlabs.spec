@@ -52,6 +52,26 @@ analysis = Analysis(
     hooksconfig={"gi": {"icons": ["Adwaita"], "themes": ["Adwaita"], "languages": ["en_US"]}},
     noarchive=False,
 )
+if sys.platform.startswith("linux"):
+    # Use the computer's own GTK and WebKit for the app window. Copies from the build machine clash
+    # with the system's WebKit (it loads into this process and needs the system's GLib and C++
+    # runtime), and the window would fall back to the browser. Python's own libraries and the
+    # libraries that come inside Python wheels stay bundled.
+    import os
+    import re
+
+    SYSTEM_DIRS = ("/lib/", "/lib64/", "/usr/lib/", "/usr/lib64/", "/usr/local/lib/")
+    PYTHON_NEEDS = re.compile(r"^lib(python3|ssl|crypto|ffi|z\.|bz2|lzma|expat|sqlite3|uuid|readline|tinfo|ncurses|mpdec)")
+
+    def from_the_system(entry):
+        dest, source, kind = entry
+        return (kind == "BINARY" and str(source).startswith(SYSTEM_DIRS) and "/" not in dest
+                and not PYTHON_NEEDS.match(os.path.basename(dest)))  # fmt: skip
+
+    dropped = [entry[0] for entry in analysis.binaries if from_the_system(entry)]
+    analysis.binaries = [entry for entry in analysis.binaries if not from_the_system(entry)]
+    print(f"FlowLabs: using the system's copy of {len(dropped)} libraries: {', '.join(sorted(dropped))}")
+
 pyz = PYZ(analysis.pure)
 
 executable = EXE(

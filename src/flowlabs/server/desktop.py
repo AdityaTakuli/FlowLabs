@@ -69,7 +69,25 @@ class Server:
         self.app.state.kernel.stop()
 
 
+def _webkit_gtk_loads() -> bool:
+    """Linux: WebKitGTK really loads in this process. A clash between bundled and system libraries
+    leaves it half-loaded, and the window then never appears."""
+    try:
+        import gi  # type: ignore[import-not-found]
+
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("WebKit2", "4.1")
+        from gi.repository import WebKit2  # type: ignore[import-not-found]
+
+        WebKit2.get_major_version()  # calls into the library: fails when it did not load
+        return True
+    except Exception:  # noqa: BLE001 - any failure means: use the browser
+        return False
+
+
 def _webview() -> Any | None:
+    if sys.platform.startswith("linux") and not _webkit_gtk_loads():
+        return None
     try:
         import webview  # type: ignore[import-not-found]  # optional; packaged builds ship it
     except ImportError:
@@ -77,13 +95,16 @@ def _webview() -> Any | None:
     return webview
 
 
+WINDOW_TIMEOUT_S = 30.0
+
+
 def launch(root: Path, *, port: int | None = None, window: bool = True, quiet: bool = False) -> int:
     token = os.environ.get("FLOWLABS_TOKEN") or secrets.token_urlsafe(24)
     server = Server(root, port or free_port(), token)
     server.start()
     if not quiet:
-        print(f"FlowLabs workspace: {root}")
-        print(f"  {server.url}")
+        print(f"FlowLabs workspace: {root}", flush=True)
+        print(f"  {server.url}", flush=True)
     webview = _webview() if window else None
     try:
         if webview is not None:
@@ -91,7 +112,20 @@ def launch(root: Path, *, port: int | None = None, window: bool = True, quiet: b
             if isinstance(settings, dict):
                 settings["ALLOW_DOWNLOADS"] = True  # exports and scored files
             try:
-                webview.create_window(WINDOW_TITLE, server.url, width=WINDOW_SIZE[0], height=WINDOW_SIZE[1])
+                app_window = webview.create_window(
+                    WINDOW_TITLE, server.url, width=WINDOW_SIZE[0], height=WINDOW_SIZE[1]
+                )
+                shown = threading.Event()
+                events = getattr(app_window, "events", None)
+                if events is not None and hasattr(events, "shown"):
+                    events.shown += shown.set
+
+                    def watchdog() -> None:  # a window that never appears must not leave the user with nothing
+                        if not shown.wait(WINDOW_TIMEOUT_S):
+                            print("  the app window did not appear: opening your browser instead", flush=True)
+                            webbrowser.open(server.url)
+
+                    threading.Thread(target=watchdog, name="flowlabs-window-watchdog", daemon=True).start()
                 webview.start()  # returns when the window closes
                 return 0
             except Exception as error:  # no usable GUI backend (missing GTK/Qt, no display)
@@ -99,7 +133,7 @@ def launch(root: Path, *, port: int | None = None, window: bool = True, quiet: b
                     print(f"  the app window could not open ({error})")
                 window = True
         if window and not quiet:
-            print("  no native webview available: opening your browser instead")
+            print("  no app window available here: opening your browser instead", flush=True)
         webbrowser.open(server.url)
         if not quiet:
             print("  Ctrl+C closes FlowLabs.")

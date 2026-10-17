@@ -122,7 +122,7 @@ Priority: optional
 Architecture: {arch}
 Maintainer: FlowLabs <https://github.com/AdityaTakuli/FlowLabs>
 Homepage: https://github.com/AdityaTakuli/FlowLabs
-Recommends: gir1.2-webkit2-4.1
+Depends: libgtk-3-0t64 | libgtk-3-0, libwebkit2gtk-4.1-0
 Description: Visual machine learning: data to model, no code
  FlowLabs takes a table or a folder of images, cleans it, trains and compares
  models (classic machine learning and neural networks) and exports the best one.
