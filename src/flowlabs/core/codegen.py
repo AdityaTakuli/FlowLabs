@@ -49,7 +49,7 @@ def clean_code(op: str, params: dict[str, Any], frame: pd.DataFrame) -> str:
     """pandas code that does what one Clean step does."""
     p = params or {}
     label = cat.OPS[op].label
-    doc = f"{label}, written in pandas. df is the whole table; return the cleaned table."
+    doc = f"{label}, in pandas. Return the cleaned table."
     body: list[str] = []
 
     def columns(key: str = "columns", default: list[str] | None = None) -> list[str]:
@@ -157,7 +157,7 @@ def _condition(column: Any, operator: str, value: Any, frame: pd.DataFrame) -> s
 def rows_code(op: str, params: dict[str, Any], task: str, seed: int) -> str:
     p = params or {}
     label = cat.OPS[op].label
-    doc = f"{label}. Only training rows pass through here; return X, y."
+    doc = f"{label}. Training rows only. Return X, y."
     if op == "custom_rows":
         return str(p.get("code") or cat.ROWS_CODE)
     method = p.get("method")

@@ -12,6 +12,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import flowlabs_runtime as rt
+
 from . import catalogue as cat
 from . import codegen, datasets, env, evaluation, export, predict, training
 from . import project as projects
@@ -41,7 +43,7 @@ class Engine:
         """``{"result": ...}`` or ``{"error": {"message", "user", "traceback"}}``; never raises."""
         try:
             return {"result": self.call(method, params)}
-        except UserError as error:
+        except (UserError, rt.CodeError) as error:  # a code step's own mistake is the user's to fix
             return {"error": {"message": str(error), "user": True}}
         except Exception as error:  # noqa: BLE001 - every failure goes back to the UI
             return {"error": {"message": f"{type(error).__name__}: {error}", "user": False,
