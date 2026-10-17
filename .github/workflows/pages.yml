@@ -1,0 +1,43 @@
+name: Web app
+
+# Publishes the browser version of Synapse to GitHub Pages. Python runs in the visitor's browser
+# (Pyodide), so the site is static: no server, and data never leaves the visitor's device.
+# Enable it once under Settings → Pages → Source: GitHub Actions.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["apps/web/**", "src/**", ".github/workflows/pages.yml"]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci --prefix apps/web
+      - run: npm test --prefix apps/web
+      - run: npm run build --prefix apps/web
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/web/dist
+      - id: deployment
+        uses: actions/deploy-pages@v4

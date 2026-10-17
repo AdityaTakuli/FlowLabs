@@ -5,22 +5,13 @@ __pycache__/
 .ruff_cache/
 .hypothesis/
 .venv/
-runs/
-.flowlab/
-generated/
 .env
 
-# build output and installed packages
+# build output
 node_modules/
 apps/web/dist/
-examples/ml-lab/data/
-examples/ml-lab/pipelines/outputs/
-
-# bundled build output (scripts/bundle_web.py)
-apps/api/src/flowlab_api/web/
-apps/api/src/flowlab_api/examples/
-
-# PyInstaller work directory and app bundles
+apps/web/public/synapse-core.zip
+apps/web/tsconfig.tsbuildinfo
+src/synapse_studio/web/
 build/
 dist/
-apps/web/tsconfig.tsbuildinfo
