@@ -6,7 +6,7 @@
 
 Output in ``dist/``:
 
-* Linux   ``FlowLabs-<version>-linux-<arch>.tar.gz`` with ``install.sh`` (menu entry + ``flowlabs-app``)
+* Linux   ``FlowLabs-<version>-linux-<arch>.deb`` (Debian/Ubuntu) and ``.tar.gz`` with ``install.sh``
 * macOS   ``FlowLabs.app`` and ``FlowLabs-<version>-macos-<arch>.dmg``
 * Windows ``FlowLabs-<version>-windows-<arch>.zip``, plus an installer when Inno Setup is installed
 """
@@ -36,7 +36,7 @@ Comment=Visual machine learning: data to model, no code
 Exec={exec}
 Icon={icon}
 Terminal=false
-Categories=Development;Science;Education;
+Categories=Science;ArtificialIntelligence;
 StartupWMClass=FlowLabs
 """
 INSTALL_SH = """#!/bin/sh
@@ -115,6 +115,50 @@ def package_linux() -> Path:
     return target
 
 
+DEB_CONTROL = """Package: flowlabs
+Version: {version}
+Section: science
+Priority: optional
+Architecture: {arch}
+Maintainer: FlowLabs <https://github.com/AdityaTakuli/FlowLabs>
+Homepage: https://github.com/AdityaTakuli/FlowLabs
+Recommends: gir1.2-webkit2-4.1
+Description: Visual machine learning: data to model, no code
+ FlowLabs takes a table or a folder of images, cleans it, trains and compares
+ models (classic machine learning and neural networks) and exports the best one.
+"""
+
+
+def package_deb() -> Path | None:
+    """A .deb for Debian and Ubuntu: installs to /opt/flowlabs with a menu entry and `flowlabs-app`."""
+    if not shutil.which("dpkg-deb"):
+        print("dpkg-deb not found: skipping the .deb")
+        return None
+    arch = {"x86_64": "amd64", "aarch64": "arm64"}.get(platform.machine().lower(), platform.machine().lower())
+    root = DIST / "deb"
+    shutil.rmtree(root, ignore_errors=True)
+    shutil.copytree(BUNDLE, root / "opt" / "flowlabs", symlinks=True,
+                    ignore=shutil.ignore_patterns("install.sh", "FlowLabs.desktop.in"))  # fmt: skip
+    (root / "usr" / "bin").mkdir(parents=True)
+    (root / "usr" / "bin" / "flowlabs-app").symlink_to("/opt/flowlabs/flowlabs")
+    icon = root / "usr" / "share" / "icons" / "hicolor" / "256x256" / "apps"
+    icon.mkdir(parents=True)
+    shutil.copy(ROOT / "packaging" / "icons" / "flowlabs.png", icon / "flowlabs.png")
+    applications = root / "usr" / "share" / "applications"
+    applications.mkdir(parents=True)
+    (applications / "flowlabs.desktop").write_text(DESKTOP_ENTRY.format(exec="/opt/flowlabs/flowlabs", icon="flowlabs"))
+    (root / "DEBIAN").mkdir()
+    (root / "DEBIAN" / "control").write_text(DEB_CONTROL.format(version=VERSION, arch=arch), encoding="utf-8")
+    for path in [root, *root.rglob("*")]:  # system files: writable by root only
+        if not path.is_symlink():
+            path.chmod(0o755 if path.is_dir() or path.stat().st_mode & 0o111 else 0o644)
+    target = DIST / f"FlowLabs-{VERSION}-linux-{arch}.deb"
+    target.unlink(missing_ok=True)
+    run(["dpkg-deb", "--root-owner-group", "-Zgzip", "--build", str(root), str(target)])
+    shutil.rmtree(root)
+    return target
+
+
 def package_macos() -> Path:
     app = DIST / "FlowLabs.app"
     if not app.is_dir():
@@ -156,6 +200,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"bundle: {BUNDLE}")
         return 0
     package = {"darwin": package_macos, "win32": package_windows}.get(sys.platform, package_linux)()
+    if sys.platform.startswith("linux"):
+        deb = package_deb()
+        if deb:
+            print(f"package: {deb} ({deb.stat().st_size / 1e6:.0f} MB)")
     size = sum(f.stat().st_size for f in BUNDLE.rglob("*") if f.is_file()) if BUNDLE.is_dir() else 0
     print(f"bundle: {BUNDLE} ({size / 1e6:.0f} MB)")
     print(f"package: {package} ({package.stat().st_size / 1e6:.0f} MB)")

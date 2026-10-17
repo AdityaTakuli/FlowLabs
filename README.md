@@ -16,7 +16,7 @@ and every technique explains what it does.
 | | How | Good for |
 | --- | --- | --- |
 | **In the browser** | Open the hosted app (GitHub Pages). Python runs inside the tab via [Pyodide](https://pyodide.org). | Trying it, teaching, small and medium tables. Nothing to install, and data never leaves your device. |
-| **Desktop app** | Download for Linux, macOS or Windows from Releases. | Larger data and every feature, offline. |
+| **Desktop app** | From Releases: `.deb` for Ubuntu/Debian (double-click, or `sudo apt install ./FlowLabs-*.deb`), `.tar.gz` for other Linux (`sh FlowLabs/install.sh`), `.dmg` for macOS, `setup.exe`/`.zip` for Windows. | Larger data and every feature, offline. |
 | **Android app** | Install `FlowLabs-<version>-android.apk` from Releases. Python and its packages are inside the app. | Training on your phone with no internet, or using your PC's GPU from your phone over Wi-Fi. |
 | **pip** | `pip install "flowlabs[deep]"`, then `flowlabs app` | People who already have Python, a GPU, or a server. |
 

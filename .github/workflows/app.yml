@@ -68,6 +68,7 @@ jobs:
           name: flowlabs-${{ matrix.label }}
           path: |
             dist/*.tar.gz
+            dist/*.deb
             dist/*.dmg
             dist/*.zip
             dist/*setup.exe
@@ -78,6 +79,7 @@ jobs:
         with:
           files: |
             dist/*.tar.gz
+            dist/*.deb
             dist/*.dmg
             dist/*.zip
             dist/*setup.exe
