@@ -351,6 +351,8 @@ export interface KernelState {
   info: EngineInfo | Record<string, never>;
   error: string | null;
   stderr: string[];
+  /** Why the Python chosen in the Engine menu is not in use (the built-in engine runs instead). */
+  notice?: string | null;
   install?: { running?: boolean; packages?: string[]; code?: number | null };
 }
 

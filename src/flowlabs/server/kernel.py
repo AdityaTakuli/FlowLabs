@@ -73,6 +73,7 @@ class Kernel:
         self.status = "stopped"
         self.info: dict[str, Any] = {}
         self.error: str | None = None
+        self.notice: str | None = None  # why the chosen Python is not in use
         self.stderr: collections.deque[str] = collections.deque(maxlen=300)
         self.started_at = 0.0
         self._ready = threading.Event()
@@ -153,7 +154,8 @@ class Kernel:
     def describe(self) -> dict[str, Any]:
         return {"status": self.status, "python": self.python, "info": self.info, "error": self.error,
                 "stderr": list(self.stderr)[-40:], "pid": self.process.pid if self.process else None,
-                "uptime_s": round(time.time() - self.started_at) if self.status == "ready" else 0}  # fmt: skip
+                "uptime_s": round(time.time() - self.started_at) if self.status == "ready" else 0,
+                "notice": self.notice}  # fmt: skip
 
     # --------------------------------------------------------------------------------- readers
     def _read_stdout(self, process: subprocess.Popen[str]) -> None:

@@ -117,3 +117,34 @@ def test_kernel_restart_and_dead_kernel(client):
     answer = client.post("/api/rpc", json={"method": "engine.ping"}, headers=_auth()).json()
     assert answer["error"]["kernel"] is True
     assert client.post("/api/kernel/install", json={"packages": ["evilpkg"]}, headers=_auth()).status_code == 400
+
+
+def test_saved_python_that_cannot_run_flowlabs_falls_back(tmp_path, monkeypatch):
+    """A Python picked earlier that lost numpy (or vanished) must not stop the app starting."""
+    import json
+
+    from flowlabs.server import interpreters
+
+    settings = tmp_path / "ws" / ".flowlabs" / "settings.json"
+    settings.parent.mkdir(parents=True)
+
+    settings.write_text(json.dumps({"python": str(tmp_path / "gone" / "python3")}))
+    app = create_app(tmp_path / "ws", TOKEN, start_kernel=False)
+    assert app.state.kernel.python is None
+    assert "could not be run" in app.state.kernel.describe()["notice"]
+
+    bare = {
+        "version": "3.12.3",
+        "packages": {"numpy": None, "pandas": None, "sklearn": None, "scipy": None, "joblib": None},
+    }
+    monkeypatch.setattr(interpreters, "probe", lambda path: bare)
+    settings.write_text(json.dumps({"python": "/usr/bin/python3"}))
+    app = create_app(tmp_path / "ws", TOKEN, start_kernel=False)
+    assert app.state.kernel.python is None
+    assert "does not have numpy, pandas" in app.state.kernel.notice
+    assert json.loads(settings.read_text())["python"] == "/usr/bin/python3"  # the choice is kept for the Engine menu
+
+    ready = {"version": "3.12.3", "packages": {name: "1.0" for name in interpreters.REQUIRED}}
+    monkeypatch.setattr(interpreters, "probe", lambda path: ready)
+    app = create_app(tmp_path / "ws", TOKEN, start_kernel=False)
+    assert app.state.kernel.python == "/usr/bin/python3" and app.state.kernel.notice is None

@@ -63,10 +63,25 @@ export function App() {
       setInfo(loadedInfo);
       setCatalogue(loadedCatalogue);
       setBoot(null);
+      const state = await next.kernel?.state().catch(() => null);
+      if (state?.notice) notify(state.notice, "error");
     } catch (error) {
       setBootError((error as Error).message);
     }
-  }, []);
+  }, [notify]);
+
+  const switchToBuiltIn = useCallback(async () => {
+    if (!engine?.kernel) return;
+    setBootError(null);
+    setBoot({ message: "Starting the built-in engine…" });
+    try {
+      await engine.kernel.select(null);
+    } catch (error) {
+      setBootError((error as Error).message);
+      return;
+    }
+    await load(engine);
+  }, [engine, load]);
 
   const switchEngine = useCallback(
     async (next: Engine) => {
@@ -164,6 +179,7 @@ export function App() {
                   <button onClick={() => engine && void load(engine)}>
                     <Icon name="refresh" /> Try again
                   </button>
+                  {engine?.kernel && <button className="primary" onClick={() => void switchToBuiltIn()}>Use the built-in engine</button>}
                   {engine?.kind !== "browser" && <button onClick={() => void switchEngine(new BrowserEngine())}>Use this browser instead</button>}
                 </div>
               </>

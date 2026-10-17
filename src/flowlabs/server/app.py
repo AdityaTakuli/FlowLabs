@@ -96,7 +96,11 @@ def create_app(
     settings = Settings(root)
     events = Events()
     chosen = settings.read().get("python") if python is ... else python
+    notice = None
+    if python is ... and isinstance(chosen, str):
+        chosen, notice = _usable(chosen)
     kernel = Kernel(root, chosen if isinstance(chosen, str) or chosen is None else None, events.push)
+    kernel.notice = notice
     origins = {o.rstrip("/") for o in allowed_origins}
 
     @contextlib.asynccontextmanager
@@ -219,6 +223,7 @@ def create_app(
             if not found.version:
                 raise HTTPException(400, f"{path} is not a Python interpreter")
         settings.write(python=path)
+        kernel.notice = None
         await asyncio.to_thread(kernel.restart, path)
         return kernel.describe()
 
@@ -263,6 +268,21 @@ def create_app(
 
     _mount_web(app)
     return app
+
+
+def _usable(python: str) -> tuple[str | None, str | None]:
+    """The Python chosen in the Engine menu, or None (the built-in engine) when it cannot run
+    FlowLabs any more, with a note saying why. A saved choice must never stop the app starting."""
+    found = interpreters.describe(python, "configured", "chosen earlier")
+    if not found.version:
+        return None, f"{python} could not be run, so FlowLabs is using its built-in engine."
+    missing = found.as_dict()["missing"]
+    if missing:
+        return None, (
+            f"{python} does not have {', '.join(missing)}, so FlowLabs is using its built-in engine. "
+            "Open the Engine menu to install them there or choose another Python."
+        )
+    return python, None
 
 
 def _frozen() -> bool:
