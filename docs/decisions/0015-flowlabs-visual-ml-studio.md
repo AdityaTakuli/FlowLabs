@@ -1,4 +1,4 @@
-# 0015 — Synapse: from a graph IDE to a visual, no-code ML studio
+# 0015 — FlowLabs: from a graph IDE to a visual, no-code ML studio
 
 **Status:** accepted · 2026-10-17
 
@@ -9,17 +9,17 @@ visually, without code, for classic ML and deep learning. It should ship as an a
 browser, stay open source, and still let people use their own machine's compute.
 
 ## Decision
-- **Rename and rebuild.** The product is **Synapse** (`synapse-studio` on PyPI, `synapse` CLI). The
-  IDE packages (`flowspec`, `nodes`, `engine`, `lab`, `agent`) and their UI are removed. They stay
+- **Rebuild under the same name.** The product stays **FlowLabs** (`flowlabs` on PyPI, `flowlabs`
+  CLI; it was briefly called Synapse during the rebuild). The IDE packages (`flowspec`, `nodes`, `engine`, `lab`, `agent`) and their UI are removed. They stay
   in history under the tag `ide-final`.
-- **One engine core, three hosts.** `synapse_studio.core` is pure Python (pandas, scikit-learn,
+- **One engine core, three hosts.** `flowlabs.core` is pure Python (pandas, scikit-learn,
   PyTorch when installed). Every frontend calls it through one RPC surface
   (`Engine.call(method, params)`):
   - *browser:* Pyodide 314.0.7 in a Web Worker, files in IndexedDB;
-  - *desktop / `synapse engine`:* a kernel process speaking JSON lines, started from a Python
+  - *desktop / `flowlabs engine`:* a kernel process speaking JSON lines, started from a Python
     environment the user chooses, like a Jupyter kernel. The packaged app can be its own kernel
     (`--worker`) for classic ML without any Python installed.
-- **A browser can borrow a computer's power.** `synapse engine` serves the API with a per-launch
+- **A browser can borrow a computer's power.** `flowlabs engine` serves the API with a per-launch
   token, a loopback-only default, `Host` checks, an origin allow-list (the hosted app and local dev)
   and Private Network Access preflights. It prints a link that opens the hosted app connected to it.
 - **A structured pipeline, not free wiring.** Stages are fixed:
@@ -30,14 +30,21 @@ browser, stay open source, and still let people use their own machine's compute.
   - Training-set steps (outliers, balancing) never touch test rows.
   - The canvas shows stages as columns and models as parallel branches, so comparing models is
     natural.
-- **Exports run without Synapse.** Fitted pipelines are wrapped in `SynapseModel` and use only
-  classes in the single-file `synapse_runtime.py`, which is copied into every export.
+- **Exports run without FlowLabs.** Fitted pipelines are wrapped in `FlowLabsModel` and use only
+  classes in the single-file `flowlabs_runtime.py`, which is copied into every export.
   - Tabular neural networks always predict with NumPy (weights are copied out of PyTorch after
     training), so exports need no torch.
   - `train.py` is generated from the estimator objects themselves, and is tested by running it.
 - **Deep learning scope.** Tabular MLPs: PyTorch with CUDA or MPS, or NumPy everywhere. Images:
   custom CNNs and transfer learning (ResNet, MobileNet, EfficientNet), with augmentation. Text and
   sequence models are not in scope yet.
+- **Android without Gradle.** `scripts/build_apk.py` builds the APK with the SDK tools alone
+  (`aapt2`, `javac`, `d8`, `zipalign`, `apksigner`). The shell is one WebView activity:
+  - it serves the bundled web app and Pyodide (about 40 MB with pandas and scikit-learn) from a
+    secure local origin, so the app works offline;
+  - a JavaScript bridge saves exports to Downloads;
+  - mixed content and cleartext are allowed only so a phone can reach `flowlabs engine` on the
+    local network.
 - **Distribution:**
   - GitHub Pages for the browser app (`pages.yml`);
   - PyInstaller builds for Linux, macOS and Windows, smoke-tested in CI (`app.yml`);
@@ -47,7 +54,7 @@ browser, stay open source, and still let people use their own machine's compute.
 ## Consequences
 - Pyodide has no PyTorch: image models and GPU training need an engine. The UI says so where it
   matters.
-- Pretrained weights are downloaded by Synapse (timeout, retries, progress) instead of torch's
+- Pretrained weights are downloaded by FlowLabs (timeout, retries, progress) instead of torch's
   downloader, which can hang without feedback.
 - The browser engine runs jobs synchronously; Stop restarts its worker. Kernel jobs stop between
   steps, and a long single fit can be ended by restarting the kernel.

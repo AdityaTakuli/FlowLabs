@@ -1,8 +1,8 @@
-"""``synapse``: the desktop app, a shareable engine for the browser app, and the kernel.
+"""``flowlabs``: the desktop app, a shareable engine for the browser app, and the kernel.
 
-synapse app                       open Synapse in a window (or your browser)
-synapse engine                    let the browser app use this computer's CPU/GPU
-synapse engine --host 0.0.0.0     ... from another machine on your network (prints the token)
+flowlabs app                       open FlowLabs in a window (or your browser)
+flowlabs engine                    let the browser app use this computer's CPU/GPU
+flowlabs engine --host 0.0.0.0     ... from another machine on your network (prints the token)
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from pathlib import Path
 
 
 def _workspace(value: str | None) -> Path:
-    from synapse_studio.server.desktop import default_workspace
+    from flowlabs.server.desktop import default_workspace
 
     root = Path(value).expanduser().resolve() if value else default_workspace()
     root.mkdir(parents=True, exist_ok=True)
@@ -25,7 +25,7 @@ def _workspace(value: str | None) -> Path:
 
 
 def cmd_app(arguments: argparse.Namespace) -> int:
-    from synapse_studio.server.desktop import check, launch
+    from flowlabs.server.desktop import check, launch
 
     root = _workspace(arguments.workspace or arguments.folder)
     if arguments.check:
@@ -35,11 +35,11 @@ def cmd_app(arguments: argparse.Namespace) -> int:
 
 def cmd_engine(arguments: argparse.Namespace) -> int:
     sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]  # show the link even when piped
-    from synapse_studio.server.app import DEFAULT_ORIGINS, DEFAULT_WEB_URL
-    from synapse_studio.server.desktop import Server, free_port
+    from flowlabs.server.app import DEFAULT_ORIGINS, DEFAULT_WEB_URL
+    from flowlabs.server.desktop import Server, free_port
 
     root = _workspace(arguments.workspace)
-    token = arguments.token or os.environ.get("SYNAPSE_TOKEN") or secrets.token_urlsafe(18)
+    token = arguments.token or os.environ.get("FLOWLABS_TOKEN") or secrets.token_urlsafe(18)
     origins = [*DEFAULT_ORIGINS, *(arguments.allow_origin or [])]
     options: dict[str, object] = {"allowed_origins": origins}
     if arguments.python:
@@ -50,7 +50,7 @@ def cmd_engine(arguments: argparse.Namespace) -> int:
         server.base if arguments.host in ("127.0.0.1", "localhost") else f"http://{_lan_address()}:{server.port}"
     )
     link = f"{DEFAULT_WEB_URL.rstrip('/')}/#" + urllib.parse.urlencode({"engine": engine_url, "token": token})
-    print("Synapse engine is running.")
+    print("FlowLabs engine is running.")
     print(f"  workspace   {root}")
     print(f"  engine URL  {engine_url}")
     print(f"  token       {token}")
@@ -90,21 +90,21 @@ def _lan_address() -> str:
 
 
 def cmd_worker(arguments: argparse.Namespace) -> int:
-    from synapse_studio.worker import main
+    from flowlabs.worker import main
 
     return main(["--root", arguments.root])
 
 
 def build_parser() -> argparse.ArgumentParser:
-    from synapse_studio import __version__
+    from flowlabs import __version__
 
-    parser = argparse.ArgumentParser(prog="synapse", description="Visual machine learning: data → model, no code.")
-    parser.add_argument("--version", action="version", version=f"synapse {__version__}")
+    parser = argparse.ArgumentParser(prog="flowlabs", description="Visual machine learning: data → model, no code.")
+    parser.add_argument("--version", action="version", version=f"flowlabs {__version__}")
     commands = parser.add_subparsers(dest="command")
 
     app = commands.add_parser("app", help="open the desktop app")
     app.add_argument("folder", nargs="?", help=argparse.SUPPRESS)
-    app.add_argument("--workspace", help="folder for datasets, projects and models (default ~/Synapse)")
+    app.add_argument("--workspace", help="folder for datasets, projects and models (default ~/FlowLabs)")
     app.add_argument("--port", type=int)
     app.add_argument("--browser", action="store_true", help="open in the browser instead of a window")
     app.add_argument("--check", action="store_true", help=argparse.SUPPRESS)
@@ -138,7 +138,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def app_main() -> int:
-    """Entry point of the packaged app and ``synapse-app``."""
+    """Entry point of the packaged app and ``flowlabs-app``."""
     return main(["app", *sys.argv[1:]] if sys.argv[1:2] != ["--worker"] else sys.argv[1:])
 
 

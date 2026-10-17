@@ -1,7 +1,7 @@
 VENV ?= ../AIEnv
 BIN := $(VENV)/bin
 
-.PHONY: install test lint typecheck web-install web-build web-dev web-test bundle-web engine app build-app smoke-app
+.PHONY: install test lint typecheck web-install web-build web-dev web-test bundle-web engine app apk build-app smoke-app
 
 install:
 	$(BIN)/pip install -e ".[dev]"
@@ -32,10 +32,13 @@ bundle-web:
 	$(BIN)/python scripts/bundle_web.py
 
 engine:
-	$(BIN)/synapse engine --port 8899
+	$(BIN)/flowlabs engine --port 8899
 
 app:
-	$(BIN)/synapse app
+	$(BIN)/flowlabs app
+
+apk:
+	$(BIN)/python scripts/build_apk.py
 
 build-app:
 	$(BIN)/python scripts/build_app.py

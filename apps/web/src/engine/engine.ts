@@ -1,7 +1,7 @@
-// The engine runs the Python side of Synapse. Three kinds share one interface:
+// The engine runs the Python side of FlowLabs. Three kinds share one interface:
 //   browser  Python inside this tab (Pyodide). Nothing to install; classic ML and small networks.
 //   local    the desktop app's own server (same origin as the page).
-//   remote   `synapse engine` on this or another computer: your CPU cores, RAM and GPU.
+//   remote   `flowlabs engine` on this or another computer: your CPU cores, RAM and GPU.
 import type { DatasetMeta, EngineEvent, Interpreter, KernelState } from "../types";
 
 export type EngineKind = "browser" | "local" | "remote";
@@ -42,7 +42,28 @@ export interface Engine {
   close(): void;
 }
 
-function saveBlob(blob: Blob, name: string) {
+interface AndroidBridge {
+  saveFile(name: string, base64: string, mime: string): string;
+}
+
+/** The FlowLabs Android app injects this bridge: WebViews cannot save blob downloads by themselves. */
+export function androidBridge(): AndroidBridge | null {
+  return (window as unknown as { FlowLabsAndroid?: AndroidBridge }).FlowLabsAndroid ?? null;
+}
+
+async function saveBlob(blob: Blob, name: string) {
+  const bridge = androidBridge();
+  if (bridge) {
+    const data = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",", 2)[1] ?? "");
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+    const where = bridge.saveFile(name, data, blob.type || "application/octet-stream");
+    if (where.startsWith("error")) throw new EngineError(where);
+    return;
+  }
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -134,7 +155,7 @@ export class RemoteEngine implements Engine {
 
   async download(path: string, name: string): Promise<void> {
     const url = `${this.base}/api/files/${path.split("/").map(encodeURIComponent).join("/")}?token=${encodeURIComponent(this.token)}`;
-    if (this.kind === "local") {
+    if (this.kind === "local" && !androidBridge()) {
       // same origin: let the browser (or the desktop window) download it directly
       const link = document.createElement("a");
       link.href = url;
@@ -146,7 +167,7 @@ export class RemoteEngine implements Engine {
     }
     const response = await fetch(url);
     if (!response.ok) throw new EngineError(`download failed (HTTP ${response.status})`);
-    saveBlob(await response.blob(), name);
+    await saveBlob(await response.blob(), name);
   }
 
   subscribe(listener: Listener): () => void {
@@ -208,7 +229,7 @@ type Pending = { resolve: (value: any) => void; reject: (error: EngineError) => 
 
 export class BrowserEngine implements Engine {
   kind: EngineKind = "browser";
-  label = "In this browser";
+  label = androidBridge() ? "On this phone" : "In this browser";
   private worker!: Worker;
   private pending = new Map<number, Pending>();
   private listeners = new Set<Listener>();
@@ -241,8 +262,10 @@ export class BrowserEngine implements Engine {
       for (const waiting of this.pending.values()) waiting.reject(error);
       this.pending.clear();
     };
-    const coreUrl = new URL("synapse-core.zip", document.baseURI).href;
-    this.booted = this.send({ type: "init", coreUrl });
+    const coreUrl = new URL("flowlabs-core.zip", document.baseURI).href;
+    const local = import.meta.env.VITE_PYODIDE_BASE as string | undefined;
+    const pyodideUrl = local ? new URL(local, document.baseURI).href : undefined;
+    this.booted = this.send({ type: "init", coreUrl, pyodideUrl });
   }
 
   ready(): Promise<unknown> {
@@ -268,7 +291,7 @@ export class BrowserEngine implements Engine {
 
   async download(path: string, name: string): Promise<void> {
     const buffer = await this.send<ArrayBuffer>({ type: "read", path });
-    saveBlob(new Blob([buffer]), name);
+    await saveBlob(new Blob([buffer]), name);
   }
 
   subscribe(listener: Listener): () => void {
@@ -294,7 +317,7 @@ export class BrowserEngine implements Engine {
 
 // ----------------------------------------------------------------------------------- choose
 
-const SAVED = "synapse.engine";
+const SAVED = "flowlabs.engine";
 
 export interface SavedEngine {
   url: string;
@@ -338,7 +361,7 @@ async function servedByEngine(): Promise<boolean> {
   try {
     const response = await fetch(new URL("api/health", document.baseURI).href, { cache: "no-store" });
     const body = await response.json();
-    return body.app === "synapse";
+    return body.app === "flowlabs";
   } catch {
     return false;
   }
@@ -350,11 +373,11 @@ export async function chooseEngine(): Promise<{ engine: Engine; notice?: string 
   const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
   const queryToken = query.get("token");
   if (queryToken) {
-    sessionStorage.setItem("synapse.token", queryToken);
+    sessionStorage.setItem("flowlabs.token", queryToken);
     query.delete("token");
     history.replaceState(null, "", `${location.pathname}${query.size ? `?${query}` : ""}${location.hash}`);
   }
-  const sessionToken = sessionStorage.getItem("synapse.token");
+  const sessionToken = sessionStorage.getItem("flowlabs.token");
   if (sessionToken && (await servedByEngine())) {
     const base = new URL(".", document.baseURI).href;
     return { engine: new RemoteEngine(base, sessionToken, "local") };
@@ -379,7 +402,7 @@ export async function chooseEngine(): Promise<{ engine: Engine; notice?: string 
       await engine.hello();
       return { engine };
     } catch {
-      return { engine: new BrowserEngine(), notice: `The saved engine at ${saved.url} is not running, so Synapse is using this browser.` };
+      return { engine: new BrowserEngine(), notice: `The saved engine at ${saved.url} is not running, so FlowLabs is using this browser.` };
     }
   }
   return { engine: new BrowserEngine() };

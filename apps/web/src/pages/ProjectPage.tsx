@@ -31,6 +31,14 @@ export interface ProjectApi {
   runs: RunSummary[];
   openRun: (runId: string) => Promise<void>;
   setTab: (tab: Tab) => void;
+  markExported: () => void;
+}
+
+type StepState = "done" | "error" | "todo" | "busy";
+
+function StepDot({ state, index }: { state: StepState; index: number }) {
+  if (state === "busy") return <Spinner />;
+  return <span className={`step-dot ${state === "done" ? "done" : state === "error" ? "error" : ""}`}>{state === "done" ? <Icon name="check" size={10} /> : state === "error" ? "!" : index + 1}</span>;
 }
 
 export function ProjectPage({ projectId, tab, setTab, goHome }: { projectId: string; tab: Tab; setTab: (tab: Tab) => void; goHome: () => void }) {
@@ -42,6 +50,7 @@ export function ProjectPage({ projectId, tab, setTab, goHome }: { projectId: str
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [missing, setMissing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [exported, setExported] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const checkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef<Project | null>(null);
@@ -134,7 +143,10 @@ export function ProjectPage({ projectId, tab, setTab, goHome }: { projectId: str
   );
 
   const api: ProjectApi | null = useMemo(
-    () => (project ? { project, update, issues, profile, reloadProfile: () => loadProfile(project), run, runs, openRun, setTab } : null),
+    () =>
+      project
+        ? { project, update, issues, profile, reloadProfile: () => loadProfile(project), run, runs, openRun, setTab, markExported: () => setExported(true) }
+        : null,
     [project, update, issues, profile, loadProfile, run, runs, openRun, setTab],
   );
 
@@ -164,6 +176,31 @@ export function ProjectPage({ projectId, tab, setTab, goHome }: { projectId: str
 
   const errors = issues.filter((i) => i.level === "error");
   const trainable = project.models.some((m) => m.enabled) && errors.length === 0;
+  const enabledModels = project.models.filter((m) => m.enabled).length;
+  const states: Record<Tab, StepState> = {
+    data: profile ? "done" : "todo",
+    pipeline: errors.length ? "error" : "done",
+    results: training?.running ? "busy" : run ? "done" : "todo",
+    predict: run ? "done" : "todo",
+    export: exported ? "done" : "todo",
+  };
+  const trainButton = training?.running ? (
+    <button className="danger" onClick={() => void stop()}>
+      <Icon name="stop" /> <span className="label">Stop</span>
+    </button>
+  ) : (
+    <button
+      className="accent"
+      disabled={!trainable}
+      title={errors[0]?.message ?? "Train every model in the pipeline"}
+      onClick={() => {
+        setTab("results");
+        void start(latest.current ?? project);
+      }}
+    >
+      <Icon name="play" /> Train{enabledModels > 1 ? ` ${enabledModels}` : ""}
+    </button>
+  );
   return (
     <div className="shell">
       <TopBar
@@ -171,41 +208,22 @@ export function ProjectPage({ projectId, tab, setTab, goHome }: { projectId: str
         actions={
           <>
             {saving && <span className="faint tiny">saving…</span>}
-            {training?.running ? (
-              <button className="danger" onClick={() => void stop()}>
-                <Icon name="stop" /> Stop
-              </button>
-            ) : (
-              <button
-                className="accent"
-                disabled={!trainable}
-                title={errors[0]?.message ?? "Train every model in the pipeline"}
-                onClick={() => {
-                  setTab("results");
-                  void start(latest.current ?? project);
-                }}
-              >
-                <Icon name="play" /> Train {project.models.filter((m) => m.enabled).length} model{project.models.filter((m) => m.enabled).length === 1 ? "" : "s"}
-              </button>
-            )}
+            {trainButton}
           </>
         }
       >
         <div className="crumb">
-          <button className="ghost small" onClick={goHome}>
+          <button className="ghost small crumb-home" onClick={goHome}>
             Projects
           </button>
-          <Icon name="chevronRight" size={12} />
+          <Icon name="chevronRight" size={12} className="crumb-sep" />
           <CommitInput value={project.name} onCommit={(name) => update((p) => ({ ...p, name: name || p.name }))} aria-label="Project name" />
         </div>
-        <nav className="tabs">
+        <nav className="steps" aria-label="Steps">
           {TABS.map((t, i) => (
-            <button key={t.id} className={tab === t.id ? "active" : ""} onClick={() => setTab(t.id)}>
-              <span className="step-no">{i + 1}</span>
-              <Icon name={t.icon} size={13} />
+            <button key={t.id} className={tab === t.id ? "active" : ""} onClick={() => setTab(t.id)} aria-current={tab === t.id ? "page" : undefined} title={t.label}>
+              <StepDot state={states[t.id]} index={i} />
               <span className="label">{t.label}</span>
-              {t.id === "pipeline" && errors.length > 0 && <span className="badge error">{errors.length}</span>}
-              {t.id === "results" && training?.running && <Spinner />}
             </button>
           ))}
         </nav>
@@ -217,6 +235,14 @@ export function ProjectPage({ projectId, tab, setTab, goHome }: { projectId: str
         {tab === "predict" && <PredictTab api={api} />}
         {tab === "export" && <ExportTab api={api} />}
       </div>
+      <nav className="bottom-nav" aria-label="Steps">
+        {TABS.map((t, i) => (
+          <button key={t.id} className={tab === t.id ? "active" : ""} onClick={() => setTab(t.id)}>
+            {states[t.id] === "todo" ? <Icon name={t.icon} size={20} /> : <StepDot state={states[t.id]} index={i} />}
+            {t.label}
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }

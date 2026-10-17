@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from synapse_studio.core.rpc import Engine
+from flowlabs.core.rpc import Engine
 
 _engine: Engine | None = None
 

@@ -266,7 +266,7 @@ export function NewProject({ onClose, onCreated, initialDataset }: { onClose: ()
               )}
               {profile.suggestions.some((s) => s.auto && s.fix?.stage === "clean") && (
                 <Notice level="ok" icon="sparkles">
-                  <b>Synapse will add these fixes for you</b> (you can remove them):
+                  <b>FlowLabs will add these fixes for you</b> (you can remove them):
                   <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
                     {profile.suggestions
                       .filter((s) => s.auto && s.fix?.stage === "clean")

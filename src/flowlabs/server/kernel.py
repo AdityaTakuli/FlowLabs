@@ -1,4 +1,4 @@
-"""Start, talk to and restart the kernel process (see ``synapse_studio.worker``)."""
+"""Start, talk to and restart the kernel process (see ``flowlabs.worker``)."""
 
 from __future__ import annotations
 
@@ -16,11 +16,11 @@ from concurrent.futures import Future
 from pathlib import Path
 from typing import Any
 
-from synapse_studio import __version__
+from flowlabs import __version__
 
 Event = dict[str, Any]
-SOURCE = Path(__file__).resolve().parents[1]  # .../synapse_studio
-RUNTIME = SOURCE.parent / "synapse_runtime.py"
+SOURCE = Path(__file__).resolve().parents[1]  # .../flowlabs
+RUNTIME = SOURCE.parent / "flowlabs_runtime.py"
 START_TIMEOUT_S = 120
 
 
@@ -29,21 +29,21 @@ class KernelError(RuntimeError):
 
 
 def kernel_source() -> Path:
-    """A folder holding only ``synapse_studio`` and ``synapse_runtime.py``, for another Python's path.
+    """A folder holding only ``flowlabs`` and ``flowlabs_runtime.py``, for another Python's path.
 
     Never point a foreign interpreter at this process's site-packages: it would import the wrong
-    numpy. The copy lives under ``~/.synapse/kernel-src/<version>`` and is refreshed per version.
+    numpy. The copy lives under ``~/.flowlabs/kernel-src/<version>`` and is refreshed per version.
     """
-    target = Path(os.environ.get("SYNAPSE_HOME", Path.home() / ".synapse")) / "kernel-src" / __version__
+    target = Path(os.environ.get("FLOWLABS_HOME", Path.home() / ".flowlabs")) / "kernel-src" / __version__
     stamp = target / ".stamp"
     marker = str(max((p.stat().st_mtime for p in SOURCE.rglob("*.py")), default=0))
     if stamp.is_file() and stamp.read_text() == marker:
         return target
     shutil.rmtree(target, ignore_errors=True)
-    (target / "synapse_studio").mkdir(parents=True)
+    (target / "flowlabs").mkdir(parents=True)
     ignore = shutil.ignore_patterns("__pycache__", "web", "*.pyc")
-    shutil.copytree(SOURCE, target / "synapse_studio", ignore=ignore, dirs_exist_ok=True)
-    shutil.copyfile(RUNTIME, target / "synapse_runtime.py")
+    shutil.copytree(SOURCE, target / "flowlabs", ignore=ignore, dirs_exist_ok=True)
+    shutil.copyfile(RUNTIME, target / "flowlabs_runtime.py")
     stamp.write_text(marker)
     return target
 
@@ -57,10 +57,10 @@ def command(python: str | None, root: Path) -> tuple[list[str], dict[str, str]]:
         environment["PYTHONPATH"] = os.pathsep.join([str(SOURCE.parent), environment.get("PYTHONPATH", "")]).strip(
             os.pathsep
         )
-        return [sys.executable, "-m", "synapse_studio.worker", "--root", str(root)], environment
+        return [sys.executable, "-m", "flowlabs.worker", "--root", str(root)], environment
     environment["PYTHONPATH"] = str(kernel_source())
     environment.pop("PYTHONSTARTUP", None)
-    return [python, "-m", "synapse_studio.worker", "--root", str(root)], environment
+    return [python, "-m", "flowlabs.worker", "--root", str(root)], environment
 
 
 class Kernel:

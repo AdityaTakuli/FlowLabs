@@ -1,6 +1,6 @@
 name: Desktop app
 
-# Builds the installable Synapse app for Linux, macOS and Windows.
+# Builds the installable FlowLabs app for Linux, macOS and Windows.
 # Run it from the Actions tab, or push a v* tag to attach the builds to a release.
 
 on:
@@ -21,7 +21,7 @@ jobs:
         include:
           - { os: ubuntu-22.04, label: linux-x86_64 }
           - { os: macos-14, label: macos-arm64 }
-          - { os: macos-13, label: macos-x86_64 }
+          - { os: macos-15-intel, label: macos-x86_64 }
           - { os: windows-latest, label: windows-x64 }
     steps:
       - uses: actions/checkout@v4
@@ -38,7 +38,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgirepository1.0-dev libcairo2-dev gir1.2-webkit2-4.1 libgtk-3-dev pkg-config
-      - name: Install Synapse and build tools
+      - name: Install FlowLabs and build tools
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[build]"
@@ -53,19 +53,19 @@ jobs:
       - name: macOS icon
         if: runner.os == 'macOS'
         run: |
-          mkdir -p build/synapse.iconset
+          mkdir -p build/flowlabs.iconset
           for size in 16 32 64 128 256 512; do
-            sips -z $size $size packaging/icons/synapse.png --out build/synapse.iconset/icon_${size}x${size}.png
-            sips -z $((size*2)) $((size*2)) packaging/icons/synapse.png --out build/synapse.iconset/icon_${size}x${size}@2x.png
+            sips -z $size $size packaging/icons/flowlabs.png --out build/flowlabs.iconset/icon_${size}x${size}.png
+            sips -z $((size*2)) $((size*2)) packaging/icons/flowlabs.png --out build/flowlabs.iconset/icon_${size}x${size}@2x.png
           done
-          iconutil -c icns build/synapse.iconset -o packaging/icons/synapse.icns
+          iconutil -c icns build/flowlabs.iconset -o packaging/icons/flowlabs.icns
       - name: Build the app
         run: python scripts/build_app.py --no-web
       - name: Smoke test the built app
         run: python scripts/smoke_app.py
       - uses: actions/upload-artifact@v4
         with:
-          name: synapse-${{ matrix.label }}
+          name: flowlabs-${{ matrix.label }}
           path: |
             dist/*.tar.gz
             dist/*.dmg
@@ -81,6 +81,50 @@ jobs:
             dist/*.dmg
             dist/*.zip
             dist/*setup.exe
+
+  android:
+    name: android-apk
+    runs-on: ubuntu-latest # has the Android SDK and a JDK preinstalled
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Signing key (optional repository secrets)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "FLOWLABS_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+          fi
+      - name: Build the APK
+        env:
+          FLOWLABS_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          FLOWLABS_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          pip install pillow
+          npm ci --prefix apps/web
+          python scripts/build_apk.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flowlabs-android
+          path: dist/*.apk
+          if-no-files-found: error
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.apk
 
   pypi:
     name: Python package

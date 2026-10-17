@@ -9,7 +9,7 @@ import type { ProjectApi } from "./ProjectPage";
 
 const FILE_INFO: Record<string, string> = {
   "model.joblib": "the trained pipeline: raw rows in, predictions out",
-  "synapse_runtime.py": "the small module the pipeline needs (no Synapse install)",
+  "flowlabs_runtime.py": "the small module the pipeline needs (no FlowLabs install)",
   "predict.py": "python predict.py new.csv → predictions.csv",
   "serve.py": "a tiny HTTP prediction server",
   "train.py": "the same training as an editable Python script",
@@ -17,7 +17,7 @@ const FILE_INFO: Record<string, string> = {
   "example.csv": "five rows in the expected format",
   "requirements.txt": "packages pinned to the versions used",
   "MODEL_CARD.md": "what the model is and how well it does",
-  "model.pt": "TorchScript network: torch.jit.load, no Synapse needed",
+  "model.pt": "TorchScript network: torch.jit.load, no FlowLabs needed",
   "model.onnx": "ONNX network for onnxruntime, C++, C#, JavaScript, mobile",
   "labels.json": "class names in output order",
   "preprocess.json": "image size and normalisation",
@@ -83,6 +83,7 @@ export function ExportTab({ api }: { api: ProjectApi }) {
     try {
       const result = await engine.call<ExportResult>("export.build", { project_id: project.id, run_id: run.id, model_id: modelId, include_data: includeData });
       setBuilt(result);
+      api.markExported();
       notify("Export ready.", "ok");
     } catch (error) {
       fail(error);
@@ -93,7 +94,7 @@ export function ExportTab({ api }: { api: ProjectApi }) {
 
   const python = image
     ? `import torch, json\nmodel = torch.jit.load("model.pt")\nlabels = json.load(open("labels.json"))\n# python predict.py photo.jpg`
-    : `import joblib, pandas as pd\n\nmodel = joblib.load("model.joblib")   # keep synapse_runtime.py next to it\nrows = pd.read_csv("new_rows.csv")\nmodel.predict(rows)${run.task === "classification" ? "\nmodel.predict_proba(rows)          # one column per class" : ""}`;
+    : `import joblib, pandas as pd\n\nmodel = joblib.load("model.joblib")   # keep flowlabs_runtime.py next to it\nrows = pd.read_csv("new_rows.csv")\nmodel.predict(rows)${run.task === "classification" ? "\nmodel.predict_proba(rows)          # one column per class" : ""}`;
   const shell = image
     ? `pip install -r requirements.txt\npython predict.py photo.jpg`
     : `pip install -r requirements.txt\npython predict.py example.csv -o predictions.csv\npython serve.py --port 8000\ncurl -X POST localhost:8000/predict -d '{"rows": [${JSON.stringify(Object.fromEntries((run.schema?.columns ?? []).filter((c) => c.used).slice(0, 2).map((c) => [c.name, c.example])))}]}'`;
@@ -118,7 +119,7 @@ export function ExportTab({ api }: { api: ProjectApi }) {
           </button>
           {built && (
             <div className="col" style={{ marginTop: 16 }}>
-              <button className="accent" onClick={() => void engine.download(built.zip.path, built.zip.name).catch(fail)}>
+              <button className="accent" style={{ whiteSpace: "normal", padding: "8px 14px" }} onClick={() => void engine.download(built.zip.path, built.zip.name).catch(fail)}>
                 <Icon name="download" /> Download {built.zip.name} ({bytes(built.zip.size)})
               </button>
               {built.notes.map((n, i) => <Notice key={i} level="info">{n}</Notice>)}

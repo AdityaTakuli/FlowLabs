@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from synapse_studio.core.rpc import Engine
-from synapse_studio.server.app import create_app
+from flowlabs.core.rpc import Engine
+from flowlabs.server.app import create_app
 
 TOKEN = "test-token"
 
@@ -49,7 +49,7 @@ def _auth() -> dict[str, str]:
 
 
 def test_server_security(client):
-    assert client.get("/api/health").json()["app"] == "synapse"
+    assert client.get("/api/health").json()["app"] == "flowlabs"
     assert client.post("/api/rpc", json={"method": "engine.ping"}).status_code == 401
     assert (
         client.post("/api/rpc", json={"method": "engine.ping"}, headers={"Authorization": "Bearer nope"}).status_code

@@ -1,7 +1,7 @@
-"""Prove a built Synapse app works: it starts, serves the app, and its built-in kernel answers.
+"""Prove a built FlowLabs app works: it starts, serves the app, and its built-in kernel answers.
 
-python scripts/smoke_app.py              # checks dist/Synapse (or dist/Synapse.app on macOS)
-python scripts/smoke_app.py path/to/Synapse
+python scripts/smoke_app.py              # checks dist/FlowLabs (or dist/FlowLabs.app on macOS)
+python scripts/smoke_app.py path/to/FlowLabs
 """
 
 from __future__ import annotations
@@ -18,9 +18,9 @@ def executable(argument: str | None) -> Path:
     if argument:
         return Path(argument)
     for candidate in (
-        ROOT / "dist" / "Synapse.app" / "Contents" / "MacOS" / "Synapse",
-        ROOT / "dist" / "Synapse" / "Synapse.exe",
-        ROOT / "dist" / "Synapse" / "synapse",
+        ROOT / "dist" / "FlowLabs.app" / "Contents" / "MacOS" / "FlowLabs",
+        ROOT / "dist" / "FlowLabs" / "FlowLabs.exe",
+        ROOT / "dist" / "FlowLabs" / "flowlabs",
     ):
         if candidate.is_file():
             return candidate

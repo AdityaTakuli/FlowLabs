@@ -1,5 +1,5 @@
 {
-  "name": "synapse-web",
+  "name": "flowlabs-web",
   "private": true,
   "version": "0.2.0",
   "type": "module",
@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
     "@xyflow/react": "^12.11.6",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"

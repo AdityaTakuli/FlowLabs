@@ -170,7 +170,7 @@ def download(url: str, target: Path, report: Any = None, timeout: float = 60.0, 
     import urllib.error
     import urllib.request
 
-    partial = target.with_name(target.name + ".synapse-partial")
+    partial = target.with_name(target.name + ".flowlabs-partial")
     expected = re.search(r"-([0-9a-f]{8,})\.", target.name)
     last_error: Exception | None = None
     for attempt in range(attempts):
@@ -334,7 +334,7 @@ def run(ws: Workspace, project: dict[str, Any], job: Any, packages: dict[str, An
                 "test": _Images([files[i] for i in test_index], [labels[i] for i in test_index], prep, n_channels, False, seed),
             }  # fmt: skip
             torch.manual_seed(seed)
-            from synapse_runtime import pick_device
+            from flowlabs_runtime import pick_device
 
             if pretrained and params.get("pretrained", True):
 
@@ -417,7 +417,7 @@ def run(ws: Workspace, project: dict[str, Any], job: Any, packages: dict[str, An
                  "confidence": round(float(probs[i, pred[i]]), 3)} for i in wrong
             ]  # fmt: skip
             artifact = run_dir / "models" / f"{entry['id']}.pt"
-            torch.save({"format": "synapse-image-1", "model": {"algo": entry["algo"], "params": params},
+            torch.save({"format": "flowlabs-image-1", "model": {"algo": entry["algo"], "params": params},
                         "state_dict": {k: v.cpu() for k, v in net.state_dict().items()}, "classes": classes,
                         "image": prep, "channels": n_channels, "size": size, "label": label,
                         "metrics": record["metrics"]}, artifact)  # fmt: skip

@@ -21,6 +21,14 @@ export interface PipeNode {
   addStage?: "clean" | "rows" | "transform" | "models";
 }
 
+export interface StageBand {
+  id: StageId;
+  x: number;
+  width: number;
+  height: number;
+  empty: boolean;
+}
+
 export interface PipeEdge {
   id: string;
   source: string;
@@ -36,9 +44,9 @@ export const STAGE_COLOURS: Record<StageId, string> = {
   split: "var(--st-split)",
   rows: "var(--st-rows)",
   transform: "var(--st-transform)",
-  prep: "var(--st-transform)",
-  models: "var(--st-model)",
-  results: "var(--st-result)",
+  prep: "var(--st-prep)",
+  models: "var(--st-models)",
+  results: "var(--st-results)",
 };
 
 export const STAGE_TITLES: Record<StageId, string> = {
@@ -52,9 +60,11 @@ export const STAGE_TITLES: Record<StageId, string> = {
   results: "Results",
 };
 
-const COLUMN = 228;
-const ROW = 104;
-const TOP = 40;
+export const NODE_WIDTH = 220;
+export const NARROW_WIDTH = 150;
+const GAP = 64;
+const ROW = 128;
+const TOP = 48;
 
 function columnsText(columns: unknown): string {
   if (!Array.isArray(columns) || columns.length === 0) return "";
@@ -141,10 +151,10 @@ export function buildGraph(
   results: Map<string, ModelResult>,
   metric: string,
   live: Map<string, { status: string; progress?: number }>,
-): { nodes: PipeNode[]; edges: PipeEdge[]; stages: { id: StageId; x: number }[] } {
+): { nodes: PipeNode[]; edges: PipeEdge[]; stages: StageBand[] } {
   const nodes: PipeNode[] = [];
   const edges: PipeEdge[] = [];
-  const stages: { id: StageId; x: number }[] = [];
+  const stages: StageBand[] = [];
   const levelFor = (id: string, stage?: string): PipeNode["level"] => {
     const found = issues.filter((i) => i.step === id || (!i.step && stage && i.stage === stage));
     if (found.some((i) => i.level === "error")) return "error";
@@ -154,9 +164,13 @@ export function buildGraph(
   const image = project.kind === "image";
   const order: StageId[] = image ? ["data", "prep", "split", "models", "results"] : ["data", "clean", "split", "rows", "transform", "models", "results"];
   const columnNodes: string[][] = [];
-  order.forEach((stage, column) => {
-    const x = column * COLUMN;
-    stages.push({ id: stage, x });
+  let cursor = 0;
+  order.forEach((stage) => {
+    // a step stage with no steps yet shows only its narrow "add" button
+    const empty = (stage === "clean" || stage === "rows") && project[stage].length === 0;
+    const width = empty ? NARROW_WIDTH : NODE_WIDTH;
+    const x = cursor;
+    cursor += width + GAP;
     const ids: string[] = [];
     const push = (node: Omit<PipeNode, "x" | "y" | "stage">) => {
       nodes.push({ ...node, stage, x, y: TOP + ids.length * ROW });
@@ -203,6 +217,8 @@ export function buildGraph(
     } else if (stage === "results") {
       push({ id: "results", kind: "results", title: "Evaluate", subtitle: results.size ? "scores on test rows" : "train to see scores" });
     }
+    const count = nodes.filter((n) => n.stage === stage).length;
+    stages.push({ id: stage, x, width, height: TOP + count * ROW, empty });
     columnNodes.push(ids);
   });
   // within a stage: top to bottom; between stages: last node of one to the first of the next

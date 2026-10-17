@@ -1,4 +1,4 @@
-"""The Synapse server: the app's pages, the kernel, uploads, downloads and live events.
+"""The FlowLabs server: the app's pages, the kernel, uploads, downloads and live events.
 
 Security:
 
@@ -6,7 +6,7 @@ Security:
   for download links);
 * bound to 127.0.0.1 by default; the ``Host`` header must then be a loopback name, which blocks DNS
   rebinding;
-* browsers may call it only from the origins in ``allowed_origins`` (the hosted Synapse web app,
+* browsers may call it only from the origins in ``allowed_origins`` (the hosted FlowLabs web app,
   local dev servers); Chrome's Private Network Access preflight is answered for those origins only.
 """
 
@@ -30,15 +30,20 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 
-from synapse_studio import __version__
-from synapse_studio.core.workspace import Workspace
+from flowlabs import __version__
+from flowlabs.core.workspace import Workspace
 
 from . import interpreters
 from .kernel import Kernel
 
 WEB = Path(__file__).resolve().parents[1] / "web"
-DEFAULT_WEB_URL = os.environ.get("SYNAPSE_WEB_URL", "https://adityatakuli.github.io/Synapse/")
-DEFAULT_ORIGINS = ("https://adityatakuli.github.io", "http://localhost:5173", "http://127.0.0.1:5173")
+DEFAULT_WEB_URL = os.environ.get("FLOWLABS_WEB_URL", "https://adityatakuli.github.io/FlowLabs/")
+DEFAULT_ORIGINS = (
+    "https://adityatakuli.github.io",
+    "https://appassets.androidplatform.net",  # the FlowLabs Android app
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+)
 INSTALLABLE = {"numpy", "pandas", "scikit-learn", "scipy", "joblib", "torch", "torchvision", "xgboost", "lightgbm",
                "pillow", "openpyxl", "pyarrow", "onnx", "psutil"}  # fmt: skip
 LOOPBACK = {"127.0.0.1", "localhost", "[::1]"}
@@ -64,7 +69,7 @@ class Events:
 
 class Settings:
     def __init__(self, root: Path) -> None:
-        self.path = root / ".synapse" / "settings.json"
+        self.path = root / ".flowlabs" / "settings.json"
 
     def read(self) -> dict[str, Any]:
         try:
@@ -99,7 +104,7 @@ def create_app(
         yield
         kernel.stop()
 
-    app = FastAPI(title="Synapse", version=__version__, docs_url=None, redoc_url=None, openapi_url=None,
+    app = FastAPI(title="FlowLabs", version=__version__, docs_url=None, redoc_url=None, openapi_url=None,
                   lifespan=lifespan)  # fmt: skip
     app.state.kernel = kernel
     app.state.events = events
@@ -151,11 +156,11 @@ def create_app(
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:
-        return {"ok": True, "app": "synapse", "version": __version__}
+        return {"ok": True, "app": "flowlabs", "version": __version__}
 
     @app.get("/api/hello")
     def hello() -> dict[str, Any]:
-        return {"app": "synapse", "version": __version__, "workspace": str(root), "kernel": kernel.describe(),
+        return {"app": "flowlabs", "version": __version__, "workspace": str(root), "kernel": kernel.describe(),
                 "web_url": DEFAULT_WEB_URL}  # fmt: skip
 
     @app.post("/api/rpc")
@@ -227,7 +232,7 @@ def create_app(
         body = await request.json()
         wanted = [str(p) for p in body.get("packages") or []]
         if not wanted or any(p not in INSTALLABLE for p in wanted):
-            raise HTTPException(400, f"Synapse can install: {', '.join(sorted(INSTALLABLE))}")
+            raise HTTPException(400, f"FlowLabs can install: {', '.join(sorted(INSTALLABLE))}")
         if kernel.python is None and _frozen():
             raise HTTPException(400, "The built-in runtime cannot install packages. Choose your own Python first.")
         if installs.get("running"):
@@ -273,13 +278,13 @@ def _current_python() -> str:
 
 
 def _mount_web(app: FastAPI) -> None:
-    """Serve the built app (``synapse_studio/web``) with an SPA fallback to index.html."""
+    """Serve the built app (``flowlabs/web``) with an SPA fallback to index.html."""
 
     @app.get("/{path:path}", include_in_schema=False)
     def page(path: str) -> Response:
         if not (WEB / "index.html").is_file():
             return Response(
-                "<!doctype html><title>Synapse</title><p>The Synapse app is not built. Run "
+                "<!doctype html><title>FlowLabs</title><p>The FlowLabs app is not built. Run "
                 "<code>python scripts/bundle_web.py</code>, or use <code>npm run dev</code> in apps/web.</p>",
                 media_type="text/html",
             )

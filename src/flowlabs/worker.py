@@ -1,4 +1,4 @@
-"""The Synapse kernel: a process that runs engine calls, started from the Python you choose.
+"""The FlowLabs kernel: a process that runs engine calls, started from the Python you choose.
 
 Like a Jupyter kernel, it runs in *your* environment, so training uses your packages, your CPU
 cores and your GPU. The server talks to it with newline-delimited JSON:
@@ -8,7 +8,7 @@ cores and your GPU. The server talks to it with newline-delimited JSON:
 
 Anything a library prints goes to stderr (or becomes a log event), never into the protocol.
 
-    python -m synapse_studio.worker --root ~/Synapse
+    python -m flowlabs.worker --root ~/FlowLabs
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ class _LogStream(io.TextIOBase):
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="synapse-worker")
+    parser = argparse.ArgumentParser(prog="flowlabs-worker")
     parser.add_argument("--root", required=True)
     arguments = parser.parse_args(argv)
 
@@ -66,16 +66,16 @@ def main(argv: list[str] | None = None) -> int:
     except (AttributeError, ValueError):
         pass
 
-    from synapse_studio.core import env
-    from synapse_studio.core.rpc import Engine
+    from flowlabs.core import env
+    from flowlabs.core.rpc import Engine
 
     engine = Engine(
         arguments.root,
         emit=lambda event: send({"event": event}),
-        spawn=lambda work: threading.Thread(target=work, name="synapse-job", daemon=True).start(),
+        spawn=lambda work: threading.Thread(target=work, name="flowlabs-job", daemon=True).start(),
     )
     send({"event": {"type": "ready", "info": env.info(probe_gpu=False), "pid": os.getpid()}})
-    pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="synapse-call")
+    pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="flowlabs-call")
 
     def handle(request: dict[str, Any]) -> None:
         reply = engine.safe_call(request.get("method", ""), request.get("params") or {})

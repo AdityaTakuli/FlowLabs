@@ -10,8 +10,9 @@ __pycache__/
 # build output
 node_modules/
 apps/web/dist/
-apps/web/public/synapse-core.zip
+apps/web/public/flowlabs-core.zip
 apps/web/tsconfig.tsbuildinfo
-src/synapse_studio/web/
+src/flowlabs/web/
 build/
 dist/
+apps/android/.cache/

@@ -14,7 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-import synapse_runtime as rt
+import flowlabs_runtime as rt
 
 Param = dict[str, Any]
 

@@ -1,4 +1,4 @@
-"""Build the Synapse desktop app for this operating system.
+"""Build the FlowLabs desktop app for this operating system.
 
     python scripts/build_app.py              # web app + PyInstaller bundle + an installable archive
     python scripts/build_app.py --no-web     # reuse the bundled web app
@@ -6,9 +6,9 @@
 
 Output in ``dist/``:
 
-* Linux   ``Synapse-<version>-linux-<arch>.tar.gz`` with ``install.sh`` (menu entry + ``synapse-app``)
-* macOS   ``Synapse.app`` and ``Synapse-<version>-macos-<arch>.dmg``
-* Windows ``Synapse-<version>-windows-<arch>.zip``, plus an installer when Inno Setup is installed
+* Linux   ``FlowLabs-<version>-linux-<arch>.tar.gz`` with ``install.sh`` (menu entry + ``flowlabs-app``)
+* macOS   ``FlowLabs.app`` and ``FlowLabs-<version>-macos-<arch>.dmg``
+* Windows ``FlowLabs-<version>-windows-<arch>.zip``, plus an installer when Inno Setup is installed
 """
 
 from __future__ import annotations
@@ -25,42 +25,42 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
-BUNDLE = DIST / "Synapse"
+BUNDLE = DIST / "FlowLabs"
 sys.path.insert(0, str(ROOT / "src"))
-from synapse_studio import __version__ as VERSION  # noqa: E402
+from flowlabs import __version__ as VERSION  # noqa: E402
 
 DESKTOP_ENTRY = """[Desktop Entry]
 Type=Application
-Name=Synapse
+Name=FlowLabs
 Comment=Visual machine learning: data to model, no code
 Exec={exec}
 Icon={icon}
 Terminal=false
 Categories=Development;Science;Education;
-StartupWMClass=Synapse
+StartupWMClass=FlowLabs
 """
 INSTALL_SH = """#!/bin/sh
-# Install Synapse for the current user: files in ~/.local/share/synapse, a menu entry, synapse-app.
+# Install FlowLabs for the current user: files in ~/.local/share/flowlabs, a menu entry, flowlabs-app.
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
-target="$HOME/.local/share/synapse"
+target="$HOME/.local/share/flowlabs"
 rm -rf "$target"
 mkdir -p "$target" "$HOME/.local/bin" "$HOME/.local/share/applications"
 cp -R "$here"/* "$target"/
-ln -sf "$target/synapse" "$HOME/.local/bin/synapse-app"
-sed "s|{exec}|$target/synapse|; s|{icon}|$target/synapse.png|" "$here/Synapse.desktop.in" \\
-    > "$HOME/.local/share/applications/Synapse.desktop"
-echo "Synapse installed. Start it from your applications menu, or run synapse-app."
+ln -sf "$target/flowlabs" "$HOME/.local/bin/flowlabs-app"
+sed "s|{exec}|$target/flowlabs|; s|{icon}|$target/flowlabs.png|" "$here/FlowLabs.desktop.in" \\
+    > "$HOME/.local/share/applications/FlowLabs.desktop"
+echo "FlowLabs installed. Start it from your applications menu, or run flowlabs-app."
 """
 INNO = r"""
 [Setup]
-AppName=Synapse
+AppName=FlowLabs
 AppVersion={#MyAppVersion}
-DefaultDirName={autopf}\Synapse
-DefaultGroupName=Synapse
+DefaultDirName={autopf}\FlowLabs
+DefaultGroupName=FlowLabs
 OutputDir={#MyOutputDir}
-OutputBaseFilename=Synapse-{#MyAppVersion}-windows-x64-setup
-SetupIconFile={#MySourceDir}\..\..\packaging\icons\synapse.ico
+OutputBaseFilename=FlowLabs-{#MyAppVersion}-windows-x64-setup
+SetupIconFile={#MySourceDir}\..\..\packaging\icons\flowlabs.ico
 Compression=lzma2
 SolidCompression=yes
 PrivilegesRequired=lowest
@@ -70,11 +70,11 @@ ArchitecturesInstallIn64BitMode=x64compatible
 Source: "{#MySourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs
 
 [Icons]
-Name: "{group}\Synapse"; Filename: "{app}\Synapse.exe"
-Name: "{userdesktop}\Synapse"; Filename: "{app}\Synapse.exe"
+Name: "{group}\FlowLabs"; Filename: "{app}\FlowLabs.exe"
+Name: "{userdesktop}\FlowLabs"; Filename: "{app}\FlowLabs.exe"
 
 [Run]
-Filename: "{app}\Synapse.exe"; Description: "Start Synapse"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\FlowLabs.exe"; Description: "Start FlowLabs"; Flags: nowait postinstall skipifsilent
 """
 
 
@@ -88,41 +88,43 @@ def archive_name(suffix: str) -> Path:
         platform.machine().lower(), platform.machine().lower()
     )
     system = {"darwin": "macos", "win32": "windows"}.get(sys.platform, "linux")
-    return DIST / f"Synapse-{VERSION}-{system}-{machine}{suffix}"
+    return DIST / f"FlowLabs-{VERSION}-{system}-{machine}{suffix}"
 
 
 def build_bundle(web: bool) -> None:
     if web:
         run([sys.executable, str(ROOT / "scripts" / "bundle_web.py")])
     shutil.rmtree(BUNDLE, ignore_errors=True)
-    shutil.rmtree(DIST / "Synapse.app", ignore_errors=True)
+    shutil.rmtree(DIST / "FlowLabs.app", ignore_errors=True)
     run(
-        [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", str(ROOT / "packaging" / "synapse.spec")],
+        [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", str(ROOT / "packaging" / "flowlabs.spec")],
         cwd=ROOT,
     )
 
 
 def package_linux() -> Path:
-    shutil.copy(ROOT / "packaging" / "icons" / "synapse.png", BUNDLE / "synapse.png")
-    (BUNDLE / "Synapse.desktop.in").write_text(DESKTOP_ENTRY, encoding="utf-8")
+    shutil.copy(ROOT / "packaging" / "icons" / "flowlabs.png", BUNDLE / "flowlabs.png")
+    (BUNDLE / "FlowLabs.desktop.in").write_text(DESKTOP_ENTRY, encoding="utf-8")
     installer = BUNDLE / "install.sh"
     installer.write_text(INSTALL_SH, encoding="utf-8")
     installer.chmod(0o755)
     target = archive_name(".tar.gz")
     target.unlink(missing_ok=True)
     with tarfile.open(target, "w:gz") as archive:
-        archive.add(BUNDLE, arcname="Synapse")
+        archive.add(BUNDLE, arcname="FlowLabs")
     return target
 
 
 def package_macos() -> Path:
-    app = DIST / "Synapse.app"
+    app = DIST / "FlowLabs.app"
     if not app.is_dir():
-        raise SystemExit("PyInstaller did not produce Synapse.app")
+        raise SystemExit("PyInstaller did not produce FlowLabs.app")
     target = archive_name(".dmg")
     target.unlink(missing_ok=True)
     if shutil.which("hdiutil"):
-        run(["hdiutil", "create", "-volname", "Synapse", "-srcfolder", str(app), "-ov", "-format", "UDZO", str(target)])
+        run(
+            ["hdiutil", "create", "-volname", "FlowLabs", "-srcfolder", str(app), "-ov", "-format", "UDZO", str(target)]
+        )
         return target
     fallback = archive_name(".zip")
     run(["ditto", "-c", "-k", "--keepParent", str(app), str(fallback)])
@@ -135,10 +137,10 @@ def package_windows() -> Path:
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
         for path in BUNDLE.rglob("*"):
             if path.is_file():
-                archive.write(path, Path("Synapse") / path.relative_to(BUNDLE))
+                archive.write(path, Path("FlowLabs") / path.relative_to(BUNDLE))
     inno = shutil.which("iscc")
     if inno:
-        script = DIST / "synapse.iss"
+        script = DIST / "flowlabs.iss"
         script.write_text(INNO, encoding="utf-8")
         run([inno, f"/DMyAppVersion={VERSION}", f"/DMySourceDir={BUNDLE}", f"/DMyOutputDir={DIST}", str(script)])
     return target

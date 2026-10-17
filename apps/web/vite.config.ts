@@ -2,9 +2,9 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// `base: "./"` makes one build work everywhere: served by `synapse app` / `synapse engine` at /,
-// and hosted under a sub-path such as https://<user>.github.io/Synapse/.
-// In dev, /api goes to a running `synapse engine --port 8899`.
+// `base: "./"` makes one build work everywhere: served by `flowlabs app` / `flowlabs engine` at /,
+// and hosted under a sub-path such as https://<user>.github.io/FlowLabs/.
+// In dev, /api goes to a running `flowlabs engine --port 8899`.
 export default defineConfig({
   base: "./",
   plugins: [react()],

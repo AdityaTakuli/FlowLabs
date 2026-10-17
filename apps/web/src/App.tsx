@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppContext, type AppState, type Toast } from "./context";
-import { BrowserEngine, chooseEngine, EngineError, type Engine } from "./engine/engine";
+import { androidBridge, BrowserEngine, chooseEngine, EngineError, type Engine } from "./engine/engine";
 import { EngineDialog } from "./components/EngineDialog";
+import { LogoMark } from "./components/TopBar";
 import { Icon } from "./components/Icon";
-import { Bar, Spinner } from "./components/ui";
+import { Bar } from "./components/ui";
 import { Home } from "./pages/Home";
 import { ProjectPage, type Tab } from "./pages/ProjectPage";
 import type { Catalogue, EngineEvent, EngineInfo } from "./types";
@@ -145,7 +146,7 @@ export function App() {
         <div className="shell">
           <div className="topbar">
             <span className="brand">
-              <Icon name="logo" size={18} className="logo" /> Synapse
+              <LogoMark /> <span className="brand-name">FlowLabs</span>
             </span>
           </div>
           <div />
@@ -168,14 +169,20 @@ export function App() {
               </>
             ) : (
               <>
-                <Spinner big />
+                <LogoMark size={44} />
                 <h2>{boot?.message}</h2>
                 {boot?.progress !== undefined && (
                   <div style={{ width: "100%" }}>
                     <Bar value={boot.progress} />
                   </div>
                 )}
-                {engine?.kind === "browser" && <p className="dim small">Synapse runs Python inside this tab. The first visit downloads about 40 MB; later visits load from the cache. Your data stays on this device.</p>}
+                {engine?.kind === "browser" && (
+                  <p className="dim small">
+                    {androidBridge()
+                      ? "FlowLabs runs Python on this phone. Everything it needs is inside the app, and your data stays on the device."
+                      : "FlowLabs runs Python inside this tab. The first visit downloads about 40 MB; later visits load from the cache. Your data stays on this device."}
+                  </p>
+                )}
               </>
             )}
           </div>

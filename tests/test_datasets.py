@@ -6,8 +6,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from synapse_studio.core import datasets
-from synapse_studio.core.util import UserError
+from flowlabs.core import datasets
+from flowlabs.core.util import UserError
 
 
 def test_samples_import_once_and_profile(ws):

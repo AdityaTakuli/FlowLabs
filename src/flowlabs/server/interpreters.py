@@ -1,10 +1,10 @@
 """Which Python runs the kernel.
 
-Synapse's own process (a packaged app, a pipx install or a checkout) is rarely the environment with
+FlowLabs's own process (a packaged app, a pipx install or a checkout) is rarely the environment with
 your GPU build of PyTorch. The kernel can therefore start from any interpreter: the one running
-Synapse ("built-in"), a project virtualenv, a conda environment, the system Python, or a path you
+FlowLabs ("built-in"), a project virtualenv, a conda environment, the system Python, or a path you
 type. Each candidate is probed once (cached by path and modification time) for its version and the
-packages Synapse can use.
+packages FlowLabs can use.
 """
 
 from __future__ import annotations
@@ -83,9 +83,9 @@ def probe(path: str) -> dict[str, Any] | None:
 
 
 def builtin() -> Interpreter:
-    from synapse_studio.core import env
+    from flowlabs.core import env
 
-    label = "Built-in (bundled with Synapse)" if getattr(sys, "frozen", False) else "This Python (running Synapse)"
+    label = "Built-in (bundled with FlowLabs)" if getattr(sys, "frozen", False) else "This Python (running FlowLabs)"
     return Interpreter(None, "builtin", label, sys.version.split()[0], dict(env.packages()))
 
 

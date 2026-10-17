@@ -5,11 +5,11 @@ import pandas as pd
 import pytest
 from helpers import fast, needs_torch
 
-import synapse_runtime as rt
-from synapse_studio.core import datasets, env, training
-from synapse_studio.core import project as projects
-from synapse_studio.core.training import Job
-from synapse_studio.core.util import UserError
+import flowlabs_runtime as rt
+from flowlabs.core import datasets, env, training
+from flowlabs.core import project as projects
+from flowlabs.core.training import Job
+from flowlabs.core.util import UserError
 
 
 def test_new_project_adds_safe_fixes(ws, churn):
@@ -46,6 +46,8 @@ def test_train_classification_end_to_end(ws, churn):
     assert model.predict_proba(raw).shape == (4, 2)
     assert model.predict({"tenure_months": 1, "contract": "month_to_month"}).shape == (1,)
     assert training.list_runs(ws, project["id"])[0]["id"] == result["id"]
+    card = next(p for p in projects.list_projects(ws) if p["id"] == project["id"])
+    assert card["best"]["label"] == forest["label"] or card["best"]["value"] is not None
 
 
 def test_regression_with_tuning_and_time_split(ws):
@@ -141,7 +143,7 @@ def test_cancel_between_models(ws, churn):
             job.cancelled = True
 
     job._emit = emit
-    from synapse_studio.core.util import Cancelled
+    from flowlabs.core.util import Cancelled
 
     with pytest.raises(Cancelled):
         training.run(ws, project, job)

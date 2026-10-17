@@ -180,7 +180,7 @@ export function EngineDialog({ onClose, onSwitch }: { onClose: () => void; onSwi
   const connect = async () => {
     const parsed = parseEngineLink(link, token);
     if (!parsed) {
-      setError("Paste the link `synapse engine` printed, or its URL.");
+      setError("Paste the link `flowlabs engine` printed, or its URL.");
       return;
     }
     setConnecting(true);
@@ -225,13 +225,13 @@ export function EngineDialog({ onClose, onSwitch }: { onClose: () => void; onSwi
           <div className="row">
             <Icon name="laptop" /> <b>This computer</b>
           </div>
-          <span className="dim small">{servedLocally ? "The desktop app's engine." : "Available in the desktop app, or by opening the link `synapse engine` prints."}</span>
+          <span className="dim small">{servedLocally ? "The desktop app's engine." : "Available in the desktop app, or by opening the link `flowlabs engine` prints."}</span>
         </button>
         <button className={`engine-option ${engine.kind === "remote" ? "active" : ""}`} onClick={() => document.getElementById("engine-link")?.focus()}>
           <div className="row">
             <Icon name="link" /> <b>Connect to an engine</b>
           </div>
-          <span className="dim small">Use the CPU cores, RAM and GPU (CUDA or Apple) of a computer running <code>synapse engine</code>.</span>
+          <span className="dim small">Use the CPU cores, RAM and GPU (CUDA or Apple) of a computer running <code>flowlabs engine</code>.</span>
         </button>
       </div>
 
@@ -261,10 +261,10 @@ export function EngineDialog({ onClose, onSwitch }: { onClose: () => void; onSwi
             <h3 className="section-title">Connect to an engine</h3>
             <ol className="small dim" style={{ margin: "0 0 10px", paddingLeft: 18 }}>
               <li>
-                On the computer to use: <code>pip install "synapse-studio[deep]"</code>
+                On the computer to use: <code>pip install "flowlabs[deep]"</code>
               </li>
               <li>
-                Run <code>synapse engine</code>. It prints a link: open it, or paste it here.
+                Run <code>flowlabs engine</code>. It prints a link: open it, or paste it here.
               </li>
             </ol>
             <div className="field">

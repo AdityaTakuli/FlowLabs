@@ -1,5 +1,5 @@
-import { Background, BackgroundVariant, Controls, Handle, Position, ReactFlow, type Edge, type Node, type NodeProps } from "@xyflow/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Background, BackgroundVariant, Controls, Handle, Position, ReactFlow, type Edge, type Node, type NodeProps, type ReactFlowInstance } from "@xyflow/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../context";
 import { Icon, type IconName } from "../components/Icon";
 import { NetworkDiagram, ParamForm, type ColumnInfo, type Layer } from "../components/ParamForm";
@@ -25,15 +25,19 @@ const STAGE_ICON: Record<string, IconName> = { clean: "broom", rows: "rows", tra
 type FlowData = PipeNode & { selected: boolean; onAdd: (stage: NonNullable<PipeNode["addStage"]>) => void } & Record<string, unknown>;
 
 function PipelineNode({ data }: NodeProps<Node<FlowData>>) {
+  const colour = STAGE_COLOURS[data.stage];
   if (data.kind === "add") {
     return (
-      <button className="node-add" onClick={(e) => { e.stopPropagation(); data.onAdd(data.addStage!); }}>
-        <Icon name="plus" size={12} /> {data.title}
+      <button className={`node-add ${data.narrow ? "narrow" : ""}`} onClick={(e) => { e.stopPropagation(); data.onAdd(data.addStage!); }}>
+        <Icon name="plus" size={13} /> {data.title}
       </button>
     );
   }
+  if (data.band) {
+    return <div className="stage-band" style={{ width: Number(data.bandWidth), height: Number(data.bandHeight) }} />;
+  }
   if (data.id.startsWith("label-")) {
-    return <div className="stage-label" style={{ color: STAGE_COLOURS[data.stage] }}>{data.title}</div>;
+    return <div className="stage-label" style={{ color: colour }}><i />{data.title}</div>;
   }
   const icon = data.kind === "step" ? STAGE_ICON[data.stage] ?? "dot" : KIND_ICON[data.kind] ?? "dot";
   const classes = ["node", data.selected ? "selected" : "", data.disabled ? "disabled" : "", data.level === "error" ? "has-error" : data.level === "warning" ? "has-warning" : ""];
@@ -41,12 +45,13 @@ function PipelineNode({ data }: NodeProps<Node<FlowData>>) {
     <div className={classes.join(" ")}>
       <Handle type="target" position={Position.Left} id="left" />
       <Handle type="target" position={Position.Top} id="top" />
-      <span className="stage-bar" style={{ background: STAGE_COLOURS[data.stage] }} />
       <div className="node-title">
-        <Icon name={data.kind === "model" && data.title.toLowerCase().includes("neural") ? "brain" : icon} size={13} />
-        <span className="ellipsis">{data.title}</span>
-        {data.level === "error" && <Icon name="error" size={12} className="error-text" />}
-        {data.level === "warning" && <Icon name="warning" size={12} className="warn-text" />}
+        <span className="node-icon" style={{ color: colour, background: `color-mix(in srgb, ${colour} 14%, transparent)` }}>
+          <Icon name={data.kind === "model" && data.title.toLowerCase().includes("neural") ? "brain" : icon} size={14} />
+        </span>
+        <span className="ellipsis" style={{ flex: 1 }}>{data.title}</span>
+        {data.level === "error" && <Icon name="error" size={14} className="error-text" />}
+        {data.level === "warning" && <Icon name="warning" size={14} className="warn-text" />}
       </div>
       <div className="node-sub">{data.subtitle}</div>
       {(data.metric || data.status) && (
@@ -164,7 +169,7 @@ function Inspector({ api, selected, setSelected, preview, training }: { api: Pro
     return (
       <>
         <div className="inspector-head">
-          <span className="tiny" style={{ color: STAGE_COLOURS[stage] }}>{STAGE_TITLES[stage].toUpperCase()} · STEP {index + 1}</span>
+          <span className="stage-kicker" style={{ color: STAGE_COLOURS[stage] }}>{STAGE_TITLES[stage].toUpperCase()} · STEP {index + 1}</span>
           <h2>{op?.label ?? step.op}</h2>
           <p className="dim small">{op?.description}</p>
           {step.note && <p className="small accent-text">Added because: {step.note}</p>}
@@ -202,7 +207,7 @@ function Inspector({ api, selected, setSelected, preview, training }: { api: Pro
     return (
       <>
         <div className="inspector-head">
-          <span className="tiny" style={{ color: STAGE_COLOURS.models }}>MODEL · {algo?.family?.toUpperCase()}</span>
+          <span className="stage-kicker" style={{ color: STAGE_COLOURS.models }}>MODEL · {algo?.family?.toUpperCase()}</span>
           <CommitInput value={model.label} onCommit={(label) => setModel({ label: label || algo?.label || model.label })} style={{ fontSize: 16, fontWeight: 600 }} />
           <p className="dim small">{algo?.description}</p>
           <div className="row">
@@ -255,7 +260,7 @@ function Inspector({ api, selected, setSelected, preview, training }: { api: Pro
     return (
       <>
         <div className="inspector-head">
-          <span className="tiny" style={{ color: STAGE_COLOURS.split }}>SPLIT</span>
+          <span className="stage-kicker" style={{ color: STAGE_COLOURS.split }}>SPLIT</span>
           <h2>Train / test split</h2>
           <p className="dim small">Models learn from training rows and are scored on test rows they never saw, like an exam with new questions.</p>
         </div>
@@ -302,7 +307,7 @@ function Inspector({ api, selected, setSelected, preview, training }: { api: Pro
     return (
       <>
         <div className="inspector-head">
-          <span className="tiny" style={{ color: STAGE_COLOURS.transform }}>TRANSFORM · FINAL STEP</span>
+          <span className="stage-kicker" style={{ color: STAGE_COLOURS.transform }}>TRANSFORM · FINAL STEP</span>
           <h2>Auto-prep</h2>
           <p className="dim small">Makes the table model-ready after your transforms: numbers only, no gaps. Categories become one column per value (or frequencies when there are many), yes/no becomes 1/0, dates become year, month and weekday, and IDs are dropped. Models that need scaled inputs (linear, SVM, k-NN, neural networks) are also standardized when you have not added a Scale step.</p>
           <Switch on={project.auto_prep} onChange={(on) => update((p) => ({ ...p, auto_prep: on }))} label={project.auto_prep ? "On (recommended)" : "Off"} />
@@ -324,7 +329,7 @@ function Inspector({ api, selected, setSelected, preview, training }: { api: Pro
     return (
       <>
         <div className="inspector-head">
-          <span className="tiny" style={{ color: STAGE_COLOURS.prep }}>IMAGE PREP</span>
+          <span className="stage-kicker" style={{ color: STAGE_COLOURS.prep }}>IMAGE PREP</span>
           <h2>Resize & augment</h2>
           <p className="dim small">Every image is resized to a square. Augmentations show the network slightly changed copies while training, so it learns what matters rather than memorising pictures. Test images are never augmented.</p>
         </div>
@@ -350,7 +355,7 @@ function Inspector({ api, selected, setSelected, preview, training }: { api: Pro
   return (
     <>
       <div className="inspector-head">
-        <span className="tiny" style={{ color: STAGE_COLOURS.data }}>DATA</span>
+        <span className="stage-kicker" style={{ color: STAGE_COLOURS.data }}>DATA</span>
         <h2>{profile?.dataset.name ?? "Dataset"}</h2>
         <p className="dim small">{profile ? `${profile.rows.toLocaleString()} ${project.kind === "image" ? "images" : "rows"}` : ""}</p>
       </div>
@@ -436,7 +441,27 @@ export function PipelineTab({ api, training }: { api: ProjectApi; training: Trai
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(true);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const flow = useRef<ReactFlowInstance<Node<FlowData>, Edge> | null>(null);
+
+  const select = useCallback((id: string) => {
+    setSelected(id);
+    setSheetOpen(true);
+    if (id !== "dataset" && id !== "results") setDrawerOpen(true);
+  }, []);
+
+  /** Fit the pipeline, but never below a readable zoom: wide pipelines pan instead. */
+  const fit = useCallback(async () => {
+    const instance = flow.current;
+    if (!instance) return;
+    await instance.fitView({ padding: 0.08, maxZoom: 1 });
+    const { x, y, zoom } = instance.getViewport();
+    const floor = window.innerWidth < 760 ? 0.62 : 0.8;
+    const top = 60; // room for the stage chips
+    if (zoom < floor) instance.setViewport({ x: 28, y: top, zoom: floor });
+    else if (y < top) instance.setViewport({ x, y: top, zoom });
+  }, []);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const results = useMemo(() => new Map((run?.models ?? []).map((m) => [m.id, m])), [run]);
@@ -446,17 +471,29 @@ export function PipelineTab({ api, training }: { api: ProjectApi; training: Trai
 
   const nodes: Node<FlowData>[] = useMemo(() => {
     const onAdd = (stage: NonNullable<PipeNode["addStage"]>) => setAdding(stage);
+    const base = { subtitle: "", y: 0, selected: false, onAdd };
+    const bands: Node<FlowData>[] = graph.stages.map((s) => ({
+      id: `band-${s.id}`,
+      type: "pipe",
+      position: { x: s.x - 14, y: 30 },
+      draggable: false,
+      selectable: false,
+      zIndex: -1,
+      data: { ...base, id: `band-${s.id}`, kind: "results", stage: s.id, title: "", x: s.x, band: true, bandWidth: s.width + 28, bandHeight: s.height + 6 },
+    }));
     const labels: Node<FlowData>[] = graph.stages.map((s) => ({
       id: `label-${s.id}`,
       type: "pipe",
       position: { x: s.x, y: 0 },
       draggable: false,
       selectable: false,
-      data: { id: `label-${s.id}`, kind: "results", stage: s.id, title: STAGE_TITLES[s.id], subtitle: "", x: s.x, y: 0, selected: false, onAdd },
+      data: { ...base, id: `label-${s.id}`, kind: "results", stage: s.id, title: STAGE_TITLES[s.id], x: s.x },
     }));
+    const empty = new Set(graph.stages.filter((s) => s.empty).map((s) => s.id));
     return [
+      ...bands,
       ...labels,
-      ...graph.nodes.map((n) => ({ id: n.id, type: "pipe", position: { x: n.x, y: n.y }, draggable: false, data: { ...n, selected: n.id === selected, onAdd } })),
+      ...graph.nodes.map((n) => ({ id: n.id, type: "pipe", position: { x: n.x, y: n.y }, draggable: false, data: { ...n, selected: n.id === selected, onAdd, narrow: empty.has(n.stage) } })),
     ];
   }, [graph, selected]);
   const edges: Edge[] = useMemo(
@@ -469,7 +506,7 @@ export function PipelineTab({ api, training }: { api: ProjectApi; training: Trai
         targetHandle: e.targetHandle,
         type: "smoothstep",
         animated: training?.running && (e.target === "results" || graph.nodes.find((n) => n.id === e.target)?.kind === "model"),
-        style: { stroke: e.dashed ? "#333" : "#555", strokeWidth: 1.4, strokeDasharray: e.dashed ? "4 4" : undefined },
+        style: { stroke: e.dashed ? "#2e333b" : "#4b525d", strokeWidth: 1.8, strokeDasharray: e.dashed ? "5 5" : undefined },
       })),
     [graph, training?.running],
   );
@@ -505,7 +542,7 @@ export function PipelineTab({ api, training }: { api: ProjectApi; training: Trai
         next.splice(at >= 0 ? at + 1 : list.length, 0, step);
         return { ...p, [stage]: next };
       });
-      setSelected(step.id);
+      select(step.id);
     } catch (error) {
       fail(error);
     }
@@ -516,16 +553,31 @@ export function PipelineTab({ api, training }: { api: ProjectApi; training: Trai
     try {
       const entry = await engine.call<ModelEntry>("projects.new_model", { algo: algo.id, image: project.kind === "image" });
       update((p) => ({ ...p, models: [...p.models, entry] }));
-      setSelected(entry.id);
+      select(entry.id);
     } catch (error) {
       fail(error);
     }
   };
 
   const errors = issues.filter((i) => i.level === "error" && !i.step);
+  const jump = (stageX: number, width: number) => {
+    const instance = flow.current;
+    if (!instance) return;
+    const { zoom } = instance.getViewport();
+    const pane = document.querySelector(".canvas")?.getBoundingClientRect();
+    instance.setViewport({ x: (pane?.width ?? 800) / 2 - (stageX + width / 2) * zoom, y: 60, zoom }, { duration: 350 });
+  };
   return (
     <div className="pipeline">
       <div className="canvas">
+        <div className="stage-chips" role="toolbar" aria-label="Jump to a stage">
+          {graph.stages.map((stage) => (
+            <button key={stage.id} className="small" onClick={() => jump(stage.x, stage.width)}>
+              <i style={{ background: STAGE_COLOURS[stage.id] }} />
+              {STAGE_TITLES[stage.id]}
+            </button>
+          ))}
+        </div>
         {errors.length > 0 && (
           <div className="problems">
             {errors.slice(0, 3).map((issue, i) => <Notice key={i} level="error">{issue.message}</Notice>)}
@@ -535,9 +587,11 @@ export function PipelineTab({ api, training }: { api: ProjectApi; training: Trai
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
-          onNodeClick={(_, node) => node.data.kind !== "add" && !node.id.startsWith("label-") && setSelected(node.id)}
-          fitView
-          fitViewOptions={{ padding: 0.06, maxZoom: 1 }}
+          onNodeClick={(_, node) => node.data.kind !== "add" && !node.data.band && !node.id.startsWith("label-") && select(node.id)}
+          onInit={(instance) => {
+            flow.current = instance;
+            requestAnimationFrame(() => void fit());
+          }}
           minZoom={0.3}
           maxZoom={1.6}
           nodesConnectable={false}
@@ -545,11 +599,17 @@ export function PipelineTab({ api, training }: { api: ProjectApi; training: Trai
         >
           <Background id="minor" variant={BackgroundVariant.Lines} gap={20} lineWidth={0.5} color="var(--paper-minor)" />
           <Background id="major" variant={BackgroundVariant.Lines} gap={100} lineWidth={1} color="var(--paper-major)" />
-          <Controls showInteractive={false} />
+          <Controls showInteractive={false} onFitView={() => void fit()} />
         </ReactFlow>
       </div>
-      <aside className="inspector">
-        <Inspector api={api} selected={selected} setSelected={setSelected} preview={preview} training={training} />
+      <aside className={`inspector ${sheetOpen ? "open" : ""}`}>
+        <div className="sheet-handle">
+          <span />
+          <button className="ghost small icon-only" style={{ position: "absolute", right: 8 }} onClick={() => setSheetOpen(false)} aria-label="Close">
+            <Icon name="close" />
+          </button>
+        </div>
+        <Inspector api={api} selected={selected} setSelected={select} preview={preview} training={training} />
       </aside>
       {project.kind === "tabular" && <PreviewDrawer preview={preview} loading={loading} error={previewError} open={drawerOpen} setOpen={setDrawerOpen} />}
       {adding && adding !== "models" && <StepPicker stage={adding} onPick={(op) => void addStep(op)} onClose={() => setAdding(null)} />}

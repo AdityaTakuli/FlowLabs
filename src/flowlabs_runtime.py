@@ -1,7 +1,7 @@
-"""Synapse runtime: everything a model exported from Synapse needs to make predictions.
+"""FlowLabs runtime: everything a model exported from FlowLabs needs to make predictions.
 
 This one file depends only on numpy, pandas, scipy and scikit-learn. Every export copies it next to
-``model.joblib``, so this works on any machine without installing Synapse::
+``model.joblib``, so this works on any machine without installing FlowLabs::
 
     import joblib, pandas as pd
     model = joblib.load("model.joblib")
@@ -19,7 +19,7 @@ What lives here:
 * ``NeuralNetClassifier`` / ``NeuralNetRegressor``: tabular networks built from a layer list. They
   train with PyTorch when it is installed (CPU, CUDA or Apple MPS) and with NumPy otherwise, and
   always predict with NumPy, so an exported network needs no PyTorch.
-* ``SynapseModel``: the exported object; takes raw rows, returns labels, probabilities or values.
+* ``FlowLabsModel``: the exported object; takes raw rows, returns labels, probabilities or values.
 """
 
 from __future__ import annotations
@@ -1181,7 +1181,7 @@ class _NeuralNet(BaseEstimator):
 
 
 class NeuralNetClassifier(ClassifierMixin, _NeuralNet):
-    """Tabular classifier network. Labels must be 0..k-1 (``SynapseModel`` maps names)."""
+    """Tabular classifier network. Labels must be 0..k-1 (``FlowLabsModel`` maps names)."""
 
     _task = "classification"
 
@@ -1262,8 +1262,8 @@ def _native(value: Any) -> Any:
     return value
 
 
-class SynapseModel:
-    """A trained Synapse pipeline: raw rows in, predictions out.
+class FlowLabsModel:
+    """A trained FlowLabs pipeline: raw rows in, predictions out.
 
     ``predict`` returns the original labels (e.g. ``"yes"``/``"no"``) or numbers; ``predict_proba``
     returns a DataFrame with one column per class.
@@ -1312,4 +1312,4 @@ class SynapseModel:
 
     def __repr__(self) -> str:
         name = self.meta.get("model_label", type(self.pipeline).__name__)
-        return f"SynapseModel({name}, task={self.task}, target={self.target!r}, inputs={len(self.input_columns)})"
+        return f"FlowLabsModel({name}, task={self.task}, target={self.target!r}, inputs={len(self.input_columns)})"

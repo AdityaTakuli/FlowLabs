@@ -11,9 +11,9 @@ from pathlib import Path
 import pytest
 from helpers import fast, needs_torch
 
-from synapse_studio.core import datasets, export, predict, training
-from synapse_studio.core import project as projects
-from synapse_studio.core.training import Job
+from flowlabs.core import datasets, export, predict, training
+from flowlabs.core import project as projects
+from flowlabs.core.training import Job
 
 
 def _run(args: list[str], cwd: Path) -> str:
@@ -24,7 +24,7 @@ def _run(args: list[str], cwd: Path) -> str:
 
 
 @pytest.mark.parametrize("algo", ["random_forest", "neural_network"])
-def test_tabular_export_runs_without_synapse(ws, churn, algo, tmp_path):
+def test_tabular_export_runs_without_flowlabs(ws, churn, algo, tmp_path):
     project = fast(projects.new_project(ws, churn["id"]), algo)
     project["transform"].append(projects._step("transform", "encode", {"method": "onehot"}))
     project["rows"].append(projects._step("rows", "balance_classes", {"method": "oversample"}))
@@ -36,7 +36,7 @@ def test_tabular_export_runs_without_synapse(ws, churn, algo, tmp_path):
     record = result["models"][0]
     built = export.build(ws, project["id"], result["id"], record["id"], include_data=True)
     names = {f["name"] for f in built["files"]}
-    assert {"model.joblib", "synapse_runtime.py", "predict.py", "serve.py", "train.py", "schema.json", "example.csv",
+    assert {"model.joblib", "flowlabs_runtime.py", "predict.py", "serve.py", "train.py", "schema.json", "example.csv",
             "requirements.txt", "MODEL_CARD.md", "data.csv"} <= names  # fmt: skip
     target = tmp_path / "unzipped"
     with zipfile.ZipFile(ws.inside(built["zip"]["path"])) as bundle:
@@ -126,7 +126,7 @@ def test_image_cnn_train_export_predict(ws, tmp_path):
 @needs_torch
 def test_pretrained_network_builds_offline():
     pytest.importorskip("torchvision")
-    from synapse_studio.core import images
+    from flowlabs.core import images
 
     net = images.build_network({"algo": "pretrained", "params": {"arch": "mobilenet_v3_small", "pretrained": False,
                                                                  "freeze": True}}, 3, 64, 4)  # fmt: skip
@@ -142,7 +142,7 @@ def test_download_resumes_after_a_dropped_connection(tmp_path):
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-    from synapse_studio.core.images import download
+    from flowlabs.core.images import download
 
     payload = bytes(range(256)) * 4000  # ~1 MB
     name = f"net-{hashlib.sha256(payload).hexdigest()[:8]}.pth"

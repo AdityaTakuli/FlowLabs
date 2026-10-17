@@ -1,4 +1,4 @@
-// Shapes of the JSON the engine sends and receives (see src/synapse_studio/core in the Python package).
+// Shapes of the JSON the engine sends and receives (see src/flowlabs/core in the Python package).
 
 export type Task = "classification" | "regression";
 export type Kind = "tabular" | "image";
@@ -192,6 +192,7 @@ export interface ProjectSummary {
   updated: string;
   last_run?: string | null;
   models: number;
+  best?: { label: string; metric: string; metric_label: string; value: number | null; finished: string } | null;
 }
 
 export interface Issue {
@@ -321,7 +322,7 @@ export interface ExportResult {
 }
 
 export interface EngineInfo {
-  synapse: string;
+  flowlabs: string;
   python: string;
   executable: string;
   platform: string;

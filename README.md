@@ -1,4 +1,4 @@
-# Synapse
+# FlowLabs
 
 **Machine learning without writing code.** Bring a table or a folder of images, clean and prepare
 it, train and compare models (from linear regression to neural networks you design layer by layer),
@@ -11,30 +11,33 @@ Data → Clean → Split → Training rows → Transform → Models → Evaluate
 Everything happens on a visual pipeline. Every step shows its effect on the data before you train,
 and every technique explains what it does.
 
-## Three ways to run it
+## Four ways to run it
 
 | | How | Good for |
 | --- | --- | --- |
 | **In the browser** | Open the hosted app (GitHub Pages). Python runs inside the tab via [Pyodide](https://pyodide.org). | Trying it, teaching, small and medium tables. Nothing to install, and data never leaves your device. |
 | **Desktop app** | Download for Linux, macOS or Windows from Releases. | Larger data and every feature, offline. |
-| **pip** | `pip install "synapse-studio[deep]"`, then `synapse app` | People who already have Python, a GPU, or a server. |
+| **Android app** | Install `FlowLabs-<version>-android.apk` from Releases. Python and its packages are inside the app. | Training on your phone with no internet, or using your PC's GPU from your phone over Wi-Fi. |
+| **pip** | `pip install "flowlabs[deep]"`, then `flowlabs app` | People who already have Python, a GPU, or a server. |
 
 ### The engine: use your own computer's power from the browser
 
-Like a Jupyter kernel, Synapse trains in an **engine**: a Python process on whichever computer you
+Like a Jupyter kernel, FlowLabs trains in an **engine**: a Python process on whichever computer you
 choose, with that machine's packages, CPU cores and GPU (CUDA or Apple Metal).
 
 ```bash
-pip install "synapse-studio[deep]"   # scikit-learn + PyTorch + torchvision
-synapse engine                       # prints a link that opens the web app connected to this machine
+pip install "flowlabs[deep]"   # scikit-learn + PyTorch + torchvision
+flowlabs engine                       # prints a link that opens the web app connected to this machine
 ```
 
 - **Engine menu → Python environments.** Run the kernel in any virtualenv or conda environment on
-  the machine. Synapse probes each one for pandas, scikit-learn, PyTorch, XGBoost and LightGBM, and
+  the machine. FlowLabs probes each one for pandas, scikit-learn, PyTorch, XGBoost and LightGBM, and
   can install what is missing.
-- **Another machine** (a GPU server): `synapse engine --host 0.0.0.0` and open the address it
+- **Another machine** (a GPU server): `flowlabs engine --host 0.0.0.0` and open the address it
   prints. Every request needs the engine's token.
-- Each engine keeps its own datasets, projects and models (in `~/Synapse` by default; the browser
+- **From your phone:** run `flowlabs engine --host 0.0.0.0` on the PC, then in the Android app open
+  Engine → Connect and enter the address it prints (e.g. `http://192.168.1.20:8899`) and the token.
+- Each engine keeps its own datasets, projects and models (in `~/FlowLabs` by default; the browser
   engine uses the browser's storage).
 
 ## What you can do
@@ -85,11 +88,11 @@ progress.
 **Predict.** A form generated from the model's inputs that updates as you type; score a whole file;
 classify uploaded images.
 
-**Export.** A folder that runs without Synapse:
+**Export.** A folder that runs without FlowLabs:
 
 | File | What |
 | --- | --- |
-| `model.joblib` + `synapse_runtime.py` | the whole pipeline, raw rows in, predictions out |
+| `model.joblib` + `flowlabs_runtime.py` | the whole pipeline, raw rows in, predictions out |
 | `predict.py` | `python predict.py new.csv` → `predictions.csv` |
 | `serve.py` | a standard-library HTTP prediction server |
 | `train.py` | the same training as an editable script |
@@ -99,10 +102,11 @@ classify uploaded images.
 ## How it is built
 
 ```
+apps/android/        the Android shell: a WebView serving the bundled app and Python offline
 apps/web/            React + TypeScript app (Vite, React Flow, hand-made SVG charts)
   src/engine/        one Engine interface: BrowserEngine (Pyodide worker) and RemoteEngine (HTTP)
-src/synapse_runtime.py   what exported models need: transformers, auto-prep, NumPy networks
-src/synapse_studio/
+src/flowlabs_runtime.py   what exported models need: transformers, auto-prep, NumPy networks
+src/flowlabs/
   core/              the engine (pure Python: pandas, scikit-learn, PyTorch when present)
     catalogue.py     every step and model, with the parameter forms the UI draws
     datasets.py      import, samples, profiling, suggested fixes
@@ -116,7 +120,7 @@ src/synapse_studio/
   server/            FastAPI server, kernel manager, Python discovery, desktop window
 ```
 
-The same `core` code runs in the desktop kernel, in `synapse engine`, and in the browser.
+The same `core` code runs in the desktop kernel, in `flowlabs engine`, and in the browser.
 `scripts/pack-core.mjs` zips it for Pyodide at web build time.
 
 ## Develop
@@ -126,11 +130,12 @@ pip install -e ".[dev,deep]"
 make test lint typecheck              # pytest, ruff, mypy
 cd apps/web && npm install && npm test && npm run build
 
-synapse engine --port 8899            # terminal 1: a local engine
+flowlabs engine --port 8899            # terminal 1: a local engine
 cd apps/web && npm run dev            # terminal 2: http://localhost:5173 (browser engine), or
                                       #   open the link the engine prints to use it
 python scripts/bundle_web.py          # put the built app inside the Python package
 python scripts/build_app.py           # desktop app for this OS (dist/)
+python scripts/build_apk.py           # Android APK (needs a JDK and the Android SDK; no Gradle)
 ```
 
 **Add a technique:** add an entry to `core/catalogue.py` (parameters plus a builder that returns a

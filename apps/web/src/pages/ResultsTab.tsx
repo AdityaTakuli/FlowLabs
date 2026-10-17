@@ -284,11 +284,28 @@ export function ResultsTab({ api, training, onTrain, trainable }: { api: Project
             <span className="dim small">{duration(run.seconds)} · {run.data.train_rows.toLocaleString()} training rows · {run.data.test_rows.toLocaleString()} test rows{run.data.features_out ? ` · ${run.data.features_in} inputs → ${run.data.features_out} features` : ""}</span>
           </div>
           {best && (
-            <div className="notice ok">
-              <Icon name="trophy" className="ok-text icon" />
-              <div>
-                <b>{best.label}</b> is the best model: {run.metric_label} <b>{metricValue(run.metric, best.metrics?.[run.metric])}</b> on rows it never saw.{" "}
-                <span className="dim">{EXPLAIN[run.metric]}</span>
+            <div className="winner">
+              <span className="trophy">
+                <Icon name="trophy" size={22} />
+              </span>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <div className="dim small">Best model</div>
+                <h2 style={{ fontSize: 20 }}>{best.label}</h2>
+                <div className="dim small" style={{ marginTop: 4 }}>
+                  {EXPLAIN[run.metric]} Measured on {run.data.test_rows.toLocaleString()} rows it never saw.
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div className="big gradient-text">{metricValue(run.metric, best.metrics?.[run.metric])}</div>
+                <div className="dim small">{run.metric_label}</div>
+              </div>
+              <div className="row">
+                <button onClick={() => api.setTab("predict")}>
+                  <Icon name="target" /> Try it
+                </button>
+                <button className="primary" onClick={() => api.setTab("export")}>
+                  <Icon name="package" /> Export
+                </button>
               </div>
             </div>
           )}

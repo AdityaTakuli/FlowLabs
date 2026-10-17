@@ -9,7 +9,7 @@ Order of work (the same order the canvas shows):
    model. Everything learned is learned from training rows, so test scores are honest.
 5. Optional tuning (random search with 3-fold cross-validation) and cross-validation.
 6. Test-set scores, charts and feature importance; the fitted pipeline is saved as a
-   ``SynapseModel`` that exports and predicts on raw rows.
+   ``FlowLabsModel`` that exports and predicts on raw rows.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-import synapse_runtime as rt
+import flowlabs_runtime as rt
 
 from . import catalogue as cat
 from . import datasets, env, evaluation
@@ -383,14 +383,14 @@ def run(ws: Workspace, project: dict[str, Any], job: Job, packages: dict[str, An
                 scorer = _Scorer(task, n_classes, metric)
                 importance["permutation"] = evaluation.permutation_importance(pipeline, X_test[used], y_test, scorer)
             record["importance"] = importance
-            synapse_model = rt.SynapseModel(
+            flowlabs_model = rt.FlowLabsModel(
                 pipeline, task, target, input_columns, split["class_values"] or None, schema,
                 {"project_id": project["id"], "project": project["name"], "run_id": run_id, "model_id": entry["id"],
                  "model_label": label, "algo": algo.id, "params": params, "metric": metric,
                  "metrics": record["metrics"], "trained_at": now(), "packages": env.packages()},
             )  # fmt: skip
             buffer = io.BytesIO()
-            joblib.dump(synapse_model, buffer, compress=3)
+            joblib.dump(flowlabs_model, buffer, compress=3)
             artifact = run_dir / "models" / f"{entry['id']}.joblib"
             artifact.write_bytes(buffer.getvalue())
             record["artifact"] = ws.relative(artifact)

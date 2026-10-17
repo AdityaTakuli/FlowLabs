@@ -1,5 +1,5 @@
-// Pack the Python engine (synapse_runtime.py + synapse_studio without the server) into
-// public/synapse-core.zip, which the in-browser engine (Pyodide) unpacks at start-up.
+// Pack the Python engine (flowlabs_runtime.py + flowlabs without the server) into
+// public/flowlabs-core.zip, which the in-browser engine (Pyodide) unpacks at start-up.
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
@@ -7,10 +7,10 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const src = path.resolve(here, "../../../src");
-const out = path.resolve(here, "../public/synapse-core.zip");
+const out = path.resolve(here, "../public/flowlabs-core.zip");
 const SKIP = new Set(["__pycache__", "server", "web", "worker.py", "cli.py"]);
 
-const files = [["synapse_runtime.py", path.join(src, "synapse_runtime.py")]];
+const files = [["flowlabs_runtime.py", path.join(src, "flowlabs_runtime.py")]];
 function walk(dir, prefix) {
   for (const name of fs.readdirSync(dir).sort()) {
     if (SKIP.has(name)) continue;
@@ -19,7 +19,7 @@ function walk(dir, prefix) {
     else if (/\.(py|csv)$/.test(name)) files.push([`${prefix}${name}`, full]);
   }
 }
-walk(path.join(src, "synapse_studio"), "synapse_studio/");
+walk(path.join(src, "flowlabs"), "flowlabs/");
 
 const crcTable = Array.from({ length: 256 }, (_, n) => {
   let c = n;
@@ -60,4 +60,4 @@ end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(files.length, 8); end.writeU
 end.writeUInt32LE(centralSize, 12); end.writeUInt32LE(offset, 16);
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, Buffer.concat([...locals, ...central, end]));
-console.log(`packed ${files.length} engine files into public/synapse-core.zip (${(fs.statSync(out).size / 1024).toFixed(0)} KB)`);
+console.log(`packed ${files.length} engine files into public/flowlabs-core.zip (${(fs.statSync(out).size / 1024).toFixed(0)} KB)`);

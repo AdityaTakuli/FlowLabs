@@ -61,7 +61,7 @@ describe("helpers", () => {
     expect(move([1, 2, 3], 0, -1)).toEqual([1, 2, 3]);
   });
   it("parses engine links", () => {
-    expect(parseEngineLink("https://x.github.io/Synapse/#engine=http%3A%2F%2F127.0.0.1%3A8899&token=abc")).toEqual({ url: "http://127.0.0.1:8899", token: "abc" });
+    expect(parseEngineLink("https://x.github.io/FlowLabs/#engine=http%3A%2F%2F127.0.0.1%3A8899&token=abc")).toEqual({ url: "http://127.0.0.1:8899", token: "abc" });
     expect(parseEngineLink("http://127.0.0.1:8899/?token=t1")).toEqual({ url: "http://127.0.0.1:8899", token: "t1" });
     expect(parseEngineLink("http://10.0.0.5:9000", "tok")).toEqual({ url: "http://10.0.0.5:9000", token: "tok" });
     expect(parseEngineLink("not a url")).toBeNull();

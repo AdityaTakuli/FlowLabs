@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from synapse_studio.core import datasets
-from synapse_studio.core.workspace import Workspace
+from flowlabs.core import datasets
+from flowlabs.core.workspace import Workspace
 
 
 @pytest.fixture

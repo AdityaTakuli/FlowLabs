@@ -1,4 +1,4 @@
-"""``synapse app``: Synapse as a desktop application on Linux, macOS and Windows.
+"""``flowlabs app``: FlowLabs as a desktop application on Linux, macOS and Windows.
 
 The window shows the same app the browser version serves, backed by a local server on a free port
 that only this machine can reach, with a per-launch token. A native window is used when a webview
@@ -17,7 +17,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any
 
-WINDOW_TITLE = "Synapse"
+WINDOW_TITLE = "FlowLabs"
 WINDOW_SIZE = (1440, 920)
 
 
@@ -33,7 +33,7 @@ def free_port(preferred: int = 8899) -> int:
 
 
 def default_workspace() -> Path:
-    workspace = Path(os.environ.get("SYNAPSE_WORKSPACE", Path.home() / "Synapse")).expanduser()
+    workspace = Path(os.environ.get("FLOWLABS_WORKSPACE", Path.home() / "FlowLabs")).expanduser()
     workspace.mkdir(parents=True, exist_ok=True)
     return workspace
 
@@ -53,7 +53,7 @@ class Server:
         self.app = create_app(root, token, loopback_only=host in ("127.0.0.1", "localhost"), **options)
         config = uvicorn.Config(self.app, host=host, port=port, log_level="warning")
         self._server = uvicorn.Server(config)
-        self._thread = threading.Thread(target=self._server.run, name="synapse-server", daemon=True)
+        self._thread = threading.Thread(target=self._server.run, name="flowlabs-server", daemon=True)
 
     def start(self, timeout_s: float = 30.0) -> None:
         self._thread.start()
@@ -61,7 +61,7 @@ class Server:
         while not self._server.started and self._thread.is_alive() and time.monotonic() < deadline:
             time.sleep(0.05)
         if not self._server.started:
-            raise RuntimeError("the Synapse server did not start")
+            raise RuntimeError("the FlowLabs server did not start")
 
     def stop(self) -> None:
         self._server.should_exit = True
@@ -78,11 +78,11 @@ def _webview() -> Any | None:
 
 
 def launch(root: Path, *, port: int | None = None, window: bool = True, quiet: bool = False) -> int:
-    token = os.environ.get("SYNAPSE_TOKEN") or secrets.token_urlsafe(24)
+    token = os.environ.get("FLOWLABS_TOKEN") or secrets.token_urlsafe(24)
     server = Server(root, port or free_port(), token)
     server.start()
     if not quiet:
-        print(f"Synapse workspace: {root}")
+        print(f"FlowLabs workspace: {root}")
         print(f"  {server.url}")
     webview = _webview() if window else None
     try:
@@ -97,7 +97,7 @@ def launch(root: Path, *, port: int | None = None, window: bool = True, quiet: b
             print("  no native webview available: opening your browser instead")
         webbrowser.open(server.url)
         if not quiet:
-            print("  Ctrl+C closes Synapse.")
+            print("  Ctrl+C closes FlowLabs.")
         while True:
             time.sleep(0.5)
     except KeyboardInterrupt:
@@ -118,7 +118,7 @@ def check(root: Path, port: int | None = None) -> int:
             assert health.status == 200, health.status
         with urllib.request.urlopen(server.base, timeout=20) as page:
             body = page.read().decode("utf-8", errors="replace")
-        if "<title>Synapse</title>" not in body:
+        if "<title>FlowLabs</title>" not in body:
             print("the app is missing from this build", file=sys.stderr)
             return 1
         request = urllib.request.Request(
@@ -130,7 +130,7 @@ def check(root: Path, port: int | None = None) -> int:
         if "result" not in answer:
             print(f"the engine did not answer: {answer}", file=sys.stderr)
             return 1
-        print(f"Synapse serves the app and its engine (Python {answer['result']['python']}) from {server.base}")
+        print(f"FlowLabs serves the app and its engine (Python {answer['result']['python']}) from {server.base}")
         return 0
     finally:
         server.stop()

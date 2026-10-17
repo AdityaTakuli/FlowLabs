@@ -23,7 +23,7 @@ from typing import Any
 
 import pandas as pd
 
-import synapse_runtime as rt
+import flowlabs_runtime as rt
 
 from . import catalogue as cat
 from . import datasets
@@ -148,8 +148,27 @@ def list_projects(ws: Workspace) -> list[dict[str, Any]]:
         summary = {k: project.get(k) for k in ("id", "name", "kind", "dataset_id", "target", "task", "created",
                                                "updated", "last_run")}  # fmt: skip
         summary["models"] = len(project.get("models", []))
+        summary["best"] = _best_of_last_run(ws, project)
         found.append(summary)
     return sorted(found, key=lambda p: p.get("updated") or "", reverse=True)
+
+
+def _best_of_last_run(ws: Workspace, project: dict[str, Any]) -> dict[str, Any] | None:
+    """The best model of the latest run, for project cards: label, metric and value."""
+    run_id = project.get("last_run")
+    if not run_id:
+        return None
+    path = ws.runs / project["id"] / run_id / "results.json"
+    try:
+        result = ws.read_json(path)
+    except (OSError, ValueError):
+        return None
+    best = next((m for m in result.get("models", []) if m.get("id") == result.get("best_model_id")), None)
+    if best is None:
+        return None
+    metric = result.get("metric")
+    return {"label": best.get("label"), "metric": metric, "metric_label": result.get("metric_label"),
+            "value": (best.get("metrics") or {}).get(metric), "finished": result.get("finished")}  # fmt: skip
 
 
 def delete(ws: Workspace, project_id: str) -> None:

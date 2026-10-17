@@ -19,7 +19,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-import synapse_runtime as rt
+import flowlabs_runtime as rt
 
 from .util import UserError, jsonable, new_id, now, round_floats
 from .workspace import Workspace

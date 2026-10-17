@@ -1,6 +1,6 @@
 """One entry point for every engine: ``Engine.call(method, params)``.
 
-The desktop app and ``synapse engine`` run this in a worker process (a "kernel" started from the
+The desktop app and ``flowlabs engine`` run this in a worker process (a "kernel" started from the
 Python environment you choose); the browser runs the same code in Pyodide. Long jobs (training)
 report progress as events and finish with a ``done``, ``error`` or ``cancelled`` event.
 """

@@ -21,7 +21,7 @@ def in_browser() -> bool:
 
 
 def packages() -> dict[str, str | None]:
-    """Installed version of each package Synapse can use (None when missing). Imports nothing heavy."""
+    """Installed version of each package FlowLabs can use (None when missing). Imports nothing heavy."""
     found: dict[str, str | None] = {}
     for module, dist in PACKAGES.items():
         if importlib.util.find_spec(module) is None:
@@ -72,10 +72,10 @@ def gpus() -> list[dict[str, Any]]:
 
 
 def info(probe_gpu: bool = True) -> dict[str, Any]:
-    from synapse_studio import __version__
+    from flowlabs import __version__
 
     return {
-        "synapse": __version__,
+        "flowlabs": __version__,
         "python": sys.version.split()[0],
         "executable": sys.executable,
         "platform": "browser (Pyodide)" if in_browser() else platform.platform(terse=True),
