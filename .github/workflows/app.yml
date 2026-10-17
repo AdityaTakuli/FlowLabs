@@ -24,11 +24,11 @@ jobs:
           - { os: macos-15-intel, label: macos-x86_64 }
           - { os: windows-latest, label: windows-x64 }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: npm
@@ -65,7 +65,7 @@ jobs:
         run: python scripts/build_app.py --no-web
       - name: Smoke test the built app
         run: python scripts/smoke_app.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: flowlabs-${{ matrix.label }}
           path: |
@@ -77,7 +77,7 @@ jobs:
           if-no-files-found: error
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/*.tar.gz
@@ -90,11 +90,11 @@ jobs:
     name: Python package
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
       - name: Build the wheel with the web app inside
@@ -104,12 +104,12 @@ jobs:
           pip install build
           python scripts/bundle_web.py --no-build
           python -m build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: python-package
           path: dist/*
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/*
