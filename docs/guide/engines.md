@@ -46,12 +46,16 @@ Choose one, and the engine restarts in it. A Python that lacks something FlowLab
 
 ## Connect the browser to an engine
 
-On the computer to use, with Python 3.11 or newer:
+On the computer to use, with Python 3.11 or newer, install FlowLabs's Python package from the
+latest release, then start the engine:
 
 ```bash
-pip install "flowlabs[deep,sql]"     # scikit-learn, PyTorch, SQL drivers
+VERSION=0.5.1   # the latest release
+pip install "flowlabs[deep,sql] @ https://github.com/AdityaTakuli/FlowLabs/releases/download/v$VERSION/flowlabs-$VERSION-py3-none-any.whl"
 flowlabs engine                      # prints a link
 ```
+
+`[deep]` adds PyTorch for neural networks and images; `[sql]` adds the database drivers.
 
 Open the link it prints. It opens FlowLabs connected to that computer. From the hosted web app, you
 can also paste the link into the engine menu, under **Connect to an engine**.

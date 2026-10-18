@@ -52,7 +52,7 @@ main() {
     case "$system" in
         Linux)
             [ "$machine" = "x86_64" ] || [ "$machine" = "amd64" ] ||
-                fail "there is no FlowLabs app for Linux on $machine yet. Use the Python package: pip install \"flowlabs[deep,sql]\""
+                fail "there is no FlowLabs app for Linux on $machine yet. Use the browser version, or the Python package: https://github.com/$REPO#for-developers"
             if command -v apt-get >/dev/null 2>&1; then pattern="-linux-amd64.deb"; else pattern="-linux-x86_64.tar.gz"; fi
             ;;
         Darwin)

@@ -106,7 +106,7 @@ export function UpdateDialog({ initial, onClose, onChange }: { initial: UpdateIn
     macos: "FlowLabs downloads the new version, replaces itself and opens again.",
     windows: "FlowLabs downloads the new installer, which updates it and starts it again.",
     manual: "This copy of FlowLabs cannot replace itself. Download the new version from the release page.",
-    pip: "This FlowLabs is a Python package. Update it with: pip install -U flowlabs",
+    pip: "This FlowLabs runs from its Python package. Install the new release's package the way you installed this one (Guide, Engines).",
   };
   return (
     <Modal

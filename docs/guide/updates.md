@@ -27,7 +27,8 @@ its own. To check by hand, open the engine menu (the chip in the top bar) and cl
 
 - **Linux from the `.tar.gz`**, and FlowLabs run from a folder it cannot write to: the dialog opens
   the release page. Download the new version and install it as before.
-- **The Python package:** update it with `pip install -U "flowlabs[deep,sql]"`.
+- **The Python package:** install the new release's package the same way you installed it (see
+  [Engines](guide:engines#connect-the-browser-to-an-engine)).
 - **The browser version** is always the latest.
 
 Versions before 0.4.0 have no updater. Install 0.4.0 by hand once.

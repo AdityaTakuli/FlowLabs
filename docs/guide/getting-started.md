@@ -30,7 +30,7 @@ To install by hand instead:
 | macOS, Apple silicon | `FlowLabs-*-macos-arm64.dmg` | Open it and drag FlowLabs to Applications |
 | macOS, Intel | `FlowLabs-*-macos-x86_64.dmg` | Open it and drag FlowLabs to Applications |
 | Windows 10 and 11 | `FlowLabs-*-windows-x64-setup.exe` | Run the installer |
-| Python 3.11 or newer | `pip install "flowlabs[deep,sql]"` | Then run `flowlabs app` |
+| Python 3.11 or newer | `flowlabs-*.whl` | See [Engines](guide:engines#connect-the-browser-to-an-engine) for the `pip install` command |
 
 Downloads are on the [releases page](https://github.com/AdityaTakuli/FlowLabs/releases/latest).
 

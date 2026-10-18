@@ -278,7 +278,10 @@ export function EngineDialog({ onClose, onSwitch }: { onClose: () => void; onSwi
             <h3 className="section-title">Connect to an engine</h3>
             <ol className="small dim" style={{ margin: "0 0 10px", paddingLeft: 18 }}>
               <li>
-                On the computer to use: <code>pip install "flowlabs[deep]"</code>
+                On the computer to use, install FlowLabs's Python package.{" "}
+                <button className="link" onClick={() => openGuide("engines#connect-the-browser-to-an-engine")}>
+                  How
+                </button>
               </li>
               <li>
                 Run <code>flowlabs engine</code>. It prints a link: open it, or paste it here.

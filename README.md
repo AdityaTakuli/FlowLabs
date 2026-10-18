@@ -15,159 +15,90 @@ opened as Python and edited by hand. A built-in **Guide** explains every page.
 
 ## Install
 
-FlowLabs runs three ways. Pick one:
-
-| | Good for | Needs |
-| --- | --- | --- |
-| [**Desktop app**](#desktop-app) (recommended) | Everyday use: every feature, offline, large data, database connections, Ask AI, GPUs | Linux, macOS or Windows (64-bit); about 200 MB to download and 750 MB on disk |
-| [**In the browser**](https://adityatakuli.github.io/FlowLabs/) | Trying it, teaching, small and medium tables | A modern browser. Nothing to install; data never leaves your device |
-| [**Python package**](#python-package) | People who already work in Python, or a GPU server | Python 3.11 or newer |
-
-4 GB of memory is enough for most tables; large datasets and neural networks are happier with 8 GB
-or more. A GPU is optional (NVIDIA with CUDA, or Apple silicon), see [the engine](#the-engine-use-your-own-computers-power-from-the-browser).
-
-### Desktop app
-
-**Linux and macOS:** run this in a terminal:
+**Linux or macOS:** open a terminal and run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.sh | sh
 ```
 
-**Windows:** run this in PowerShell:
+**Windows:** open PowerShell and run:
 
 ```powershell
 irm https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.ps1 | iex
 ```
 
-The command finds the latest release and downloads the file for your computer. It checks the file
-against the release's SHA-256 checksum, then installs it:
+That's it. Open **FlowLabs** from your applications menu, Launchpad or Start menu.
 
-| System | What it installs |
+The command downloads the right version for your computer, checks that the download is complete and
+unchanged, and installs it. On Ubuntu and Debian it asks for your password once.
+
+**Just want to try it?** [Open FlowLabs in your browser](https://adityatakuli.github.io/FlowLabs/),
+with nothing to install. It suits small and medium tables. The desktop app adds database connections,
+Ask AI, GPUs and large data.
+
+Works on Windows 10 and 11, macOS 11 or newer, and 64-bit Linux (Ubuntu 22.04 or Debian 12 and
+newer). About 200 MB to download.
+
+### After installing
+
+- **Your projects** are kept in a `FlowLabs` folder in your home folder. Updating or reinstalling
+  keeps them.
+- **Updates are automatic.** When a new version is out, an **Update** button appears at the top of
+  the app. Click it, and FlowLabs installs the update and restarts.
+- **Help** is built in: open **Guide** at the top of the app. If FlowLabs will not start, see
+  [Troubleshooting](docs/guide/troubleshooting.md).
+
+<details>
+<summary>Install by hand (download the file yourself)</summary>
+
+Download the file for your system from the
+[latest release](https://github.com/AdityaTakuli/FlowLabs/releases/latest):
+
+| System | File | Install |
+| --- | --- | --- |
+| Ubuntu, Debian | `FlowLabs-*-linux-amd64.deb` | Double-click it, or run `sudo apt install ./FlowLabs-*-linux-amd64.deb` |
+| Other Linux | `FlowLabs-*-linux-x86_64.tar.gz` | `tar -xzf FlowLabs-*.tar.gz && sh FlowLabs/install.sh` |
+| Mac with Apple silicon (M1 and later) | `FlowLabs-*-macos-arm64.dmg` | Open it and drag FlowLabs to Applications |
+| Mac with Intel | `FlowLabs-*-macos-x86_64.dmg` | Open it and drag FlowLabs to Applications |
+| Windows | `FlowLabs-*-windows-x64-setup.exe` | Run it |
+
+The apps are not code-signed yet, so a file downloaded in a browser gets a warning the first time:
+
+- **macOS:** right-click FlowLabs in Applications, choose **Open**, then **Open** again.
+- **Windows:** when SmartScreen warns you, click **More info**, then **Run anyway**.
+
+On Linux other than Ubuntu and Debian, install your distribution's WebKitGTK 4.1 package for the app
+window (`webkit2gtk4.1` on Fedora, `webkit2gtk-4.1` on Arch). Without it, FlowLabs opens in your
+browser.
+
+</details>
+
+<details>
+<summary>Uninstall</summary>
+
+| System | How |
 | --- | --- |
-| Ubuntu, Debian | The `.deb`, with `apt`, which asks for your password. `apt` also installs GTK and WebKitGTK for the app window. |
-| Other Linux | Installs for your user only, no password needed. |
-| macOS | `FlowLabs.app` into Applications. |
-| Windows | For your user, no administrator rights needed. FlowLabs opens when it is done. |
+| Ubuntu, Debian | `sudo apt remove flowlabs` |
+| Other Linux | `rm -rf ~/.local/share/flowlabs ~/.local/bin/flowlabs-app ~/.local/share/applications/FlowLabs.desktop` |
+| macOS | Move FlowLabs from Applications to the Bin |
+| Windows | Settings → Apps → FlowLabs → Uninstall |
 
-Then open **FlowLabs** from your applications menu, Launchpad or Start menu.
+Your projects in the `FlowLabs` folder stay. Delete the folder yourself if you no longer need them.
 
-To install a particular version, or only download and check the file without installing it:
+</details>
+
+<details>
+<summary>Installer options: a particular version, or download only</summary>
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.sh | FLOWLABS_VERSION=0.5.1 sh
 curl -fsSL https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.sh | FLOWLABS_DRY_RUN=1 sh
 ```
 
-On Windows, set `$env:FLOWLABS_VERSION = "0.5.1"` or `$env:FLOWLABS_DRY_RUN = "1"` before the command.
-The scripts are short and readable: [install.sh](install.sh), [install.ps1](install.ps1).
-
-Supported systems: 64-bit Linux on Intel/AMD (Ubuntu 22.04, Debian 12 or newer), macOS 11 or newer
-(Apple silicon or Intel), and Windows 10 or 11 (64-bit).
-
-<details>
-<summary><b>Install by hand instead</b></summary>
-
-Download the file for your system from the
-[latest release](https://github.com/AdityaTakuli/FlowLabs/releases/latest), then:
-
-| System | File | Install |
-| --- | --- | --- |
-| Ubuntu, Debian | `FlowLabs-*-linux-amd64.deb` | Double-click it, or run `sudo apt install ./FlowLabs-*-linux-amd64.deb` |
-| Other Linux | `FlowLabs-*-linux-x86_64.tar.gz` | `tar -xzf FlowLabs-*.tar.gz && sh FlowLabs/install.sh`. For the app's own window, install WebKitGTK 4.1 (`webkit2gtk4.1` on Fedora, `webkit2gtk-4.1` on Arch); without it FlowLabs opens in your browser. |
-| macOS, Apple silicon | `FlowLabs-*-macos-arm64.dmg` | Open it and drag FlowLabs to Applications |
-| macOS, Intel | `FlowLabs-*-macos-x86_64.dmg` | Open it and drag FlowLabs to Applications |
-| Windows | `FlowLabs-*-windows-x64-setup.exe` | Run it (or unzip `FlowLabs-*-windows-x64.zip` and run `FlowLabs.exe`) |
-
-The apps are not code-signed yet. Files downloaded in a browser trigger a warning the first time:
-
-- **macOS:** right-click FlowLabs in Applications, choose **Open**, then **Open** again;
-- **Windows:** SmartScreen shows a warning: click **More info**, then **Run anyway**.
+On Windows, set `$env:FLOWLABS_VERSION = "0.5.1"` or `$env:FLOWLABS_DRY_RUN = "1"` before the
+command. The scripts are short: [install.sh](install.sh), [install.ps1](install.ps1).
 
 </details>
-
-**After installing**
-
-- **Your work** (datasets, projects, models, exports) is kept in a `FlowLabs` folder in your home
-  folder, so updating or reinstalling keeps it.
-- **Updates** install themselves. From 0.4.0 on, an **Update to …** button appears in the top bar
-  when a new release is out, and installs it:
-  - **Linux:** the new `.deb` (Ubuntu asks for your password);
-  - **macOS:** replaces the app;
-  - **Windows:** runs the installer silently.
-
-  Each download is checked against the SHA-256 in the release's `latest.json`. Turn checking off
-  in the update dialog; the Engine menu has an **Updates** button to check by hand.
-- **The first start** after installing takes a little longer while your system loads the app. You
-  see the FlowLabs intro while Python starts.
-- **Check the version:** open the engine menu (the chip at the top right, "This computer") and look
-  under **Updates**.
-- **Something went wrong?** The app window opening in your browser, macOS or Windows refusing to
-  open it, or "The engine did not start": see
-  [Troubleshooting](docs/guide/troubleshooting.md), also in the app under **Guide**.
-- **Uninstall:**
-
-  | System | How |
-  | --- | --- |
-  | Ubuntu, Debian | `sudo apt remove flowlabs` |
-  | macOS | Move FlowLabs to the Bin |
-  | Windows | Settings → Apps → FlowLabs → Uninstall |
-
-  Your `~/FlowLabs` folder stays; delete it yourself if you no longer need it.
-
-### Python package
-
-```bash
-python -m venv flowlabs-env && source flowlabs-env/bin/activate   # Windows: flowlabs-env\Scripts\activate
-pip install "flowlabs[deep,sql]"     # [deep]: PyTorch for neural networks and images; [sql]: database drivers
-flowlabs app                         # opens the app in your browser
-```
-
-For the app's own window instead of a browser tab, install `flowlabs[deep,sql,desktop]`. On Linux
-the window also needs PyGObject and WebKitGTK from your distribution. On Ubuntu, run
-`sudo apt install python3-gi gir1.2-webkit2-4.1`, and create the environment with
-`python -m venv --system-site-packages flowlabs-env` so it can see them.
-
-Leave out `[deep]` for a much smaller install with classic models only.
-`pip install -U "flowlabs[deep,sql]"` updates it, and `flowlabs --version` shows the version.
-
-### From source (developers)
-
-```bash
-git clone https://github.com/AdityaTakuli/FlowLabs.git && cd FlowLabs
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,deep,sql,desktop]"
-npm install --prefix apps/web && npm run build --prefix apps/web
-python scripts/bundle_web.py --no-build   # puts the built web app inside the Python package
-flowlabs app
-```
-
-To build the installable app for your system (`dist/`):
-
-```bash
-pip install -e ".[build,sql]"
-python scripts/build_app.py
-```
-
-See [Develop](#develop) for tests and the release process.
-
-### The engine: use your own computer's power from the browser
-
-Like a Jupyter kernel, FlowLabs trains in an **engine**: a Python process on whichever computer you
-choose, with that machine's packages, CPU cores and GPU (CUDA or Apple Metal).
-
-```bash
-pip install "flowlabs[deep]"   # scikit-learn + PyTorch + torchvision
-flowlabs engine                       # prints a link that opens the web app connected to this machine
-```
-
-- **Engine menu → Python environments.** Run the kernel in any virtualenv or conda environment on
-  the machine. FlowLabs probes each one for pandas, scikit-learn, PyTorch, XGBoost and LightGBM, and
-  can install what is missing.
-- **Another machine** (a GPU server): `flowlabs engine --host 0.0.0.0` and open the address it
-  prints. Every request needs the engine's token.
-- Each engine keeps its own datasets, projects and models (in `~/FlowLabs` by default; the browser
-  engine uses the browser's storage).
 
 ## What you can do
 
@@ -291,36 +222,85 @@ docs/releases/       release notes, one file per version
 The same `core` code runs in the desktop kernel, in `flowlabs engine`, and in the browser.
 `scripts/pack-core.mjs` zips it for Pyodide at web build time.
 
-## Develop
+## For developers
+
+### Run from source
 
 ```bash
-pip install -e ".[dev,deep,sql]"
-make test lint typecheck              # pytest, ruff, mypy
-cd apps/web && npm install && npm test && npm run build
-
-flowlabs engine --port 8899            # terminal 1: a local engine
-cd apps/web && npm run dev            # terminal 2: http://localhost:5173 (browser engine), or
-                                      #   open the link the engine prints to use it
-python scripts/bundle_web.py          # put the built app inside the Python package
-python scripts/build_app.py           # desktop app for this OS (dist/)
-python scripts/build_apk.py           # Android APK (experimental, not released yet; needs a JDK and the Android SDK)
+git clone https://github.com/AdityaTakuli/FlowLabs.git && cd FlowLabs
+python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install -e ".[dev,deep,sql,desktop]"
+npm install --prefix apps/web && npm run build --prefix apps/web
+python scripts/bundle_web.py --no-build               # puts the built web app inside the Python package
+flowlabs app
 ```
 
-**Release a version:** set `__version__` in `src/flowlabs/__init__.py` (the only place it is set),
-write the notes in `docs/releases/v<version>.md`, commit, then tag and push it
+On Linux, the app's own window needs PyGObject and WebKitGTK from your distribution (on Ubuntu,
+`sudo apt install python3-gi gir1.2-webkit2-4.1`), and a virtualenv made with
+`python -m venv --system-site-packages .venv` to see them. Without them, `flowlabs app` opens your
+browser.
+
+### Use FlowLabs as a Python package
+
+FlowLabs is not on PyPI yet. Each release has the package attached; install it with pip:
+
+```bash
+VERSION=0.5.1   # the latest release
+pip install "flowlabs[deep,sql] @ https://github.com/AdityaTakuli/FlowLabs/releases/download/v$VERSION/flowlabs-$VERSION-py3-none-any.whl"
+flowlabs app    # opens FlowLabs in your browser
+```
+
+`[deep]` adds PyTorch for neural networks and image models. Leave it out for a much smaller install.
+`[sql]` adds the PostgreSQL and MySQL drivers.
+
+### Train on another computer's GPU
+
+FlowLabs trains in an **engine**: a Python process, like a Jupyter kernel. The desktop app has its
+own. To use a more powerful computer, such as a GPU server, install the Python package there
+(above), then run:
+
+```bash
+flowlabs engine --host 0.0.0.0
+```
+
+Open the link it prints from your own computer. Every request needs the token in that link, so share
+it only with people you trust. In the app, **Engine → Python environments** runs the engine in any
+virtualenv or conda environment on that computer, and installs PyTorch, XGBoost or LightGBM where
+they are missing.
+
+### Tests and development servers
+
+```bash
+make test lint typecheck              # pytest, ruff, mypy
+cd apps/web && npm test               # web app tests
+
+flowlabs engine --port 8899            # terminal 1: a local engine
+cd apps/web && npm run dev            # terminal 2: http://localhost:5173, or open the link the engine prints
+python scripts/build_app.py           # the installable desktop app for this system, in dist/
+```
+
+### Release a version
+
+Set `__version__` in `src/flowlabs/__init__.py` (the only place it is set), write the notes in
+`docs/releases/v<version>.md`, commit, then tag and push it
 (`git tag v<version> && git push origin v<version>`). The Desktop app workflow:
+
 1. checks the tag matches the version;
 2. creates the release with those notes;
 3. builds and uploads every app, retrying uploads that time out;
-4. writes `latest.json`, which installed apps read to update themselves.
+4. writes `latest.json`, which installed apps and the install commands read.
 
-**The user guide** is in `docs/guide/*.md`. The app shows it on its **Guide** page (`apps/web/src/guide/topics.ts`
-lists the pages), and the same files can feed a website. Links between pages are written
+### The user guide
+
+The guide is in `docs/guide/*.md`, shown on the app's **Guide** page
+(`apps/web/src/guide/topics.ts` lists the pages). Links between pages are written
 `[text](guide:topic#section)`, and `npm test` checks that every one resolves. The step and model
 reference is generated from the catalogue, so it needs no editing.
 
-**Add a technique:** add an entry to `core/catalogue.py` (parameters plus a builder that returns a
-scikit-learn transformer or estimator). The app shows it with no frontend change. Add a test in
+### Add a technique
+
+Add an entry to `core/catalogue.py` (parameters plus a builder that returns a scikit-learn
+transformer or estimator). The app shows it with no frontend change. Add a test in
 `tests/test_training.py`.
 
 ## Limits and next steps

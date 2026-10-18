@@ -250,7 +250,9 @@ def create_app(
     @app.post("/api/update/install")
     async def update_install() -> dict[str, Any]:
         if not updating.frozen():
-            raise HTTPException(400, "Only the desktop app installs updates itself. Use: pip install -U flowlabs")
+            raise HTTPException(
+                400, "Only the desktop app installs updates itself. Install the new release's Python package instead."
+            )
 
         def restart() -> None:
             command = updating.restart_command(updating.install_method())
