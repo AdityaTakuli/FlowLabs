@@ -48,6 +48,61 @@ def test_statements_are_split_outside_quotes_and_comments():
     )
 
 
+def test_scripts_split_like_database_clients():
+    # MySQL Workbench style: DELIMITER lines, and a trigger body with semicolons
+    workbench = """USE parks_and_recreation;
+
+DELIMITER $$
+create trigger employee_insert
+    after insert on employee_salary
+    for each row
+BEGIN
+    insert into employee_demographics(employee_id) values(new.employee_id);
+END $$
+DELIMITER ;
+select 1;"""
+    assert sql.split_statements(workbench) == [
+        "USE parks_and_recreation",
+        "create trigger employee_insert\n    after insert on employee_salary\n    for each row\n"
+        "BEGIN\n    insert into employee_demographics(employee_id) values(new.employee_id);\nEND",
+        "select 1",
+    ]
+    # No DELIMITER needed: a routine's body stays whole, through IF and CASE, up to its own END
+    body = (
+        "create procedure p() begin if 1 then select case when 2 then 'x;' end; end if; select 3; end;"
+        " select 4; begin; commit"
+    )
+    assert sql.split_statements(body) == [
+        "create procedure p() begin if 1 then select case when 2 then 'x;' end; end if; select 3; end",
+        "select 4",
+        "begin",
+        "commit",
+    ]
+    # PostgreSQL's dollar quotes
+    assert sql.split_statements(
+        "create function f() returns int as $$ begin return 1; end; $$ language sql; select $1"
+    ) == [
+        "create function f() returns int as $$ begin return 1; end; $$ language sql",
+        "select $1",
+    ]
+    assert not sql.writes("USE shop") and sql.writes("create trigger t after insert on a begin select 1; end")
+
+
+def test_a_trigger_can_be_created_on_a_connection(engine, shop):
+    saved = engine.call(
+        "sql.connection_save", {"connection": {"kind": "sqlite", "database": str(shop), "allow_changes": True}}
+    )
+    script = """create table audit(order_id integer, city text);
+create trigger orders_audit after insert on orders
+begin
+    insert into audit values (new.id, new.city);
+end;
+insert into orders(city, amount, placed) values ('Goa', 1.0, '2026-02-01');"""
+    engine.call("sql.run", {"sql": script, "connection_id": saved["id"]})
+    with sqlite3.connect(shop) as db:
+        assert db.execute("select * from audit").fetchall() == [(4, "Goa")]
+
+
 def test_queries_on_datasets(engine):
     tables = {t["name"]: t for t in engine.call("sql.tables")}
     assert set(tables) == {"customer_churn", "iris_flowers"}

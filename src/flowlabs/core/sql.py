@@ -28,7 +28,21 @@ from .workspace import Workspace
 PREVIEW_ROWS = 500
 MAX_PREVIEW_ROWS = 5000
 CONNECT_TIMEOUT_S = 10
-READ_WORDS = {"select", "with", "show", "describe", "desc", "explain", "pragma", "values", "table", "from", "summarize"}
+# Statements that change nothing (USE only picks the database the next ones run in)
+READ_WORDS = {
+    "select",
+    "with",
+    "show",
+    "describe",
+    "desc",
+    "explain",
+    "pragma",
+    "values",
+    "table",
+    "from",
+    "summarize",
+    "use",
+}
 _DIALECT_NAMES = {
     "postgresql": "PostgreSQL",
     "mysql": "MySQL",
@@ -48,18 +62,83 @@ def _strip_comments(sql: str) -> str:
     return re.sub(r"--[^\n]*|/\*.*?\*/", " ", sql, flags=re.S)
 
 
+# The statements whose body can hold semicolons, between BEGIN and its END
+_ROUTINE = re.compile(
+    r"\s*create\s+(?:or\s+replace\s+)?(?:definer\s*=\s*\S+\s+)?(?:temp\w*\s+)?(?:trigger|procedure|function|event)\b",
+    re.I,
+)
+_DELIMITER = re.compile(r"[ \t]*delimiter[ \t]+(\S+)[ \t]*(?:\r?\n|$)", re.I)
+_DOLLAR_QUOTE = re.compile(r"\$(?:[A-Za-z_]\w*)?\$")
+_WORD = re.compile(r"[A-Za-z_]\w*")
+_NEXT_WORD = re.compile(r"\s+([A-Za-z]+)")
+_ENDS_WITHOUT_BLOCK = {"if", "loop", "while", "repeat"}  # END IF and the like close no BEGIN or CASE
+
+
 def split_statements(sql: str) -> list[str]:
-    """Split a script on semicolons that are outside quotes and comments."""
-    statements, current, i, quote = [], [], 0, ""
+    """Split a script into statements, the way database clients do.
+
+    Statements end at semicolons outside quotes and comments. Also:
+
+    * a ``DELIMITER $$`` line, as in the mysql client and MySQL Workbench, makes ``$$`` end
+      statements instead, until the next DELIMITER line;
+    * the body of CREATE TRIGGER, PROCEDURE, FUNCTION or EVENT stays whole from BEGIN to its END,
+      semicolons included, with no DELIMITER needed;
+    * PostgreSQL's dollar quotes (``$$ ... $$``, ``$body$ ... $body$``) are quotes.
+    """
+    statements: list[str] = []
+    current: list[str] = []
+    delimiter, quote, depth, i = ";", "", 0, 0
+
+    def finish() -> None:
+        nonlocal current, depth
+        statements.append("".join(current))
+        current, depth = [], 0
+
     while i < len(sql):
         char = sql[i]
         if quote:
-            current.append(char)
-            if char == quote:
+            if sql.startswith(quote, i):
+                current.append(quote)
+                i += len(quote)
                 quote = ""
-        elif char in "'\"`":
+            else:
+                current.append(char)
+                i += 1
+            continue
+        if i == 0 or sql[i - 1] == "\n":
+            command = _DELIMITER.match(sql, i)
+            if command:
+                if _strip_comments("".join(current)).strip():
+                    finish()
+                current, depth = [], 0
+                delimiter = command.group(1)
+                i = command.end()
+                continue
+        if sql.startswith(delimiter, i) and (depth == 0 or delimiter != ";"):
+            finish()
+            i += len(delimiter)
+            continue
+        if char in "'\"`":
             quote = char
             current.append(char)
+        elif char == "$" and _DOLLAR_QUOTE.match(sql, i):
+            quote = _DOLLAR_QUOTE.match(sql, i).group(0)
+            current.append(quote)
+            i += len(quote)
+            continue
+        elif (char.isalpha() or char == "_") and (i == 0 or not (sql[i - 1].isalnum() or sql[i - 1] in "_$.")):
+            word = _WORD.match(sql, i).group(0)
+            lower = word.lower()
+            if lower in ("begin", "case", "end") and _ROUTINE.match(_strip_comments("".join(current))):
+                if lower != "end":
+                    depth += 1
+                elif depth > 0:
+                    following = _NEXT_WORD.match(sql, i + len(word))
+                    if not (following and following.group(1).lower() in _ENDS_WITHOUT_BLOCK):
+                        depth -= 1
+            current.append(word)
+            i += len(word)
+            continue
         elif sql.startswith("--", i):
             end = sql.find("\n", i)
             end = len(sql) if end < 0 else end
@@ -72,9 +151,6 @@ def split_statements(sql: str) -> list[str]:
             current.append(sql[i:end])
             i = end
             continue
-        elif char == ";":
-            statements.append("".join(current))
-            current = []
         else:
             current.append(char)
         i += 1

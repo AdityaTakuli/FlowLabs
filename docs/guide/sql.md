@@ -119,6 +119,27 @@ A new connection is **read-only**:
 To change data, edit the connection and switch on **Allow changes to this database**. Statements
 then run and are committed.
 
+### Scripts, triggers and procedures
+
+Run several statements at once, separated by semicolons. They run in order, on the same
+connection, so `USE other_database;` changes where the next ones run.
+
+`CREATE TRIGGER`, `PROCEDURE`, `FUNCTION` and `EVENT` bodies can hold semicolons between `BEGIN`
+and `END`. Scripts copied from MySQL Workbench or the mysql client work as they are,
+`DELIMITER $$` lines included:
+
+```sql
+DELIMITER $$
+create trigger employee_insert after insert on employee_salary for each row
+begin
+    insert into employee_demographics(employee_id, first_name, last_name)
+    values (new.employee_id, new.first_name, new.last_name);
+end $$
+DELIMITER ;
+```
+
+Creating one changes the database, so it needs **Allow changes to this database**.
+
 ### Where connections are kept
 
 Connections, passwords included, are saved in the engine's workspace, in `connections.json`, which
