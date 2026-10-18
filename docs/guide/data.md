@@ -17,7 +17,7 @@ A table needs at least two columns and one row. Column names are tidied: blanks 
 `column_3`, and repeated names get a number (`price_2`).
 
 You can also make a dataset from a SQL query, on your data or on a database you already have. See
-[SQL](guide:sql#keep-a-result-as-a-dataset).
+[Analyze](guide:sql#keep-a-result-as-a-dataset).
 
 ## Bring images
 
@@ -94,10 +94,10 @@ One row per column:
 | Summary | The range and mean, or the top values. |
 | Notes | *Looks like an ID*, *never changes*, *skewed*, *has outliers*, *many categories*, *mostly empty*… |
 
-Click **Drop** to remove a column in the Clean stage.
+Click **Drop** to remove a column in the Clean stage. To see every row, sort and search them, open
+the [Analyze](guide:sql) tab.
 
 Below the table, **How numbers move together** shows correlations from −1 to 1. Two columns near 1
 carry the same information. **Strongest links** ranks columns by their correlation with the target.
 It is only a first hint: models also find patterns a correlation cannot see.
 
-**Rows** at the bottom pages through the raw data.

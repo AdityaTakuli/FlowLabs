@@ -30,11 +30,11 @@ function topic(id: string, group: string, text: string): Topic {
 export const TOPICS: Topic[] = [
   topic("getting-started", "Start", gettingStarted),
   topic("data", "Build a model", data),
+  topic("sql", "Build a model", sql),
   topic("pipeline", "Build a model", pipeline),
   topic("code", "Build a model", code),
   topic("results", "Results", results),
   topic("predict-export", "Results", predictExport),
-  topic("sql", "SQL", sql),
   topic("engines", "Set up", engines),
   topic("updates", "Set up", updates),
   { id: "reference", group: "Reference", title: "Steps and models", text: "", summary: "Every step and model, with what each setting does." },

@@ -43,17 +43,21 @@ Python that runs without FlowLabs.
 
 ## The steps of a project
 
-Each project has five steps, listed down the left side:
+Each project has seven steps, listed down the left side:
 
 | Step | What you do there |
 | --- | --- |
 | **Data** | Choose what to predict, read the profile, apply suggested fixes. |
+| **Analyze** | See every row, sort and search them, query them with SQL or Ask AI. |
 | **Pipeline** | Clean the data, choose how to split it, prepare it, and choose the models. |
 | **Results** | Train, compare the models, and understand the best one. |
+| **Charts** | Every chart of the project in one place, by category. |
 | **Predict** | Type in a row (or upload a file) and get predictions. |
 | **Export** | Download the model as Python you can run anywhere. |
 
 The dot next to each step turns black when the step is done and red when something needs fixing.
+Under the step you are on, the left side also lists that page's sections. The one you are reading
+lights up as you scroll; click one to jump to it.
 
 ## Where your work is kept
 
@@ -61,11 +65,15 @@ The desktop app keeps everything in a **FlowLabs** folder in your home folder: d
 trained models and exports. Updating or reinstalling FlowLabs keeps them. The browser version keeps
 them in your browser's storage.
 
-FlowLabs sends nothing about you or your data anywhere. The only time it goes online is to check
-for updates (desktop app), and to load Python the first time (browser version).
+FlowLabs sends nothing about you or your data anywhere. It goes online only:
+
+- to check for updates (desktop app);
+- to load Python the first time (browser version);
+- when you use [Ask AI](guide:sql#ask-ai), which you set up yourself and which never sends rows of
+  data.
 
 ## Next
 
 - [Bring your own data](guide:data)
 - [Build a pipeline](guide:pipeline)
-- [Query your data with SQL](guide:sql)
+- [Analyze your data with SQL and Ask AI](guide:sql)

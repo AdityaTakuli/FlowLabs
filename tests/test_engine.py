@@ -148,3 +148,19 @@ def test_saved_python_that_cannot_run_flowlabs_falls_back(tmp_path, monkeypatch)
     monkeypatch.setattr(interpreters, "probe", lambda path: ready)
     app = create_app(tmp_path / "ws", TOKEN, start_kernel=False)
     assert app.state.kernel.python == "/usr/bin/python3" and app.state.kernel.notice is None
+
+
+def test_desktop_windows_open_only_flowlabs_pages():
+    from flowlabs.server.desktop import WindowApi
+
+    opened = []
+
+    class FakeWebview:
+        def create_window(self, title, url, **size):
+            opened.append((title, url))
+
+    api = WindowApi(FakeWebview(), "http://127.0.0.1:8899")
+    assert api.open_window("http://127.0.0.1:8899/?page=chart&project=p&chart=model-roc", "ROC curve - FlowLabs")
+    assert not api.open_window("https://evil.example/", "x")
+    assert not api.open_window("http://127.0.0.1:88990/", "x")
+    assert opened == [("ROC curve - FlowLabs", "http://127.0.0.1:8899/?page=chart&project=p&chart=model-roc")]

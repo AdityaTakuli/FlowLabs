@@ -21,6 +21,27 @@ The card at the top names the model with the best score on the test rows, by the
 on the Data page. The ring shows that score. For error metrics such as RMSE, it shows R² instead.
 **Try it** opens Predict, and **Export** downloads it.
 
+## Bigger charts
+
+Every chart has two buttons at its top right:
+
+- **Expand** fills the screen with it. Line and scatter charts there zoom with the scroll wheel
+  (around the pointer), move when you drag, and go back with a double-click or **Reset zoom**.
+  <kbd>Esc</kbd> closes it.
+- **Open in a new window** opens it in a window of its own, which you can put on another screen. In
+  the desktop app it is a second FlowLabs window. The menu at its top switches to any other chart of
+  the project.
+
+The **Charts** step shows every chart of the project in one place, with tabs along the top:
+
+| Tab | Charts |
+| --- | --- |
+| **Overview** | The ones that matter most: score and training time, how well the classes separate, what drives predictions, and more. |
+| **Data** | Every number column's distribution, split by class; the top values of category columns; gaps; correlations. |
+| **Model** | Everything about one model. Choose which with **Model** at the right. |
+| **Compare** | Every model side by side: score and time, every metric in one table, ROC and precision-recall curves together, cross-validation folds. |
+| **All charts** | All of the above. |
+
 ## Comparing models
 
 - **Score and training time.** One bar per model for its score (the best in orange), and a line

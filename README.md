@@ -100,24 +100,25 @@ to, so only connect to engines you trust and share engine tokens only with peopl
 Optional automatic tuning on any model. Training is live: per-epoch loss curves, tuning trials,
 progress.
 
-**SQL.** The SQL page, next to Projects, queries your data with SQL:
+**Analyze.** Each project's Analyze step:
 
-- **Your datasets:** every dataset is a table (`Customer churn` is `customer_churn`), queried with
-  [DuckDB](https://duckdb.org), joins and window functions included. Queries run on copies of your
-  data, so the files never change. Save any result as a new dataset and start a project from it.
+- **Table:** the whole dataset as a grid (sort, search every column, page through every row).
+- **SQL:** queries in [DuckDB](https://duckdb.org). `data` is the project's table, your other
+  datasets are tables too, and queries never change your files.
 - **Your databases:** connect PostgreSQL, MySQL or MariaDB, a SQLite or DuckDB file, or any
-  [SQLAlchemy URL](https://docs.sqlalchemy.org/en/20/core/engines.html#database-urls) (install its
-  driver in the engine first). Browse the tables, query them, and import a result as a dataset.
-  Connections are read-only unless you allow changes. A read-only connection refuses statements
-  that write and rolls back whatever a query ran.
-
-The editor completes table and column names, and Ctrl+Enter runs the query. Connections, passwords
-included, are saved in the engine's workspace (`connections.json`, readable only by you). Queries
-run on the computer the engine runs on. The browser version queries your datasets but cannot reach
-database servers.
+  [SQLAlchemy URL](https://docs.sqlalchemy.org/en/20/core/engines.html#database-urls) (Snowflake,
+  SQL Server…; install the driver in the engine). Connections are read-only unless you allow changes.
+  They are saved in the engine's workspace (`connections.json`, readable only by you).
+- **Results:** keep any result as a dataset, or as the project's own data, and train on it.
+- **Ask AI:** a question in plain English becomes SQL, written by a model on
+  [Groq](https://console.groq.com/keys) with your own key (`GROQ_API_KEY`, or saved in the app).
+  It sends table and column names, and a few common category values, never rows. **Fix with AI**
+  corrects a failed query.
 
 **Evaluate.** A leaderboard against a baseline, a score-and-training-time chart, and box plots of
-cross-validation folds. For each model:
+cross-validation folds. Every chart expands to full screen (zoom and pan) or opens in its own window.
+The Charts step shows them all on one grid, with tabs for Overview, Data, Model and Compare. For each
+model:
 - test and training scores (overfitting warnings), cross-validation spread;
 - confusion matrix, ROC and precision-recall curves, calibration, and how well the classes separate;
 - predicted-vs-actual and residual plots;

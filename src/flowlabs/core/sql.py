@@ -141,10 +141,18 @@ def dataset_tables(ws: Workspace) -> dict[str, dict[str, Any]]:
     return found
 
 
-def tables(ws: Workspace) -> list[dict[str, Any]]:
-    """The datasets as SQL tables, with their columns (read from the stored file, no query)."""
+PROJECT_TABLE = "data"
+
+
+def tables(ws: Workspace, dataset_id: str | None = None) -> list[dict[str, Any]]:
+    """The datasets as SQL tables, with their columns (read from the stored file, no query).
+    Inside a project, ``data`` is that project's dataset and comes first."""
     listed = []
-    for name, meta in dataset_tables(ws).items():
+    named = list(dataset_tables(ws).items())
+    if dataset_id:
+        meta = datasets.get_meta(ws, dataset_id)
+        named.insert(0, (PROJECT_TABLE, {**meta, "name": "this project's data"}))
+    for name, meta in named:
         try:
             frame = datasets.load_frame(ws, meta["id"])
             columns = [{"name": str(c), "type": _pandas_type(frame[c])} for c in frame.columns]
@@ -160,20 +168,25 @@ def _pandas_type(series: pd.Series) -> str:
     return {"i": "integer", "u": "integer", "f": "number", "b": "boolean", "M": "date"}.get(kind, "text")
 
 
-def _local_connection(ws: Workspace, sql: str) -> Any:
-    """An in-memory DuckDB with the datasets the query names registered as tables."""
+def _local_connection(ws: Workspace, sql: str, dataset_id: str | None = None) -> Any:
+    """An in-memory DuckDB with the datasets the query names registered as tables (``data``: the
+    project's own dataset, when there is one)."""
     duckdb = _duckdb()
     connection = duckdb.connect()
     words = {w.lower() for w in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", sql)}
     for name, meta in dataset_tables(ws).items():
-        if name in words:
+        if name in words and not (dataset_id and name == PROJECT_TABLE):
             connection.register(name, datasets.load_frame(ws, meta["id"]))
+    if dataset_id and PROJECT_TABLE in words:
+        connection.register(PROJECT_TABLE, datasets.load_frame(ws, dataset_id))
     return connection
 
 
-def _run_local(ws: Workspace, sql: str, limit: int | None) -> tuple[pd.DataFrame | None, int | None, str | None]:
+def _run_local(
+    ws: Workspace, sql: str, limit: int | None, offset: int = 0, dataset_id: str | None = None
+) -> tuple[pd.DataFrame | None, int | None, str | None]:
     duckdb = _duckdb()
-    connection = _local_connection(ws, sql)
+    connection = _local_connection(ws, sql, dataset_id)
     try:
         relation = connection.sql(sql)
         if relation is None:
@@ -182,12 +195,16 @@ def _run_local(ws: Workspace, sql: str, limit: int | None) -> tuple[pd.DataFrame
             return relation.df(), None, None
         relation.to_table("__flowlabs_result")
         total = connection.sql("select count(*) from __flowlabs_result").fetchone()[0]
-        return connection.sql(f"select * from __flowlabs_result limit {int(limit)}").df(), int(total), None
+        page = f"select * from __flowlabs_result limit {int(limit)} offset {max(0, int(offset))}"
+        return connection.sql(page).df(), int(total), None
     except duckdb.Error as error:
         message = str(error)
         missing = re.search(r"Table with name (\S+) does not exist", message)
         if missing:
-            names = ", ".join(sorted(dataset_tables(ws))) or "none yet: import a dataset first"
+            names = (
+                ", ".join(([PROJECT_TABLE] if dataset_id else []) + sorted(dataset_tables(ws)))
+                or "none yet: import a dataset first"
+            )
             raise SqlError(
                 f"There is no table {missing.group(1)}. Your tables: {names}.", _error_line(message)
             ) from error
@@ -532,19 +549,34 @@ def _ms(started: float) -> int:
     return round((time.perf_counter() - started) * 1000)
 
 
-def _execute(ws: Workspace, sql: str, connection_id: str | None, limit: int | None) -> tuple[Any, Any, Any]:
+def _execute(
+    ws: Workspace,
+    sql: str,
+    connection_id: str | None,
+    limit: int | None,
+    offset: int = 0,
+    dataset_id: str | None = None,
+) -> tuple[Any, Any, Any]:
     if not split_statements(sql or ""):
         raise UserError("write a query first")
     if connection_id:
         return _run_connection(_get_connection(ws, connection_id), sql, limit)
-    return _run_local(ws, sql, limit)
+    return _run_local(ws, sql, limit, offset, dataset_id)
 
 
-def run(ws: Workspace, sql: str, connection_id: str | None = None, limit: int = PREVIEW_ROWS) -> dict[str, Any]:
-    """Run a query; the first ``limit`` rows of the last statement's result come back."""
+def run(
+    ws: Workspace,
+    sql: str,
+    connection_id: str | None = None,
+    limit: int = PREVIEW_ROWS,
+    offset: int = 0,
+    dataset_id: str | None = None,
+) -> dict[str, Any]:
+    """Run a query; ``limit`` rows of the last statement's result come back, from ``offset`` (paging
+    works on your datasets; a connection gives the first rows). ``dataset_id``: the project's table."""
     limit = max(1, min(int(limit), MAX_PREVIEW_ROWS))
     started = time.perf_counter()
-    frame, total, message = _execute(ws, sql, connection_id, limit)
+    frame, total, message = _execute(ws, sql, connection_id, limit, offset, dataset_id)
     elapsed = _ms(started)
     if frame is None:
         return {"columns": [], "types": [], "rows": [], "total": 0, "truncated": False, "elapsed_ms": elapsed,
@@ -555,9 +587,11 @@ def run(ws: Workspace, sql: str, connection_id: str | None = None, limit: int = 
             "elapsed_ms": elapsed, "message": None}  # fmt: skip
 
 
-def save_result(ws: Workspace, sql: str, name: str, connection_id: str | None = None) -> dict[str, Any]:
+def save_result(
+    ws: Workspace, sql: str, name: str, connection_id: str | None = None, dataset_id: str | None = None
+) -> dict[str, Any]:
     """Run the query in full and keep its result as a new dataset."""
-    frame, _, message = _execute(ws, sql, connection_id, None)
+    frame, _, message = _execute(ws, sql, connection_id, None, 0, dataset_id)
     if frame is None:
         raise UserError(message or "the query returned no table")
     frame = _plain_values(frame.copy())  # Parquet needs one type per column

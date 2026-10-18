@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useApp } from "../context";
-import { Bars, CountUp, Density, DotHistogram, Heatmap, Spark } from "../charts/charts";
+import { Bars, CountUp, DotHistogram, Spark } from "../charts/charts";
+import { ChartCard, ChartScopeContext } from "../charts/ChartFrame";
+import { chartSpecs } from "../charts/registry";
 import { Icon } from "../components/Icon";
 import { KindBadge, Notice, Segmented, Spinner } from "../components/ui";
-import { cell, fmt } from "../format";
-import type { ColumnProfile, ModelEntry, Step, Suggestion, Task } from "../types";
+import { fmt } from "../format";
+import type { ModelEntry, Step, Suggestion, Task } from "../types";
 import type { ProjectApi } from "./ProjectPage";
 
 const DEFAULTS: Record<Task, string[]> = {
@@ -24,53 +26,42 @@ const FLAG_TEXT: Record<string, string> = {
 };
 
 /** One number column at a time, as dots or curves, split by the target's classes when it has a few. */
-function Distributions({ columns, target }: { columns: ColumnProfile[]; target: string }) {
-  const numeric = columns.filter((c) => c.histogram && c.histogram.edges.length > 2 && c.name !== target);
+/** One number column at a time, as dots or curves, split by the target's classes when it has a few. */
+function Distributions({ api }: { api: ProjectApi }) {
+  const { project, profile, run } = api;
+  const columns = profile?.columns ?? [];
+  const numeric = columns.filter((c) => c.histogram && c.histogram.edges.length > 2 && c.name !== project.target);
   const [name, setName] = useState<string | null>(null);
   const [view, setView] = useState<"dots" | "curves">("dots");
+  const specs = useMemo(() => chartSpecs({ project, profile, run, model: null }), [project, profile, run]);
   const column = numeric.find((c) => c.name === name) ?? numeric.find((c) => c.by_target) ?? numeric[0];
-  if (!column?.histogram) return null;
-  const split = column.by_target && column.by_target.length > 1;
-  const groups = split
-    ? column.by_target!.map((g, i) => ({ ...g, colour: column.by_target!.length === 2 ? (i === 1 ? "var(--signal)" : "var(--c-blue)") : undefined }))
-    : [{ label: column.name, counts: column.histogram.counts }];
+  if (!column) return null;
+  const split = Boolean(column.by_target && column.by_target.length > 1);
+  const spec = specs.find((s) => s.id === `${view === "curves" && split ? "data-density" : "data-dist"}-${column.name}`);
+  if (!spec) return null;
   return (
-    <div className="card">
-      <div className="dist-head">
-        <h2>Distribution</h2>
-        <select value={column.name} onChange={(e) => setName(e.target.value)} aria-label="Column">
-          {numeric.map((c) => (
-            <option key={c.name} value={c.name}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        <span className="dim small">{split ? `split by ${target}` : "all rows"}</span>
-        <span className="spacer" />
-        {split && <Segmented value={view} onChange={setView} options={[{ value: "dots", label: "Dots" }, { value: "curves", label: "Curves" }]} />}
-      </div>
-      {view === "curves" && split ? (
-        <Density key={`d-${column.name}`} edges={column.histogram.edges} groups={groups} xLabel={column.name} />
-      ) : (
-        <DotHistogram key={`h-${column.name}`} edges={column.histogram.edges} groups={groups} xLabel={column.name} height={210} />
-      )}
-    </div>
+    <ChartCard
+      key={spec.id}
+      spec={{ ...spec, title: `Distribution of ${column.name}`, sub: split ? `Split by ${project.target}. Columns whose classes sit apart are the ones a model can learn from.` : "All rows." }}
+      extra={
+        <div className="row wrap" style={{ gap: 8 }}>
+          <select value={column.name} onChange={(e) => setName(e.target.value)} aria-label="Column">
+            {numeric.map((c) => (
+              <option key={c.name} value={c.name}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          {split && <Segmented value={view} onChange={setView} options={[{ value: "dots", label: "Dots" }, { value: "curves", label: "Curves" }]} />}
+        </div>
+      }
+    />
   );
 }
 
 export function DataTab({ api }: { api: ProjectApi }) {
   const { engine, catalogue, fail, notify } = useApp();
   const { project, update, profile } = api;
-  const [page, setPage] = useState(0);
-  const [rows, setRows] = useState<{ columns: string[]; rows: unknown[][]; total: number } | null>(null);
-
-  useEffect(() => {
-    if (project.kind !== "tabular") return;
-    engine
-      .call<{ columns: string[]; rows: unknown[][]; total: number }>("datasets.preview", { dataset_id: project.dataset_id, offset: page * 50, limit: 50 })
-      .then(setRows)
-      .catch(fail);
-  }, [engine, project.dataset_id, project.kind, page, fail]);
 
   if (!profile) return <div className="page row"><Spinner /> Profiling the data…</div>;
 
@@ -136,8 +127,9 @@ export function DataTab({ api }: { api: ProjectApi }) {
   const metrics = catalogue.metrics[project.task] ?? [];
   const corr = profile.correlations;
   return (
+    <ChartScopeContext.Provider value={{ projectId: project.id, runId: api.run?.id }}>
     <div className="page col" style={{ gap: 18 }}>
-      <div className="stat-row">
+      <div className="stat-row" data-section="Overview">
         <div className="stat"><CountUp className="value" value={profile.rows} format={(v) => Math.round(v).toLocaleString()} /><div className="label">rows{profile.sampled ? " (profiled on a sample)" : ""}</div></div>
         <div className="stat"><CountUp className="value" value={columns.length} format={(v) => String(Math.round(v))} /><div className="label">columns</div></div>
         <div className="stat"><CountUp className="value" value={profile.missing_cells_pct} format={(v) => `${v.toFixed(1)}%`} /><div className="label">cells missing</div></div>
@@ -145,7 +137,7 @@ export function DataTab({ api }: { api: ProjectApi }) {
         <div className="stat"><CountUp className="value" value={profile.memory_mb} format={(v) => `${v.toFixed(1)} MB`} /><div className="label">in memory</div></div>
       </div>
 
-      <div className="grid2" style={{ alignItems: "start" }}>
+      <div className="grid2" style={{ alignItems: "start" }} data-section="What to predict">
         <div className="card">
           <div className="card-head"><Icon name="target" className="accent-text" /><h2>What to predict</h2></div>
           <div className="field">
@@ -185,9 +177,11 @@ export function DataTab({ api }: { api: ProjectApi }) {
         </div>
       </div>
 
-      <Distributions columns={columns} target={project.target} />
+      <div data-section="Distribution">
+        <Distributions api={api} />
+      </div>
 
-      <div className="card">
+      <div className="card" data-section="Columns">
         <div className="card-head"><h2>Columns</h2><span className="dim small">click Drop to remove a column in the Clean stage</span></div>
         <div className="table-wrap columns-table" style={{ maxHeight: 520 }}>
           <table>
@@ -226,43 +220,23 @@ export function DataTab({ api }: { api: ProjectApi }) {
       </div>
 
       {corr && corr.columns.length > 1 && (
-        <div className="grid2" style={{ alignItems: "start" }}>
-          <div className="card">
-            <h2>How numbers move together</h2>
-            <p className="dim small" style={{ marginBottom: 8 }}>Correlation from −1 (opposite) to 1 (together). Very high values mean two columns carry the same information.</p>
-            <Heatmap labels={corr.columns.slice(0, 16)} matrix={corr.matrix.slice(0, 16).map((r) => r.slice(0, 16))} diverging format={(v) => v.toFixed(2)} />
-          </div>
-          {corr.with_target && corr.with_target.length > 0 && (
-            <div className="card">
-              <h2>Strongest links to {project.target}</h2>
-              <p className="dim small" style={{ marginBottom: 8 }}>Absolute correlation with the target. Only a first hint: models also find non-linear patterns.</p>
-              <Bars items={corr.with_target.slice(0, 12).map((c) => ({ label: c.column, value: c.value }))} max={1} format={(v) => v.toFixed(2)} />
-            </div>
-          )}
+        <div className="bento" data-section="Correlations">
+          {chartSpecs({ project, profile, run: api.run, model: null })
+            .filter((spec) => spec.id === "data-corr" || spec.id === "data-links")
+            .map((spec) => (
+              <div key={spec.id} className={spec.id === "data-corr" ? "bento-l" : "bento-s"}>
+                <ChartCard spec={spec} />
+              </div>
+            ))}
         </div>
       )}
 
-      {rows && (
-        <div className="card">
-          <div className="card-head">
-            <h2>Rows</h2>
-            <span className="dim small">{(page * 50 + 1).toLocaleString()}–{Math.min(rows.total, page * 50 + 50).toLocaleString()} of {rows.total.toLocaleString()}</span>
-            <span className="spacer" />
-            <button className="small" disabled={page === 0} onClick={() => setPage(page - 1)}><Icon name="arrowLeft" size={12} /></button>
-            <button className="small" disabled={(page + 1) * 50 >= rows.total} onClick={() => setPage(page + 1)}><Icon name="arrowRight" size={12} /></button>
-          </div>
-          <div className="table-wrap" style={{ maxHeight: 420 }}>
-            <table>
-              <thead><tr>{rows.columns.map((c) => <th key={c} style={c === project.target ? { color: "var(--accent)" } : undefined}>{c}</th>)}</tr></thead>
-              <tbody>
-                {rows.rows.map((row, i) => (
-                  <tr key={i}>{row.map((v, j) => <td key={j} className={v === null ? "cell-null" : ""}>{v === null ? "empty" : cell(v)}</td>)}</tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      <div className="row" style={{ justifyContent: "center" }}>
+        <button onClick={() => api.setTab("analyze")}>
+          <Icon name="table" size={14} /> See every row, sort, search and query it in Analyze
+        </button>
+      </div>
     </div>
+    </ChartScopeContext.Provider>
   );
 }

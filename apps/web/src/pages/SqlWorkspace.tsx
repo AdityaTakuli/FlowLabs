@@ -1,14 +1,15 @@
-// SQL: query your datasets (DuckDB), or a database you already have, and keep any result as a dataset.
+// A project's SQL workspace: query its data (the table `data`), your other datasets (DuckDB) or a
+// database you already have; ask AI to write the query; keep a result as a dataset or as the
+// project's own data.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../context";
 import { CodeEditor } from "../components/LazyCodeEditor";
 import type { SqlDialect } from "../components/CodeEditor";
 import { Icon } from "../components/Icon";
-import { SectionNav, TopBar } from "../components/TopBar";
 import { Modal, Notice, Spinner, Switch } from "../components/ui";
 import { EngineError } from "../engine/engine";
-import type { DatasetMeta, SqlConnection, SqlKind, SqlResult, SqlTable } from "../types";
-import { NewProject } from "./NewProject";
+import type { AiStatus, DatasetMeta, SqlConnection, SqlKind, SqlResult, SqlTable } from "../types";
+import type { ProjectApi } from "./ProjectPage";
 
 const LOCAL = "local";
 const DRAFT_KEY = "flowlabs-sql-draft:";
@@ -33,6 +34,72 @@ function writeDraft(source: string, sql: string) {
 function starter(tables: SqlTable[]): string {
   const first = tables[0];
   return first ? `select *\nfrom ${first.name}\nlimit 100` : "select 42 as answer";
+}
+
+function AiSettings({ status, onClose, onSaved }: { status: AiStatus; onClose: () => void; onSaved: (status: AiStatus) => void }) {
+  const { engine, fail } = useApp();
+  const [key, setKey] = useState("");
+  const [model, setModel] = useState(status.model);
+  const [busy, setBusy] = useState(false);
+  const save = async (remove = false) => {
+    setBusy(true);
+    try {
+      onSaved(await engine.call<AiStatus>("ai.configure", { key: remove ? "" : key || null, model }));
+    } catch (error) {
+      fail(error);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      title="Ask AI"
+      onClose={onClose}
+      footer={
+        <>
+          {status.source === "saved" && (
+            <button className="danger" onClick={() => void save(true)} disabled={busy}>
+              Remove the key
+            </button>
+          )}
+          <span className="spacer" />
+          <button onClick={onClose}>Cancel</button>
+          <button className="primary" onClick={() => void save()} disabled={busy || (!key && !status.configured)}>
+            {busy ? <Spinner /> : null} Save
+          </button>
+        </>
+      }
+    >
+      <p className="dim" style={{ marginBottom: 14 }}>
+        Ask AI turns questions in plain English into SQL, using a model on Groq. Get a free key at{" "}
+        <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer">
+          console.groq.com/keys
+        </a>
+        .
+      </p>
+      {status.source === "environment" ? (
+        <Notice level="ok">The key comes from the GROQ_API_KEY environment variable.</Notice>
+      ) : (
+        <div className="field">
+          <label htmlFor="ai-key">Groq API key</label>
+          <input id="ai-key" type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={status.configured ? "Saved. Paste a new one to replace it." : "gsk_…"} autoComplete="off" />
+        </div>
+      )}
+      <div className="field">
+        <label htmlFor="ai-model">Model</label>
+        <input id="ai-model" list="ai-models" value={model} onChange={(e) => setModel(e.target.value)} />
+        <datalist id="ai-models">
+          {status.models.map((m) => (
+            <option key={m} value={m} />
+          ))}
+        </datalist>
+      </div>
+      <p className="faint small">
+        Sent to Groq: your question, table and column names with their types, and a few common values of category columns. Rows of data are never sent. The key is saved on the
+        engine, in a file only you can read.
+      </p>
+    </Modal>
+  );
 }
 
 function cell(value: unknown): string {
@@ -247,15 +314,22 @@ function ConnectionDialog({ kinds, initial, onClose, onSaved }: { kinds: SqlKind
   );
 }
 
-export function SqlPage({ goHome, openProject }: { goHome: () => void; openProject: (id: string) => void }) {
+export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | null }) {
   const { engine, fail, notify } = useApp();
+  const datasetId = api.project.dataset_id;
+  const draftKey = (name: string) => `${api.project.id}:${name}`;
+  const [ai, setAi] = useState<AiStatus | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [question, setQuestion] = useState("");
+  const [asking, setAsking] = useState(false);
+  const [explanation, setExplanation] = useState<string | null>(null);
   const [tables, setTables] = useState<SqlTable[] | null>(null);
   const [connections, setConnections] = useState<SqlConnection[]>([]);
   const [kinds, setKinds] = useState<SqlKind[]>([]);
   const [source, setSource] = useState(LOCAL);
   const [sourceTables, setSourceTables] = useState<SqlTable[] | null>(null);
   const [sourceError, setSourceError] = useState<string | null>(null);
-  const [query, setQueryState] = useState<string>(() => readDraft(LOCAL) ?? "");
+  const [query, setQueryState] = useState<string>(() => seed ?? readDraft(`${api.project.id}:${LOCAL}`) ?? "");
   const latest = useRef(query); // the editor's text right now, ahead of the next render
   const setQuery = useCallback((next: string | ((previous: string) => string)) => {
     setQueryState((previous) => {
@@ -272,13 +346,12 @@ export function SqlPage({ goHome, openProject }: { goHome: () => void; openProje
   const [saveName, setSaveName] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<DatasetMeta | null>(null);
-  const [creating, setCreating] = useState<DatasetMeta | null>(null);
   const inBrowser = engine.kind === "browser";
   const connection = connections.find((c) => c.id === source) ?? null;
 
   const loadTables = useCallback(async () => {
     try {
-      const next = await engine.call<SqlTable[]>("sql.tables");
+      const next = await engine.call<SqlTable[]>("sql.tables", { dataset_id: datasetId });
       setTables(next);
       return next;
     } catch (error) {
@@ -286,13 +359,14 @@ export function SqlPage({ goHome, openProject }: { goHome: () => void; openProje
       setTables([]);
       return [];
     }
-  }, [engine, fail]);
+  }, [engine, fail, datasetId]);
 
   useEffect(() => {
     void loadTables().then((next) => setQuery((q) => q || starter(next)));
     if (!inBrowser) {
       engine.call<SqlConnection[]>("sql.connections").then(setConnections, fail);
       engine.call<SqlKind[]>("sql.kinds").then(setKinds, fail);
+      engine.call<AiStatus>("ai.status").then(setAi, () => setAi(null));
     }
   }, [engine, fail, inBrowser, loadTables]);
 
@@ -308,12 +382,13 @@ export function SqlPage({ goHome, openProject }: { goHome: () => void; openProje
 
   const choose = (next: string) => {
     if (next === source) return;
-    writeDraft(source, query);
+    writeDraft(draftKey(source), query);
     setSource(next);
     setResult(null);
     setError(null);
     setSaved(null);
-    setQuery(readDraft(next) ?? (next === LOCAL ? starter(tables ?? []) : "select 1"));
+    setExplanation(null);
+    setQuery(readDraft(draftKey(next)) ?? (next === LOCAL ? starter(tables ?? []) : "select 1"));
   };
 
   const shown = source === LOCAL ? tables : sourceTables;
@@ -321,12 +396,12 @@ export function SqlPage({ goHome, openProject }: { goHome: () => void; openProje
 
   const run = useCallback(async (text: string = latest.current) => {
     if (running) return;
-    writeDraft(source, text);
+    writeDraft(draftKey(source), text);
     setRunning(true);
     setError(null);
     setSaved(null);
     try {
-      setResult(await engine.call<SqlResult>("sql.run", { sql: text, connection_id: source === LOCAL ? null : source, limit: 500 }));
+      setResult(await engine.call<SqlResult>("sql.run", { sql: text, connection_id: source === LOCAL ? null : source, limit: 500, dataset_id: datasetId }));
     } catch (failure) {
       const details = (failure instanceof EngineError ? failure.details : null) as { line?: number } | null;
       setResult(null);
@@ -334,13 +409,47 @@ export function SqlPage({ goHome, openProject }: { goHome: () => void; openProje
     } finally {
       setRunning(false);
     }
-  }, [engine, running, source]);
+  }, [engine, running, source, datasetId]);
+
+  /** Plain English (or a failed query) to SQL, then run it. */
+  const ask = async (fix = false) => {
+    if (!ai?.configured) {
+      setAiOpen(true);
+      return;
+    }
+    setAsking(true);
+    try {
+      const answer = await engine.call<{ sql: string; explanation: string }>("ai.sql", {
+        question: fix ? "" : question,
+        connection_id: source === LOCAL ? null : source,
+        dataset_id: datasetId,
+        sql: fix ? latest.current : "",
+        error: fix ? error?.message : null,
+      });
+      setExplanation(answer.explanation || null);
+      if (answer.sql) {
+        setQuery(answer.sql);
+        latest.current = answer.sql;
+        await run(answer.sql);
+      }
+    } catch (failure) {
+      fail(failure);
+    } finally {
+      setAsking(false);
+    }
+  };
+
+  const useAsProjectData = (meta: DatasetMeta) => {
+    if (!window.confirm(`Train this project on “${meta.name}” (${meta.rows.toLocaleString()} rows) instead of its current data? The old dataset is kept, and you can switch back on the Data page.`)) return;
+    api.update((p) => ({ ...p, dataset_id: meta.id }));
+    notify(`This project now uses ${meta.name}.`, "ok");
+  };
 
   const saveResult = async () => {
     if (saveName === null) return;
     setSaving(true);
     try {
-      const meta = await engine.call<DatasetMeta>("sql.save", { sql: latest.current, name: saveName, connection_id: source === LOCAL ? null : source });
+      const meta = await engine.call<DatasetMeta>("sql.save", { sql: latest.current, name: saveName, connection_id: source === LOCAL ? null : source, dataset_id: datasetId });
       setSaved(meta);
       setSaveName(null);
       notify(`Saved ${meta.rows.toLocaleString()} rows as the dataset ${meta.name}.`, "ok");
@@ -365,22 +474,20 @@ export function SqlPage({ goHome, openProject }: { goHome: () => void; openProje
 
   const suggestedName = () => {
     const match = /\bfrom\s+([A-Za-z_][\w.]*)/i.exec(query);
-    return match ? `${(match[1] ?? "").split(".").pop()} query` : "query result";
+    const table = (match?.[1] ?? "").split(".").pop();
+    return table && table !== "data" ? `${table} query` : `${api.project.name} query`;
   };
 
   return (
-    <div className="shell">
-      <TopBar onHome={goHome} help="sql">
-        <SectionNav current="sql" onProjects={goHome} onSql={() => undefined} />
-      </TopBar>
-      <div className="sql-layout">
+    <>
+      <div className="sql-layout in-project">
         <aside className="sql-side" aria-label="Tables">
           <section>
             <button className={`sql-source ${source === LOCAL ? "active" : ""}`} onClick={() => choose(LOCAL)} aria-pressed={source === LOCAL}>
               <Icon name="table" size={14} />
               <span className="sql-source-text">
-                <b>Your datasets</b>
-                <span className="faint tiny">DuckDB, on copies of your data</span>
+                <b>This project</b>
+                <span className="faint tiny">data, and your other datasets</span>
               </span>
             </button>
             {source === LOCAL && <Schema tables={tables} onPick={(text) => setInsert({ text, n: Date.now() })} empty="No tables yet. Import a CSV, Excel or Parquet file on the home page." />}
@@ -439,7 +546,7 @@ export function SqlPage({ goHome, openProject }: { goHome: () => void; openProje
                   </>
                 ) : (
                   <>
-                    Querying <b>your datasets</b>. Each one is a table; your files are never changed.
+                    <b>data</b> is this project's table; other datasets are tables too. Your files never change.
                   </>
                 )}
               </span>
@@ -450,6 +557,29 @@ export function SqlPage({ goHome, openProject }: { goHome: () => void; openProje
               {running ? <Spinner /> : <Icon name="play" size={13} />} Run
             </button>
           </div>
+          {!inBrowser && (
+            <form
+              className="ask-ai"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void ask();
+              }}
+            >
+              <Icon name="sparkles" size={15} className="accent-text" />
+              <input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ask in plain English, e.g. churn rate by contract type" aria-label="Ask AI" />
+              <button type="submit" className="small" disabled={asking || (!question.trim() && Boolean(ai?.configured))}>
+                {asking ? <Spinner /> : null} {ai?.configured ? "Write SQL" : "Set up Ask AI"}
+              </button>
+              <button type="button" className="ghost icon-only small" onClick={() => setAiOpen(true)} title="Ask AI settings" aria-label="Ask AI settings">
+                <Icon name="gear" size={13} />
+              </button>
+            </form>
+          )}
+          {explanation && (
+            <p className="ai-explanation">
+              <Icon name="sparkles" size={12} /> {explanation}
+            </p>
+          )}
           <CodeEditor
             value={query}
             onChange={(code) => {
@@ -471,8 +601,17 @@ export function SqlPage({ goHome, openProject }: { goHome: () => void; openProje
 
           {error && (
             <Notice level="error">
-              {error.line ? `Line ${error.line}: ` : ""}
-              {error.message}
+              <div className="row wrap" style={{ justifyContent: "space-between" }}>
+                <span>
+                  {error.line ? `Line ${error.line}: ` : ""}
+                  {error.message}
+                </span>
+                {ai?.configured && (
+                  <button className="small" onClick={() => void ask(true)} disabled={asking}>
+                    {asking ? <Spinner /> : <Icon name="sparkles" size={12} />} Fix with AI
+                  </button>
+                )}
+              </div>
             </Notice>
           )}
 
@@ -487,8 +626,8 @@ export function SqlPage({ goHome, openProject }: { goHome: () => void; openProje
                       <span className="small ok-text">
                         <Icon name="check" size={12} /> Saved as {saved.name}
                       </span>
-                      <button className="small" onClick={() => setCreating(saved)}>
-                        Start a project with it
+                      <button className="small" onClick={() => useAsProjectData(saved)}>
+                        Use as this project's data
                       </button>
                     </>
                   ) : (
@@ -505,7 +644,7 @@ export function SqlPage({ goHome, openProject }: { goHome: () => void; openProje
           )}
           {!result && !error && !running && (
             <p className="faint small sql-hint">
-              Write a query and press Run. Click a table or column on the left to insert its name. To keep a result for training, save it as a dataset.
+              Write a query, or ask AI, and press Run. Click a table or column on the left to insert its name. To train on a result, save it as a dataset and use it as this project's data.
             </p>
           )}
         </main>
@@ -549,7 +688,16 @@ export function SqlPage({ goHome, openProject }: { goHome: () => void; openProje
           </div>
         </Modal>
       )}
-      {creating && <NewProject initialDataset={creating} onClose={() => setCreating(null)} onCreated={openProject} />}
-    </div>
+      {aiOpen && ai && (
+        <AiSettings
+          status={ai}
+          onClose={() => setAiOpen(false)}
+          onSaved={(next) => {
+            setAi(next);
+            setAiOpen(false);
+          }}
+        />
+      )}
+    </>
   );
 }

@@ -98,6 +98,21 @@ def _webview() -> Any | None:
 WINDOW_TIMEOUT_S = 30.0
 
 
+class WindowApi:
+    """What the page may ask of the desktop app (window.pywebview.api in JavaScript)."""
+
+    def __init__(self, webview: Any, base: str) -> None:
+        self._webview = webview
+        self._base = base
+
+    def open_window(self, url: str, title: str = "FlowLabs") -> bool:
+        """Open a page of this FlowLabs, such as one chart, in a second window."""
+        if not isinstance(url, str) or not url.startswith(self._base + "/"):
+            return False  # only FlowLabs's own pages
+        self._webview.create_window(str(title)[:120] or "FlowLabs", url, width=1180, height=820)
+        return True
+
+
 def launch(root: Path, *, port: int | None = None, window: bool = True, quiet: bool = False) -> int:
     token = os.environ.get("FLOWLABS_TOKEN") or secrets.token_urlsafe(24)
     server = Server(root, port or free_port(), token)
@@ -113,8 +128,9 @@ def launch(root: Path, *, port: int | None = None, window: bool = True, quiet: b
                 settings["ALLOW_DOWNLOADS"] = True  # exports and scored files
             try:
                 app_window = webview.create_window(
-                    WINDOW_TITLE, server.url, width=WINDOW_SIZE[0], height=WINDOW_SIZE[1]
-                )
+                    WINDOW_TITLE, server.url, width=WINDOW_SIZE[0], height=WINDOW_SIZE[1],
+                    js_api=WindowApi(webview, server.base),
+                )  # fmt: skip
                 shown = threading.Event()
                 events = getattr(app_window, "events", None)
                 if events is not None and hasattr(events, "shown"):

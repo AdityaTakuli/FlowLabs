@@ -460,3 +460,12 @@ export interface UpdateInfo {
   asset?: { name: string; size: number } | null;
   error?: string;
 }
+
+export interface AiStatus {
+  provider: string;
+  configured: boolean;
+  source: "environment" | "saved" | null;
+  model: string;
+  models: string[];
+  available: boolean;
+}

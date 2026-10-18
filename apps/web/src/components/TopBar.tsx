@@ -102,10 +102,10 @@ export function TopBar({ children, actions, onHome, help }: { children?: ReactNo
   );
 }
 
-/** Projects | SQL | Guide, as a pill switch whose thumb slides between the two pages. */
-export function SectionNav({ current, onProjects, onSql, onGuide }: { current: "projects" | "sql" | "guide"; onProjects: () => void; onSql: () => void; onGuide?: () => void }) {
+/** Projects | Guide, as a pill switch whose thumb slides between the two pages. */
+export function SectionNav({ current, onProjects, onGuide }: { current: "projects" | "guide"; onProjects: () => void; onGuide?: () => void }) {
   const { openGuide } = useApp();
-  const item = (id: "projects" | "sql" | "guide", label: ReactNode, go: () => void) => (
+  const item = (id: "projects" | "guide", label: ReactNode, go: () => void) => (
     <button className={`ghost small ${current === id ? "active" : ""}`} aria-current={current === id ? "page" : undefined} onClick={current === id ? undefined : go}>
       {current === id && <motion.span layoutId="section-thumb" className="nav-thumb" transition={{ type: "spring", stiffness: 480, damping: 38 }} />}
       {label}
@@ -114,7 +114,6 @@ export function SectionNav({ current, onProjects, onSql, onGuide }: { current: "
   return (
     <nav className="top-nav" aria-label="Sections">
       {item("projects", "Projects", onProjects)}
-      {item("sql", <><Icon name="database" size={13} /> SQL</>, onSql)}
       {item("guide", <><Icon name="book" size={13} /> Guide</>, onGuide ?? (() => openGuide("getting-started")))}
     </nav>
   );

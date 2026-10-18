@@ -3,28 +3,42 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppContext, type AppState, type Toast } from "./context";
 import { androidBridge, BrowserEngine, chooseEngine, EngineError, type Engine } from "./engine/engine";
 import { EngineDialog } from "./components/EngineDialog";
+import { Intro } from "./components/Intro";
 import { LogoMark } from "./components/TopBar";
 import { Icon } from "./components/Icon";
-import { Bar } from "./components/ui";
 import { Home } from "./pages/Home";
 import { ProjectPage, type Tab } from "./pages/ProjectPage";
+import { ChartWindow } from "./pages/ChartWindow";
 import { GuidePage } from "./pages/GuidePage";
-import { SqlPage } from "./pages/SqlPage";
 import type { Catalogue, EngineEvent, EngineInfo } from "./types";
 
-type Route = { page: "home" } | { page: "sql" } | { page: "guide"; topic: string } | { page: "project"; id: string; tab: Tab };
+type Route =
+  | { page: "home" }
+  | { page: "sql" }
+  | { page: "guide"; topic: string }
+  | { page: "chart"; project: string; chart: string; run?: string; model?: string }
+  | { page: "project"; id: string; tab: Tab };
 
 function readRoute(): Route {
   const query = new URLSearchParams(location.search);
   const id = query.get("project");
   if (query.get("page") === "sql") return { page: "sql" };
   if (query.get("page") === "guide") return { page: "guide", topic: query.get("topic") || "getting-started" };
+  if (query.get("page") === "chart" && query.get("project") && query.get("chart"))
+    return { page: "chart", project: query.get("project")!, chart: query.get("chart")!, run: query.get("run") ?? undefined, model: query.get("model") ?? undefined };
   return id ? { page: "project", id, tab: (query.get("tab") as Tab) || "pipeline" } : { page: "home" };
 }
 
 function writeRoute(route: Route, replace = false) {
   const query = new URLSearchParams();
   if (route.page === "sql") query.set("page", "sql");
+  if (route.page === "chart") {
+    query.set("page", "chart");
+    query.set("project", route.project);
+    query.set("chart", route.chart);
+    if (route.run) query.set("run", route.run);
+    if (route.model) query.set("model", route.model);
+  }
   if (route.page === "guide") {
     query.set("page", "guide");
     query.set("topic", route.topic);
@@ -48,6 +62,12 @@ export function App() {
   const [route, setRoute] = useState<Route>(readRoute);
   const [engineOpen, setEngineOpen] = useState(false);
   const toastId = useRef(0);
+  // the intro stays long enough for its title to settle, even when the engine is ready at once
+  const [introShown, setIntroShown] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setIntroShown(true), 1300);
+    return () => clearTimeout(timer);
+  }, []);
 
   const notify = useCallback((message: string, level: Toast["level"] = "info") => {
     const id = ++toastId.current;
@@ -168,16 +188,17 @@ export function App() {
       {state ? (
         <AppContext.Provider value={state}>
           {route.page === "home" ? (
-            <Home open={(id) => navigate({ page: "project", id, tab: "data" })} openSql={() => navigate({ page: "sql" })} />
+            <Home open={(id) => navigate({ page: "project", id, tab: "data" })} />
+          ) : route.page === "chart" ? (
+            <ChartWindow projectId={route.project} chartId={route.chart} runId={route.run} modelId={route.model} />
           ) : route.page === "guide" ? (
             <GuidePage
               topic={route.topic}
               goHome={() => navigate({ page: "home" })}
-              openSql={() => navigate({ page: "sql" })}
               openTopic={(topic) => navigate({ page: "guide", topic })}
             />
           ) : route.page === "sql" ? (
-            <SqlPage goHome={() => navigate({ page: "home" })} openProject={(id) => navigate({ page: "project", id, tab: "data" })} />
+            <Home open={(id) => navigate({ page: "project", id, tab: "analyze" })} />
           ) : (
             <ProjectPage
               key={route.id}
@@ -199,43 +220,43 @@ export function App() {
           <div />
         </div>
       )}
-      {(boot || bootError) && (
-        <div className="boot">
-          <div className="boot-card">
-            {bootError ? (
-              <>
-                <Icon name="error" size={28} className="error-text" />
-                <h2>The engine did not start</h2>
-                <p className="dim">{bootError}</p>
-                <div className="row">
-                  <button onClick={() => engine && void load(engine)}>
-                    <Icon name="refresh" /> Try again
-                  </button>
-                  {engine?.kernel && <button className="primary" onClick={() => void switchToBuiltIn()}>Use the built-in engine</button>}
-                  {engine?.kind !== "browser" && <button onClick={() => void switchEngine(new BrowserEngine())}>Use this browser instead</button>}
-                </div>
-              </>
-            ) : (
-              <>
-                <LogoMark size={44} />
-                <h2>{boot?.message}</h2>
-                {boot?.progress !== undefined && (
-                  <div style={{ width: "100%" }}>
-                    <Bar value={boot.progress} />
-                  </div>
-                )}
-                {engine?.kind === "browser" && (
-                  <p className="dim small">
-                    {androidBridge()
-                      ? "FlowLabs runs Python on this phone. Everything it needs is inside the app, and your data stays on the device."
-                      : "FlowLabs runs Python inside this tab. The first visit downloads about 40 MB; later visits load from the cache. Your data stays on this device."}
+      <AnimatePresence>
+        {(boot || bootError || !introShown) && (
+          <Intro
+            key="intro"
+            message={bootError ? "The engine did not start" : (boot?.message ?? "Ready")}
+            progress={boot?.progress}
+            note={
+              engine?.kind === "browser"
+                ? androidBridge()
+                  ? "FlowLabs runs Python on this phone. Everything it needs is inside the app, and your data stays on the device."
+                  : "FlowLabs runs Python inside this tab. The first visit downloads about 40 MB; later visits load from the cache. Your data stays on this device."
+                : undefined
+            }
+            error={
+              bootError ? (
+                <div className="splash-error">
+                  <p className="error-text">
+                    <Icon name="error" /> The engine did not start
                   </p>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      )}
+                  <p className="dim small">{bootError}</p>
+                  <div className="row wrap" style={{ justifyContent: "center" }}>
+                    <button onClick={() => engine && void load(engine)}>
+                      <Icon name="refresh" /> Try again
+                    </button>
+                    {engine?.kernel && (
+                      <button className="primary" onClick={() => void switchToBuiltIn()}>
+                        Use the built-in engine
+                      </button>
+                    )}
+                    {engine?.kind !== "browser" && <button onClick={() => void switchEngine(new BrowserEngine())}>Use this browser instead</button>}
+                  </div>
+                </div>
+              ) : undefined
+            }
+          />
+        )}
+      </AnimatePresence>
       <div className="toasts" aria-live="polite">
         <AnimatePresence initial={false}>
         {toasts.map((toast) => (

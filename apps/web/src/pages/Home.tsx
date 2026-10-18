@@ -81,7 +81,7 @@ function DataGrid({ onFile, onBrowse }: { onFile: (file: File) => void; onBrowse
   );
 }
 
-export function Home({ open, openSql }: { open: (id: string) => void; openSql: () => void }) {
+export function Home({ open }: { open: (id: string) => void }) {
   const { engine, info, catalogue, fail, openEngine, notify } = useApp();
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
@@ -140,7 +140,7 @@ export function Home({ open, openSql }: { open: (id: string) => void; openSql: (
   return (
     <div className="shell">
       <TopBar help="getting-started">
-        <SectionNav current="projects" onProjects={() => undefined} onSql={openSql} />
+        <SectionNav current="projects" onProjects={() => undefined} />
       </TopBar>
       <main className="content">
         <div className="page home">
@@ -281,9 +281,6 @@ export function Home({ open, openSql }: { open: (id: string) => void; openSql: (
               <div className="section-head">
                 <h2>Stored datasets</h2>
                 <span className="dim small">Kept {engine.kind === "browser" ? "in this browser" : info.workspace ? `in ${info.workspace}` : "by this engine"}.</span>
-                <button className="small" onClick={openSql}>
-                  <Icon name="database" size={13} /> Query with SQL
-                </button>
               </div>
               <div className="table-wrap">
                 <table className="list-table">

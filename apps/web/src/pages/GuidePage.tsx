@@ -164,7 +164,7 @@ function highlight(text: string, query: string): ReactNode {
   return text.split(new RegExp(`(${words.join("|")})`, "gi")).map((part, i) => (i % 2 ? <mark key={i}>{part}</mark> : part));
 }
 
-export function GuidePage({ topic: topicId, goHome, openSql, openTopic }: { topic?: string; goHome: () => void; openSql: () => void; openTopic: (id: string) => void }) {
+export function GuidePage({ topic: topicId, goHome, openTopic }: { topic?: string; goHome: () => void; openTopic: (id: string) => void }) {
   const { catalogue } = useApp();
   const topic = findTopic(topicId);
   const [query, setQuery] = useState("");
@@ -217,7 +217,7 @@ export function GuidePage({ topic: topicId, goHome, openSql, openTopic }: { topi
   return (
     <div className="shell">
       <TopBar onHome={goHome}>
-        <SectionNav current="guide" onProjects={goHome} onSql={openSql} onGuide={() => undefined} />
+        <SectionNav current="guide" onProjects={goHome} onGuide={() => undefined} />
       </TopBar>
       <div className="guide-layout">
         <aside className="guide-side" aria-label="Guide topics">

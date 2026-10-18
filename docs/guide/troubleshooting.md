@@ -61,6 +61,13 @@ The built-in Python trains on the CPU. Choose a Python that has PyTorch with CUD
 
 The browser version cannot reach database servers. Use the desktop app.
 
+## Ask AI does not answer
+
+- **Groq did not accept the API key:** paste the key again in Ask AI's settings (the gear next to
+  **Write SQL**). Keys start with `gsk_`.
+- **Rate limit reached:** free Groq keys allow a limited number of requests a minute. Wait a moment.
+- **Could not reach Groq:** Ask AI needs the internet. Everything else in FlowLabs works offline.
+
 ## Where are my files?
 
 In the **FlowLabs** folder in your home folder (`~/FlowLabs`):

@@ -209,3 +209,63 @@ def test_database_servers(engine, variable):
     assert result["types"] == ["text", "number", "date"]
     meta = engine.call("sql.save", {"sql": "select * from sales", "name": "sales", "connection_id": saved["id"]})
     assert meta["rows"] > 0
+
+
+def test_inside_a_project_data_is_its_dataset(engine):
+    churn = next(t for t in engine.call("sql.tables") if t["name"] == "customer_churn")
+    tables = engine.call("sql.tables", {"dataset_id": churn["dataset_id"]})
+    assert tables[0]["name"] == "data" and tables[0]["rows"] == 2000
+    page = engine.call(
+        "sql.run",
+        {
+            "sql": "select customer_id from data order by customer_id",
+            "dataset_id": churn["dataset_id"],
+            "limit": 50,
+            "offset": 100,
+        },
+    )
+    assert page["total"] == 2000 and len(page["rows"]) == 50 and page["rows"][0][0] == "C00100"
+    assert (
+        "Your tables: data, customer_churn"
+        in engine.safe_call("sql.run", {"sql": "select * from nope", "dataset_id": churn["dataset_id"]})["error"][
+            "message"
+        ]
+    )
+    meta = engine.call(
+        "sql.save",
+        {"sql": "select * from data where support_calls > 3", "name": "Callers", "dataset_id": churn["dataset_id"]},
+    )
+    assert 0 < meta["rows"] < 2000
+
+
+def test_ask_ai_sends_the_schema_and_returns_sql(engine, monkeypatch, tmp_path):
+    from flowlabs.core import ai
+
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    assert engine.call("ai.status")["configured"] is False
+    assert "Add a Groq API key" in engine.safe_call("ai.sql", {"question": "how many rows?"})["error"]["message"]
+    assert "does not look like" in engine.safe_call("ai.configure", {"key": "nope"})["error"]["message"]
+    status = engine.call("ai.configure", {"key": "gsk_" + "a" * 40, "model": "llama-3.1-8b-instant"})
+    assert status["configured"] and status["source"] == "saved" and status["model"] == "llama-3.1-8b-instant"
+    assert "gsk_" not in json.dumps(status)
+
+    asked = {}
+
+    def fake(key, model, messages):
+        asked.update(key=key, model=model, messages=messages)
+        return json.dumps(
+            {
+                "sql": "select plan_type, count(*) as customers from data group by 1",
+                "explanation": "Customers per plan.",
+            }
+        )
+
+    monkeypatch.setattr(ai, "_ask", fake)
+    churn = next(t for t in engine.call("sql.tables") if t["name"] == "customer_churn")
+    answer = engine.call("ai.sql", {"question": "customers per plan", "dataset_id": churn["dataset_id"]})
+    assert answer["sql"].startswith("select plan_type") and answer["explanation"] == "Customers per plan."
+    prompt = asked["messages"][1]["content"]
+    assert "data (2000 rows)" in prompt and "plan_type text e.g." in prompt and "customers per plan" in prompt
+    assert "C00001" not in prompt  # no examples from ID-like columns
+    assert "use the table data" in asked["messages"][0]["content"]
+    assert engine.call("ai.configure", {"key": ""})["configured"] is False

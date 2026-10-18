@@ -128,6 +128,87 @@ export function Ring({ value, label, display, size = 150, dots = 64 }: { value: 
   );
 }
 
+type Domain = { x: [number, number]; y: [number, number] };
+type Plot = { l: number; r: number; t: number; b: number; W: number; H: number };
+
+/** Scroll to zoom around the pointer, drag to move, double-click to go back. */
+function useZoom(enabled: boolean, base: Domain, plot: Plot) {
+  const svg = useRef<SVGSVGElement>(null);
+  const [view, setView] = useState<Domain | null>(null);
+  const live = useRef({ base, view, plot });
+  live.current = { base, view, plot };
+  useEffect(() => {
+    const element = svg.current;
+    if (!element || !enabled) return;
+    const at = (clientX: number, clientY: number) => {
+      const box = element.getBoundingClientRect();
+      const { plot: q, base: b, view: v } = live.current;
+      const d = v ?? b;
+      const tx = (((clientX - box.left) / box.width) * q.W - q.l) / (q.W - q.l - q.r);
+      const ty = 1 - (((clientY - box.top) / box.height) * q.H - q.t) / (q.H - q.t - q.b);
+      return { d, x: d.x[0] + tx * (d.x[1] - d.x[0]), y: d.y[0] + ty * (d.y[1] - d.y[0]) };
+    };
+    const wheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const { d, x, y } = at(event.clientX, event.clientY);
+      const f = Math.exp(event.deltaY * 0.0015);
+      setView({ x: [x - (x - d.x[0]) * f, x + (d.x[1] - x) * f], y: [y - (y - d.y[0]) * f, y + (d.y[1] - y) * f] });
+    };
+    let drag: { cx: number; cy: number; d: Domain } | null = null;
+    const down = (event: PointerEvent) => {
+      drag = { cx: event.clientX, cy: event.clientY, d: live.current.view ?? live.current.base };
+      element.setPointerCapture(event.pointerId);
+      element.style.cursor = "grabbing";
+    };
+    const move = (event: PointerEvent) => {
+      if (!drag) return;
+      const box = element.getBoundingClientRect();
+      const q = live.current.plot;
+      const w = ((q.W - q.l - q.r) * box.width) / q.W;
+      const h = ((q.H - q.t - q.b) * box.height) / q.H;
+      const dx = ((event.clientX - drag.cx) / w) * (drag.d.x[1] - drag.d.x[0]);
+      const dy = ((event.clientY - drag.cy) / h) * (drag.d.y[1] - drag.d.y[0]);
+      setView({ x: [drag.d.x[0] - dx, drag.d.x[1] - dx], y: [drag.d.y[0] + dy, drag.d.y[1] + dy] });
+    };
+    const up = () => {
+      drag = null;
+      element.style.cursor = "grab";
+    };
+    const reset = () => setView(null);
+    element.style.cursor = "grab";
+    element.style.touchAction = "none";
+    element.addEventListener("wheel", wheel, { passive: false });
+    element.addEventListener("pointerdown", down);
+    element.addEventListener("pointermove", move);
+    element.addEventListener("pointerup", up);
+    element.addEventListener("pointercancel", up);
+    element.addEventListener("dblclick", reset);
+    return () => {
+      element.removeEventListener("wheel", wheel);
+      element.removeEventListener("pointerdown", down);
+      element.removeEventListener("pointermove", move);
+      element.removeEventListener("pointerup", up);
+      element.removeEventListener("pointercancel", up);
+      element.removeEventListener("dblclick", reset);
+    };
+  }, [enabled]);
+  return { svg, view, reset: () => setView(null) };
+}
+
+function ZoomHint({ zoomed, reset }: { zoomed: boolean; reset: () => void }) {
+  return (
+    <span className="zoom-hint">
+      {zoomed ? (
+        <button className="ghost small" onClick={reset}>
+          Reset zoom
+        </button>
+      ) : (
+        "Scroll to zoom, drag to move"
+      )}
+    </span>
+  );
+}
+
 export interface Series {
   name: string;
   points: [number, number][];
@@ -143,6 +224,7 @@ export function LineChart({
   diagonal,
   domain,
   area,
+  interactive,
 }: {
   series: Series[];
   height?: number;
@@ -151,26 +233,31 @@ export function LineChart({
   diagonal?: boolean;
   domain?: { x?: [number, number]; y?: [number, number] };
   area?: boolean;
+  /** Zoom and pan (the expanded view). */
+  interactive?: boolean;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const [ref, shown, reduced, width] = useChart();
   const id = useRef(`g${Math.random().toString(36).slice(2, 8)}`).current;
   const W = width;
   const H = height;
-  const P = { l: 40, r: 12, t: 12, b: xLabel ? 34 : 22 };
+  const P = { l: 44, r: 14, t: 12, b: xLabel ? 36 : 22 };
   const all = series.flatMap((s) => s.points);
-  if (!all.length) return <div className="dim small">No data yet</div>;
-  const xs = all.map((p) => p[0]);
-  const ys = all.map((p) => p[1]);
-  let [x0, x1] = domain?.x ?? [Math.min(...xs), Math.max(...xs)];
-  let [y0, y1] = domain?.y ?? [Math.min(...ys), Math.max(...ys)];
-  if (x0 === x1) [x0, x1] = [x0 - 1, x1 + 1];
-  if (y0 === y1) [y0, y1] = [y0 - 0.5, y1 + 0.5];
+  const xs = all.length ? all.map((p) => p[0]) : [0, 1];
+  const ys = all.length ? all.map((p) => p[1]) : [0, 1];
+  let [bx0, bx1] = domain?.x ?? [Math.min(...xs), Math.max(...xs)];
+  let [by0, by1] = domain?.y ?? [Math.min(...ys), Math.max(...ys)];
+  if (bx0 === bx1) [bx0, bx1] = [bx0 - 1, bx1 + 1];
+  if (by0 === by1) [by0, by1] = [by0 - 0.5, by1 + 0.5];
   if (!domain?.y) {
-    const pad = (y1 - y0) * 0.08;
-    y0 -= pad;
-    y1 += pad;
+    const pad = (by1 - by0) * 0.08;
+    by0 -= pad;
+    by1 += pad;
   }
+  const zoom = useZoom(Boolean(interactive), { x: [bx0, bx1], y: [by0, by1] }, { ...P, W, H });
+  if (!all.length) return <div className="dim small">No data yet</div>;
+  const [x0, x1] = zoom.view?.x ?? [bx0, bx1];
+  const [y0, y1] = zoom.view?.y ?? [by0, by1];
   const sx = (x: number) => P.l + ((x - x0) / (x1 - x0)) * (W - P.l - P.r);
   const sy = (y: number) => H - P.b - ((y - y0) / (y1 - y0)) * (H - P.t - P.b);
   const xt = ticks(x0, x1, 5);
@@ -182,6 +269,7 @@ export function LineChart({
   return (
     <div ref={ref}>
       <svg
+        ref={zoom.svg}
         className="chart"
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
@@ -193,6 +281,9 @@ export function LineChart({
         onMouseLeave={() => setHover(null)}
       >
         <defs>
+          <clipPath id={`${id}-clip`}>
+            <rect x={P.l} y={P.t - 4} width={W - P.l - P.r} height={H - P.t - P.b + 8} />
+          </clipPath>
           {series.map((s, i) => (
             <linearGradient key={s.name} id={`${id}-${i}`} x1="0" x2="0" y1="0" y2="1">
               <stop offset="0%" stopColor={s.colour ?? PALETTE[i % PALETTE.length]} stopOpacity={0.28} />
@@ -214,7 +305,8 @@ export function LineChart({
           </text>
         ))}
         <line className="axis" x1={P.l} x2={W - P.r} y1={H - P.b} y2={H - P.b} />
-        {diagonal && <line x1={sx(Math.max(x0, y0))} y1={sy(Math.max(x0, y0))} x2={sx(Math.min(x1, y1))} y2={sy(Math.min(x1, y1))} stroke="var(--edge)" strokeDasharray="3 5" />}
+        <g clipPath={`url(#${id}-clip)`}>
+        {diagonal && <line x1={sx(Math.min(bx0, by0))} y1={sy(Math.min(bx0, by0))} x2={sx(Math.max(bx1, by1))} y2={sy(Math.max(bx1, by1))} stroke="var(--edge)" strokeDasharray="3 5" />}
         {series.map((s, i) => {
           const colour = s.colour ?? PALETTE[i % PALETTE.length];
           const d = s.points.map((p, j) => `${j ? "L" : "M"}${sx(p[0]).toFixed(1)},${sy(p[1]).toFixed(1)}`).join("");
@@ -248,6 +340,7 @@ export function LineChart({
             </g>
           );
         })}
+        </g>
         {hover !== null && (
           <g>
             <line x1={hover} x2={hover} y1={P.t} y2={H - P.b} stroke="var(--rule-strong)" />
@@ -280,6 +373,7 @@ export function LineChart({
           );
         })}
         {hoverX !== null && series[0] && <span className="faint">at {fmt(nearest(series[0])?.[0])}</span>}
+        {interactive && <ZoomHint zoomed={zoom.view !== null} reset={zoom.reset} />}
       </div>
     </div>
   );
@@ -313,19 +407,20 @@ export function Bars({ items, max, colour = "var(--c-blue)", format = fmt, signe
   );
 }
 
-export function Heatmap({ labels, columns, matrix, diverging, format = fmt, normalizeRows, title, accentDiagonal }: { labels: string[]; columns?: string[]; matrix: number[][]; diverging?: boolean; format?: (v: number) => string; normalizeRows?: boolean; title?: (row: string, column: string) => string; accentDiagonal?: boolean }) {
+export function Heatmap({ labels, columns, matrix, diverging, format = fmt, normalizeRows, title, accentDiagonal, cell = 52, area = 460, shade }: { labels: string[]; columns?: string[]; matrix: number[][]; diverging?: boolean; format?: (v: number) => string; normalizeRows?: boolean; title?: (row: string, column: string) => string; accentDiagonal?: boolean; cell?: number; area?: number; shade?: number[][] }) {
   const [ref, shown, reduced] = useShown<HTMLDivElement>();
   const cols = columns ?? labels;
   const values = useMemo(() => {
+    if (shade) return shade; // colour by these 0 to 1 values, show the raw ones
     if (!normalizeRows) return matrix;
     return matrix.map((row) => {
       const total = row.reduce((a, b) => a + b, 0) || 1;
       return row.map((v) => v / total);
     });
-  }, [matrix, normalizeRows]);
+  }, [matrix, normalizeRows, shade]);
   const flat = values.flat();
   const max = Math.max(...flat.map(Math.abs), 1e-12);
-  const size = Math.max(18, Math.min(48, Math.floor(420 / Math.max(cols.length, 1))));
+  const size = Math.max(18, Math.min(cell, Math.floor(area / Math.max(cols.length, 1))));
   const colour = (v: number, onDiagonal: boolean) => {
     const t = Math.abs(v) / max;
     const base = diverging && v < 0 ? "var(--c-red)" : accentDiagonal && !onDiagonal ? "var(--c-red)" : accentDiagonal ? "var(--signal)" : "var(--c-blue)";
@@ -362,7 +457,7 @@ export function Heatmap({ labels, columns, matrix, diverging, format = fmt, norm
                     initial={reduced ? false : { opacity: 0, scale: 0.6 }}
                     animate={shown ? { opacity: 1, scale: 1 } : undefined}
                     transition={{ delay: Math.min(0.8, (i + j) * 0.035), type: "spring", stiffness: 300, damping: 24 }}
-                    style={{ width: size, height: size, minWidth: size, padding: 0, border: "none", borderRadius: 7, textAlign: "center", fontSize: 10.5, fontWeight: strong ? 600 : 400, background: colour(v, labels[i] === c), color: strong ? "#fff" : "var(--text-dim)" }}
+                    style={{ width: size, height: size, minWidth: size, padding: 0, border: "none", borderRadius: Math.max(5, size / 7), textAlign: "center", fontSize: size > 60 ? 13 : 10.5, fontWeight: strong ? 600 : 400, background: colour(v, labels[i] === c), color: strong ? "#fff" : "var(--text-dim)" }}
                   >
                     {showText ? format(raw) : ""}
                   </motion.td>
@@ -617,7 +712,7 @@ function quantile(sorted: number[], q: number): number {
 }
 
 /** r19's box plot, on its side: one row per item, a box from the 25th to the 75th percentile, the folds as dots. */
-export function BoxPlot({ rows, format = fmt, highlight, label }: { rows: { label: string; values: number[] }[]; format?: (v: number) => string; highlight?: string; label?: string }) {
+export function BoxPlot({ rows, format = fmt, highlight, label, rowHeight = 34 }: { rows: { label: string; values: number[] }[]; format?: (v: number) => string; highlight?: string; label?: string; rowHeight?: number }) {
   const [ref, shown, reduced, width] = useChart();
   const usable = rows.filter((r) => r.values.length > 0);
   if (!usable.length) return null;
@@ -628,7 +723,7 @@ export function BoxPlot({ rows, format = fmt, highlight, label }: { rows: { labe
   lo -= pad;
   hi += pad;
   const W = width;
-  const rowH = 30;
+  const rowH = rowHeight;
   const P = { l: 118, r: 14, t: 6, b: 24 };
   const H = P.t + P.b + rowH * usable.length;
   const sx = (v: number) => P.l + ((v - lo) / (hi - lo)) * (W - P.l - P.r);
@@ -685,11 +780,11 @@ export function BoxPlot({ rows, format = fmt, highlight, label }: { rows: { labe
 }
 
 /** r19's bars and line: one bar per item (the score), a line for a second measure on its own scale. */
-export function BarLine({ items, barLabel, lineLabel, formatBar = fmt, formatLine = fmt, highlight }: { items: { label: string; bar: number | null; line: number | null }[]; barLabel: string; lineLabel: string; formatBar?: (v: number) => string; formatLine?: (v: number) => string; highlight?: string }) {
+export function BarLine({ items, barLabel, lineLabel, formatBar = fmt, formatLine = fmt, highlight, height = 260 }: { items: { label: string; bar: number | null; line: number | null }[]; barLabel: string; lineLabel: string; formatBar?: (v: number) => string; formatLine?: (v: number) => string; highlight?: string; height?: number }) {
   const [ref, shown, reduced, width] = useChart();
   if (!items.length) return null;
   const W = width;
-  const H = 220;
+  const H = height;
   const P = { l: 40, r: 40, t: 14, b: 46 };
   const bars = items.map((i) => i.bar ?? 0);
   const lines = items.map((i) => i.line ?? 0);
@@ -697,7 +792,7 @@ export function BarLine({ items, barLabel, lineLabel, formatBar = fmt, formatLin
   const barTop = Math.max(...bars, 1e-9);
   const lineTop = Math.max(...lines, 1e-9);
   const slot = (W - P.l - P.r) / items.length;
-  const bw = Math.min(42, slot * 0.6);
+  const bw = Math.min(H > 360 ? 80 : 46, slot * 0.6);
   const sy = (v: number) => H - P.b - ((v - barLow) / (barTop - barLow || 1)) * (H - P.t - P.b);
   const ly = (v: number) => H - P.b - (v / lineTop) * (H - P.t - P.b);
   const cx = (i: number) => P.l + slot * (i + 0.5);
@@ -769,55 +864,75 @@ export function BarLine({ items, barLabel, lineLabel, formatBar = fmt, formatLin
   );
 }
 
-export function Scatter({ points, range, xLabel, yLabel }: { points: [number, number][]; range?: [number, number]; xLabel: string; yLabel: string }) {
+export function Scatter({ points, range, xLabel, yLabel, height = 280, interactive }: { points: [number, number][]; range?: [number, number]; xLabel: string; yLabel: string; height?: number; interactive?: boolean }) {
   const [ref, shown, reduced, width] = useChart();
+  const id = useRef(`s${Math.random().toString(36).slice(2, 8)}`).current;
   const W = width;
-  const H = 270;
-  const P = { l: 46, r: 10, t: 12, b: 34 };
+  const H = height;
+  const P = { l: 50, r: 12, t: 12, b: 36 };
+  const flat = points.length ? points.flat() : [0, 1];
+  const [lo, hi] = range ?? [Math.min(...flat), Math.max(...flat)];
+  const zoom = useZoom(Boolean(interactive), { x: [lo, hi], y: [lo, hi] }, { ...P, W, H });
   if (!points.length) return null;
-  const [lo, hi] = range ?? [Math.min(...points.flat()), Math.max(...points.flat())];
-  const s = (v: number, size: number, start: number, flip: boolean) => {
-    const t = (v - lo) / (hi - lo || 1);
-    return flip ? start + size - t * size : start + t * size;
-  };
-  const sx = (v: number) => s(v, W - P.l - P.r, P.l, false);
-  const sy = (v: number) => s(v, H - P.t - P.b, P.t, true);
-  const t = ticks(lo, hi, 4);
+  const [x0, x1] = zoom.view?.x ?? [lo, hi];
+  const [y0, y1] = zoom.view?.y ?? [lo, hi];
+  const sx = (v: number) => P.l + ((v - x0) / (x1 - x0 || 1)) * (W - P.l - P.r);
+  const sy = (v: number) => H - P.b - ((v - y0) / (y1 - y0 || 1)) * (H - P.t - P.b);
+  const xt = ticks(x0, x1, 5);
+  const yt = ticks(y0, y1, 4);
+  const big = H > 360;
   return (
     <div ref={ref}>
-    <svg className="chart" viewBox={`0 0 ${W} ${H}`} width="100%">
-      {t.map((v) => (
-        <g key={v}>
-          <line className="gridline" x1={P.l} x2={W - P.r} y1={sy(v)} y2={sy(v)} />
-          <text x={P.l - 6} y={sy(v) + 3} textAnchor="end">
+      <svg ref={zoom.svg} className="chart" viewBox={`0 0 ${W} ${H}`} width="100%">
+        <defs>
+          <clipPath id={`${id}-clip`}>
+            <rect x={P.l} y={P.t} width={W - P.l - P.r} height={H - P.t - P.b} />
+          </clipPath>
+        </defs>
+        {yt.map((v) => (
+          <g key={`y${v}`}>
+            <line className="gridline" x1={P.l} x2={W - P.r} y1={sy(v)} y2={sy(v)} />
+            <text x={P.l - 6} y={sy(v) + 3} textAnchor="end">
+              {fmt(v)}
+            </text>
+          </g>
+        ))}
+        {xt.map((v) => (
+          <text key={`x${v}`} x={sx(v)} y={H - P.b + 15} textAnchor="middle">
             {fmt(v)}
           </text>
-          <text x={sx(v)} y={H - P.b + 14} textAnchor="middle">
-            {fmt(v)}
-          </text>
+        ))}
+        <line className="axis" x1={P.l} x2={W - P.r} y1={H - P.b} y2={H - P.b} />
+        <g clipPath={`url(#${id}-clip)`}>
+          <motion.line x1={sx(lo)} y1={sy(lo)} x2={sx(hi)} y2={sy(hi)} stroke="var(--signal)" strokeWidth={1.4} strokeDasharray="4 5" initial={reduced ? false : { pathLength: 0 }} animate={shown ? { pathLength: 1 } : undefined} transition={{ duration: 0.9, ease: EASE }} />
+          {points.map((p, i) => (
+            <motion.circle
+              key={i}
+              cx={sx(p[0])}
+              cy={sy(p[1])}
+              r={big ? 3.4 : 2.6}
+              fill="var(--c-blue)"
+              fillOpacity={0.55}
+              initial={reduced ? false : { opacity: 0 }}
+              animate={shown ? { opacity: 1 } : undefined}
+              transition={{ delay: 0.2 + (i / points.length) * 0.9, duration: 0.2 }}
+            >
+              <title>{`actual ${fmt(p[0])}, predicted ${fmt(p[1])}`}</title>
+            </motion.circle>
+          ))}
         </g>
-      ))}
-      <motion.line x1={sx(lo)} y1={sy(lo)} x2={sx(hi)} y2={sy(hi)} stroke="var(--signal)" strokeWidth={1.4} strokeDasharray="4 5" initial={reduced ? false : { pathLength: 0 }} animate={shown ? { pathLength: 1 } : undefined} transition={{ duration: 0.9, ease: EASE }} />
-      {points.map((p, i) => (
-        <motion.circle
-          key={i}
-          cx={sx(p[0])}
-          cy={sy(p[1])}
-          r={2.6}
-          fill="var(--c-blue)"
-          fillOpacity={0.55}
-          initial={reduced ? false : { opacity: 0 }}
-          animate={shown ? { opacity: 1 } : undefined}
-          transition={{ delay: 0.2 + (i / points.length) * 0.9, duration: 0.2 }}
-        />
-      ))}
-      <text x={(W + P.l) / 2} y={H - 4} textAnchor="middle">
-        {xLabel}
-      </text>
-      <text x={P.l + 4} y={P.t + 8}>
-        {yLabel}
-      </text>
-    </svg>
+        <text x={(W + P.l) / 2} y={H - 4} textAnchor="middle">
+          {xLabel}
+        </text>
+        <text x={P.l + 4} y={P.t + 8}>
+          {yLabel}
+        </text>
+      </svg>
+      {interactive && (
+        <div className="legend">
+          <ZoomHint zoomed={zoom.view !== null} reset={zoom.reset} />
+        </div>
+      )}
     </div>
   );
 }

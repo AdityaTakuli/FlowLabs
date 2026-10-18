@@ -14,8 +14,8 @@ from typing import Any
 
 import flowlabs_runtime as rt
 
+from . import ai, codegen, datasets, env, evaluation, export, predict, sql, training
 from . import catalogue as cat
-from . import codegen, datasets, env, evaluation, export, predict, sql, training
 from . import project as projects
 from .training import Job
 from .util import Cancelled, UserError, jsonable
@@ -141,11 +141,15 @@ METHODS: dict[str, Callable[[Engine, dict[str, Any]], Any]] = {
     "export.build": lambda e, p: export.build(e.ws, _p(p, "project_id"), _p(p, "run_id"), _p(p, "model_id"),
                                               bool(p.get("include_data"))),
     "export.list": lambda e, p: export.list_exports(e.ws, _p(p, "project_id")),
-    "sql.tables": lambda e, p: sql.tables(e.ws),
+    "sql.tables": lambda e, p: sql.tables(e.ws, p.get("dataset_id")),
     "sql.run": lambda e, p: sql.run(e.ws, str(p.get("sql") or ""), p.get("connection_id"),
-                                    int(p.get("limit", sql.PREVIEW_ROWS))),
+                                    int(p.get("limit", sql.PREVIEW_ROWS)), int(p.get("offset", 0)), p.get("dataset_id")),
     "sql.save": lambda e, p: sql.save_result(e.ws, str(p.get("sql") or ""), str(p.get("name") or ""),
-                                             p.get("connection_id")),
+                                             p.get("connection_id"), p.get("dataset_id")),
+    "ai.status": lambda e, p: ai.status(e.ws),
+    "ai.configure": lambda e, p: ai.configure(e.ws, p.get("key"), p.get("model")),
+    "ai.sql": lambda e, p: ai.write_sql(e.ws, str(p.get("question") or ""), p.get("connection_id"), p.get("dataset_id"),
+                                        str(p.get("sql") or ""), p.get("error")),
     "sql.kinds": lambda e, p: sql.kinds(),
     "sql.connections": lambda e, p: sql.list_connections(e.ws),
     "sql.connection_save": lambda e, p: sql.save_connection(e.ws, _p(p, "connection")),
