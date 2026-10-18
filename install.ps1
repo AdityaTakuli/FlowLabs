@@ -9,6 +9,21 @@
 #   $env:FLOWLABS_VERSION = "0.5.1"   install that version instead of the latest
 #   $env:FLOWLABS_DRY_RUN = "1"       download and check, but do not install
 
+# Downloads are retried: GitHub's file servers sometimes drop a connection mid-way.
+function Invoke-FlowLabsDownload($Uri, $OutFile) {
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            if ($OutFile) { return Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing }
+            return Invoke-WebRequest -Uri $Uri -UseBasicParsing -TimeoutSec 60
+        } catch {
+            if ($OutFile) { Remove-Item $OutFile -ErrorAction SilentlyContinue }
+            if ($attempt -ge 5) { throw }
+            Write-Host "The connection dropped. Trying again ($attempt of 4)..."
+            Start-Sleep -Seconds ($attempt * 2)
+        }
+    }
+}
+
 function Install-FlowLabs {
     $ErrorActionPreference = "Stop"
     $ProgressPreference = "SilentlyContinue"   # much faster downloads in Windows PowerShell 5.1
@@ -25,18 +40,19 @@ function Install-FlowLabs {
     Write-Host "Finding the latest FlowLabs release..."
     try {
         # GitHub serves release files as application/octet-stream, so decode and parse it ourselves
-        $response = Invoke-WebRequest -Uri $manifestUrl -UseBasicParsing
+        $response = Invoke-FlowLabsDownload $manifestUrl
         $text = if ($response.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($response.Content) } else { [string]$response.Content }
         $manifest = $text | ConvertFrom-Json
     } catch {
-        throw "Could not read the release list. If a release was published minutes ago, it is still being built: try again shortly."
+        throw "Could not read the release list from GitHub. Check your internet connection and run the command again. (If a release was published minutes ago, it is still being built.)"
     }
     $asset = $manifest.assets | Where-Object { $_.name -like "*-windows-x64-setup.exe" } | Select-Object -First 1
     if (-not $asset) { throw "FlowLabs $($manifest.version) has no Windows installer yet. It may still be building: try again in a few minutes." }
 
     $file = Join-Path $env:TEMP $asset.name
     Write-Host "Downloading FlowLabs $($manifest.version) ($([math]::Round($asset.size / 1MB)) MB)..."
-    Invoke-WebRequest -Uri $asset.url -OutFile $file -UseBasicParsing
+    try { Invoke-FlowLabsDownload $asset.url $file | Out-Null }
+    catch { throw "The download kept failing. Check your internet connection and run the command again." }
     $hash = (Get-FileHash -Algorithm SHA256 -Path $file).Hash.ToLower()
     if ($hash -ne $asset.sha256) {
         Remove-Item $file -ErrorAction SilentlyContinue

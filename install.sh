@@ -19,14 +19,34 @@ REPO="AdityaTakuli/FlowLabs"
 say() { printf '%s\n' "$*"; }
 fail() { printf 'FlowLabs installer: %s\n' "$*" >&2; exit 1; }
 
-download() { # url file
+fetch_once() { # url file [quiet]
     if command -v curl >/dev/null 2>&1; then
-        curl -fL --progress-bar --retry 3 -o "$2" "$1"
+        if [ -n "${3:-}" ]; then
+            curl -fsSL --connect-timeout 20 -o "$2" "$1"
+        else
+            curl -fL --progress-bar --connect-timeout 20 -o "$2" "$1"
+        fi
     elif command -v wget >/dev/null 2>&1; then
-        wget -q --show-progress -O "$2" "$1"
+        if [ -n "${3:-}" ]; then
+            wget -q --timeout=30 -O "$2" "$1"
+        else
+            wget -q --show-progress --timeout=30 -O "$2" "$1"
+        fi
     else
         fail "needs curl or wget to download FlowLabs."
     fi
+}
+
+# Downloads are retried: GitHub's file servers sometimes drop a connection mid-way.
+download() { # url file [quiet]
+    attempt=1
+    until fetch_once "$1" "$2" "${3:-}"; do
+        rm -f "$2"
+        [ "$attempt" -lt 5 ] || return 1
+        say "The connection dropped. Trying again ($attempt of 4)..." >&2
+        sleep $((attempt * 2))
+        attempt=$((attempt + 1))
+    done
 }
 
 sha256_of() {
@@ -75,8 +95,8 @@ main() {
     trap 'rm -rf "$work"' EXIT INT TERM
 
     say "Finding the latest FlowLabs release..."
-    download "$manifest_url" "$work/latest.json" 2>/dev/null ||
-        fail "could not read the release list. If a release was published minutes ago, it is still being built: try again shortly."
+    download "$manifest_url" "$work/latest.json" quiet ||
+        fail "could not read the release list from GitHub. Check your internet connection and run the command again. (If a release was published minutes ago, it is still being built.)"
     version=$(awk -F'"' '/"version":/ { print $4; exit }' "$work/latest.json")
     name="FlowLabs-$version$pattern"
     url=$(asset_field "$work/latest.json" "$name" url)
@@ -85,7 +105,7 @@ main() {
     [ -n "$url" ] && [ -n "$expected" ] || fail "FlowLabs $version has no $name. It may still be building: try again in a few minutes."
 
     say "Downloading FlowLabs $version for this computer ($(( ${size:-0} / 1048576 )) MB)..."
-    download "$url" "$work/$name"
+    download "$url" "$work/$name" || fail "the download kept failing. Check your internet connection and run the command again."
     [ "$(sha256_of "$work/$name")" = "$expected" ] || fail "the download does not match the release's checksum. Nothing was installed."
     say "Download checked."
 
