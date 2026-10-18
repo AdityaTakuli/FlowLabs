@@ -121,7 +121,7 @@ function rowsLine(result: SqlResult): string {
 type Draft = Partial<SqlConnection> & { kind: SqlKind["id"]; password?: string };
 
 function ConnectionDialog({ kinds, initial, onClose, onSaved }: { kinds: SqlKind[]; initial: SqlConnection | null; onClose: () => void; onSaved: (connection: SqlConnection) => void }) {
-  const { engine, fail } = useApp();
+  const { engine, fail, openGuide } = useApp();
   const [draft, setDraft] = useState<Draft>(initial ? { ...initial } : { kind: "postgresql", port: 5432, allow_changes: false });
   const [test, setTest] = useState<{ ok: boolean; message: string } | null>(null);
   const [busy, setBusy] = useState<"test" | "save" | null>(null);
@@ -237,7 +237,12 @@ function ConnectionDialog({ kinds, initial, onClose, onSaved }: { kinds: SqlKind
             : "Read-only: statements that write are refused, and anything a query ran is rolled back."}
         </span>
       </div>
-      <p className="faint small">The connection, password included, is saved in the engine's workspace in a file only you can read. Queries run on the computer the engine runs on.</p>
+      <p className="faint small">
+        The connection, password included, is saved in the engine's workspace in a file only you can read. Queries run on the computer the engine runs on.{" "}
+        <button className="link" onClick={() => openGuide("sql#connect-a-database")}>
+          More about connections
+        </button>
+      </p>
     </Modal>
   );
 }
@@ -365,7 +370,7 @@ export function SqlPage({ goHome, openProject }: { goHome: () => void; openProje
 
   return (
     <div className="shell">
-      <TopBar onHome={goHome}>
+      <TopBar onHome={goHome} help="sql">
         <SectionNav current="sql" onProjects={goHome} onSql={() => undefined} />
       </TopBar>
       <div className="sql-layout">

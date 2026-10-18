@@ -74,7 +74,17 @@ function ThemeButton() {
   );
 }
 
-export function TopBar({ children, actions, onHome }: { children?: ReactNode; actions?: ReactNode; onHome?: () => void }) {
+/** Opens the guide at the topic for the page you are on. */
+function HelpButton({ topic }: { topic: string }) {
+  const { openGuide } = useApp();
+  return (
+    <button className="ghost icon-only" onClick={() => openGuide(topic)} title="Guide for this page" aria-label="Guide for this page">
+      <Icon name="help" />
+    </button>
+  );
+}
+
+export function TopBar({ children, actions, onHome, help }: { children?: ReactNode; actions?: ReactNode; onHome?: () => void; help?: string }) {
   return (
     <header className="topbar">
       <button className="brand" onClick={onHome} disabled={!onHome} aria-label="FlowLabs home">
@@ -86,14 +96,16 @@ export function TopBar({ children, actions, onHome }: { children?: ReactNode; ac
       {actions}
       <UpdateButton />
       <EngineChip />
+      {help && <HelpButton topic={help} />}
       <ThemeButton />
     </header>
   );
 }
 
-/** Projects | SQL, as a pill switch whose thumb slides between the two pages. */
-export function SectionNav({ current, onProjects, onSql }: { current: "projects" | "sql"; onProjects: () => void; onSql: () => void }) {
-  const item = (id: "projects" | "sql", label: ReactNode, go: () => void) => (
+/** Projects | SQL | Guide, as a pill switch whose thumb slides between the two pages. */
+export function SectionNav({ current, onProjects, onSql, onGuide }: { current: "projects" | "sql" | "guide"; onProjects: () => void; onSql: () => void; onGuide?: () => void }) {
+  const { openGuide } = useApp();
+  const item = (id: "projects" | "sql" | "guide", label: ReactNode, go: () => void) => (
     <button className={`ghost small ${current === id ? "active" : ""}`} aria-current={current === id ? "page" : undefined} onClick={current === id ? undefined : go}>
       {current === id && <motion.span layoutId="section-thumb" className="nav-thumb" transition={{ type: "spring", stiffness: 480, damping: 38 }} />}
       {label}
@@ -103,6 +115,7 @@ export function SectionNav({ current, onProjects, onSql }: { current: "projects"
     <nav className="top-nav" aria-label="Sections">
       {item("projects", "Projects", onProjects)}
       {item("sql", <><Icon name="database" size={13} /> SQL</>, onSql)}
+      {item("guide", <><Icon name="book" size={13} /> Guide</>, onGuide ?? (() => openGuide("getting-started")))}
     </nav>
   );
 }

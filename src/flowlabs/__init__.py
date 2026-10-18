@@ -1,3 +1,3 @@
 """FlowLabs: build, train and export machine learning models visually, without code."""
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"

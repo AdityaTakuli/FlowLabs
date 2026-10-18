@@ -1,6 +1,7 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { useApp } from "../context";
 import { Icon } from "../components/Icon";
+import { Markdown } from "../components/Markdown";
 import { Notice, Spinner, Switch } from "../components/ui";
 import { bytes } from "../format";
 import type { ExportResult } from "../types";
@@ -23,49 +24,6 @@ const FILE_INFO: Record<string, string> = {
   "preprocess.json": "image size and normalisation",
 };
 
-function inline(text: string): ReactNode[] {
-  return text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).map((part, i) =>
-    part.startsWith("`") ? <code key={i}>{part.slice(1, -1)}</code> : part.startsWith("**") ? <b key={i}>{part.slice(2, -2)}</b> : <span key={i}>{part.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")}</span>,
-  );
-}
-
-/** Enough Markdown for model cards: headings, lists, tables, code and bold. */
-export function Markdown({ text }: { text: string }) {
-  const lines = text.split("\n");
-  const out: ReactNode[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (line.startsWith("# ")) out.push(<h1 key={i}>{inline(line.slice(2))}</h1>);
-    else if (line.startsWith("## ")) out.push(<h2 key={i}>{inline(line.slice(3))}</h2>);
-    else if (line.startsWith("|")) {
-      const rows: string[][] = [];
-      while (i < lines.length && lines[i]!.startsWith("|")) {
-        if (!/^\|\s*-/.test(lines[i]!)) rows.push(lines[i]!.split("|").slice(1, -1).map((c) => c.trim()));
-        i++;
-      }
-      i--;
-      out.push(
-        <table key={i}>
-          <thead><tr>{rows[0]?.map((c, j) => <th key={j}>{inline(c)}</th>)}</tr></thead>
-          <tbody>{rows.slice(1).map((r, k) => <tr key={k}>{r.map((c, j) => <td key={j}>{inline(c)}</td>)}</tr>)}</tbody>
-        </table>,
-      );
-    } else if (/^(- |\d+\. )/.test(line)) {
-      const items: string[] = [];
-      const ordered = /^\d+\. /.test(line);
-      while (i < lines.length && /^(- |\d+\. )/.test(lines[i]!)) items.push(lines[i++]!.replace(/^(- |\d+\. )/, ""));
-      i--;
-      const List = ordered ? "ol" : "ul";
-      out.push(<List key={i}>{items.map((item, k) => <li key={k}>{inline(item)}</li>)}</List>);
-    } else if (line.trim()) {
-      // a paragraph runs until a blank line or another block
-      const words = [line];
-      while (i + 1 < lines.length && lines[i + 1]!.trim() && !/^(#|\||- |\d+\. )/.test(lines[i + 1]!)) words.push(lines[++i]!);
-      out.push(<p key={i}>{inline(words.join(" "))}</p>);
-    }
-  }
-  return <div className="markdown">{out}</div>;
-}
 
 export function ExportTab({ api }: { api: ProjectApi }) {
   const { engine, fail, notify } = useApp();

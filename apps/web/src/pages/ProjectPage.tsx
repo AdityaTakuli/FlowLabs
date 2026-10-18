@@ -216,6 +216,7 @@ export function ProjectPage({ projectId, tab, setTab, goHome }: { projectId: str
     <div className="shell">
       <TopBar
         onHome={goHome}
+        help={tab === "predict" || tab === "export" ? "predict-export" : tab}
         actions={
           <>
             {saving && <span className="faint tiny">Saving</span>}

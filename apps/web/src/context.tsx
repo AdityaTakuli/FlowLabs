@@ -15,6 +15,8 @@ export interface AppState {
   notify: (message: string, level?: Toast["level"]) => void;
   fail: (error: unknown) => void;
   openEngine: () => void;
+  /** Open the guide at a topic, optionally at a section: "sql" or "sql#connect-a-database". */
+  openGuide: (topic: string) => void;
   refreshInfo: () => Promise<void>;
 }
 

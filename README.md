@@ -185,6 +185,11 @@ write the notes in `docs/releases/v<version>.md`, commit, then tag and push it
 3. builds and uploads every app, retrying uploads that time out;
 4. writes `latest.json`, which installed apps read to update themselves.
 
+**The user guide** is in `docs/guide/*.md`. The app shows it on its **Guide** page (`apps/web/src/guide/topics.ts`
+lists the pages), and the same files can feed a website. Links between pages are written
+`[text](guide:topic#section)`, and `npm test` checks that every one resolves. The step and model
+reference is generated from the catalogue, so it needs no editing.
+
 **Add a technique:** add an entry to `core/catalogue.py` (parameters plus a builder that returns a
 scikit-learn transformer or estimator). The app shows it with no frontend change. Add a test in
 `tests/test_training.py`.

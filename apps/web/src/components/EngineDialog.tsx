@@ -170,7 +170,7 @@ function KernelPanel({ engine }: { engine: Engine }) {
 }
 
 export function EngineDialog({ onClose, onSwitch }: { onClose: () => void; onSwitch: (engine: Engine) => void }) {
-  const { engine, info, fail } = useApp();
+  const { engine, info, fail, openGuide } = useApp();
   const saved = savedEngine();
   const [link, setLink] = useState(saved?.url ?? "http://127.0.0.1:8899");
   const [token, setToken] = useState(saved?.token ?? "");
@@ -209,7 +209,10 @@ export function EngineDialog({ onClose, onSwitch }: { onClose: () => void; onSwi
   return (
     <Modal title="Engine" onClose={onClose} wide>
       <p className="dim" style={{ marginBottom: 14 }}>
-        The engine is where your data is processed and models train. Each engine keeps its own datasets and projects.
+        The engine is where your data is processed and models train. Each engine keeps its own datasets and projects.{" "}
+        <button className="link" onClick={() => openGuide("engines")}>
+          How engines work
+        </button>
       </p>
       <div className="engine-options">
         <button

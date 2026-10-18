@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useApp } from "../context";
 import type { Engine } from "../engine/engine";
 import type { EngineEvent, UpdateInfo } from "../types";
-import { Markdown } from "../pages/ExportTab";
+import { Markdown } from "./Markdown";
 import { Icon } from "./Icon";
 import { Bar, Modal, Notice, Spinner, Switch } from "./ui";
 

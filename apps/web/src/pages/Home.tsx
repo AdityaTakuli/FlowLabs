@@ -139,7 +139,7 @@ export function Home({ open, openSql }: { open: (id: string) => void; openSql: (
   const where = engine.kind === "browser" ? "Training in this browser. Your data stays on this device." : `Training on ${engine.kind === "local" ? "this computer" : engine.label}, with ${info.cpus} CPU cores${gpu ? ` and ${gpu.name}` : ""}.`;
   return (
     <div className="shell">
-      <TopBar>
+      <TopBar help="getting-started">
         <SectionNav current="projects" onProjects={() => undefined} onSql={openSql} />
       </TopBar>
       <main className="content">

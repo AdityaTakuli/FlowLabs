@@ -12,6 +12,8 @@ export default defineConfig({
     host: "localhost",
     port: 5173,
     proxy: { "/api": { target: "http://127.0.0.1:8899", changeOrigin: false } },
+    // the guide's text is in docs/guide at the top of the repository
+    fs: { allow: ["..", "../../docs"] },
   },
   worker: { format: "es" },
   build: { outDir: "dist", chunkSizeWarningLimit: 2000 },

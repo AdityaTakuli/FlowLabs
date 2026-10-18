@@ -8,21 +8,27 @@ import { Icon } from "./components/Icon";
 import { Bar } from "./components/ui";
 import { Home } from "./pages/Home";
 import { ProjectPage, type Tab } from "./pages/ProjectPage";
+import { GuidePage } from "./pages/GuidePage";
 import { SqlPage } from "./pages/SqlPage";
 import type { Catalogue, EngineEvent, EngineInfo } from "./types";
 
-type Route = { page: "home" } | { page: "sql" } | { page: "project"; id: string; tab: Tab };
+type Route = { page: "home" } | { page: "sql" } | { page: "guide"; topic: string } | { page: "project"; id: string; tab: Tab };
 
 function readRoute(): Route {
   const query = new URLSearchParams(location.search);
   const id = query.get("project");
   if (query.get("page") === "sql") return { page: "sql" };
+  if (query.get("page") === "guide") return { page: "guide", topic: query.get("topic") || "getting-started" };
   return id ? { page: "project", id, tab: (query.get("tab") as Tab) || "pipeline" } : { page: "home" };
 }
 
 function writeRoute(route: Route, replace = false) {
   const query = new URLSearchParams();
   if (route.page === "sql") query.set("page", "sql");
+  if (route.page === "guide") {
+    query.set("page", "guide");
+    query.set("topic", route.topic);
+  }
   if (route.page === "project") {
     query.set("project", route.id);
     query.set("tab", route.tab);
@@ -139,9 +145,22 @@ export function App() {
     setCatalogue(nextCatalogue);
   }, [engine]);
 
+  const openGuide = useCallback(
+    (target: string) => {
+      const [topic, anchor] = target.split("#");
+      setEngineOpen(false);
+      navigate({ page: "guide", topic: topic || "getting-started" });
+      if (anchor) setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" }), 450);
+    },
+    [navigate],
+  );
+
   const state: AppState | null = useMemo(
-    () => (engine && catalogue && info ? { engine, catalogue, info, notify, fail, openEngine: () => setEngineOpen(true), refreshInfo } : null),
-    [engine, catalogue, info, notify, fail, refreshInfo],
+    () =>
+      engine && catalogue && info
+        ? { engine, catalogue, info, notify, fail, openEngine: () => setEngineOpen(true), openGuide, refreshInfo }
+        : null,
+    [engine, catalogue, info, notify, fail, openGuide, refreshInfo],
   );
 
   return (
@@ -150,6 +169,13 @@ export function App() {
         <AppContext.Provider value={state}>
           {route.page === "home" ? (
             <Home open={(id) => navigate({ page: "project", id, tab: "data" })} openSql={() => navigate({ page: "sql" })} />
+          ) : route.page === "guide" ? (
+            <GuidePage
+              topic={route.topic}
+              goHome={() => navigate({ page: "home" })}
+              openSql={() => navigate({ page: "sql" })}
+              openTopic={(topic) => navigate({ page: "guide", topic })}
+            />
           ) : route.page === "sql" ? (
             <SqlPage goHome={() => navigate({ page: "home" })} openProject={(id) => navigate({ page: "project", id, tab: "data" })} />
           ) : (
