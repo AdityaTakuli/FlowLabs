@@ -1,0 +1,211 @@
+"""SQL: queries on your datasets (DuckDB) and on connected databases (SQLite and DuckDB files here;
+PostgreSQL and MySQL when FLOWLABS_TEST_POSTGRES / FLOWLABS_TEST_MYSQL hold connection JSON)."""
+
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+import stat
+
+import pytest
+
+from flowlabs.core import sql
+from flowlabs.core.rpc import Engine
+
+pytest.importorskip("duckdb")
+pytest.importorskip("sqlalchemy")
+
+
+@pytest.fixture
+def engine(tmp_path):
+    engine = Engine(tmp_path / "ws")
+    engine.call("datasets.import_sample", {"sample_id": "churn"})
+    engine.call("datasets.import_sample", {"sample_id": "iris"})
+    return engine
+
+
+@pytest.fixture
+def shop(tmp_path):
+    path = tmp_path / "shop.sqlite"
+    with sqlite3.connect(path) as db:
+        db.execute("create table orders(id integer primary key, city text, amount real, placed date)")
+        db.executemany(
+            "insert into orders(city, amount, placed) values (?, ?, ?)",
+            [("Pune", 9.5, "2026-01-02"), ("Delhi", 20.0, "2026-01-03"), ("Pune", 4.25, "2026-01-04")],
+        )
+    return path
+
+
+def test_statements_are_split_outside_quotes_and_comments():
+    script = "select ';' as a; -- a comment; still a comment\nselect 2 /* ; */; ;"
+    assert sql.split_statements(script) == ["select ';' as a", "-- a comment; still a comment\nselect 2 /* ; */"]
+    assert not sql.writes("  -- note\n(select 1)") and not sql.writes("WITH x AS (select 1) select * from x")
+    assert sql.writes("delete from t") and sql.writes("create table t(a int)") and sql.writes("drop table t")
+    assert (
+        sql.table_name("Customer churn (2024)") == "customer_churn_2024"
+        and sql.table_name("2024 sales") == "t_2024_sales"
+    )
+
+
+def test_queries_on_datasets(engine):
+    tables = {t["name"]: t for t in engine.call("sql.tables")}
+    assert set(tables) == {"customer_churn", "iris_flowers"}
+    assert {"name": "churned", "type": "boolean"} in tables["customer_churn"]["columns"]
+
+    grouped = engine.call(
+        "sql.run",
+        {"sql": "select plan_type, count(*) as n from customer_churn group by 1 order by n desc"},
+    )
+    assert grouped["columns"] == ["plan_type", "n"] and grouped["types"] == ["text", "integer"]
+    assert sum(row[1] for row in grouped["rows"]) == 2000 and not grouped["truncated"]
+
+    capped = engine.call("sql.run", {"sql": "select * from iris_flowers", "limit": 10})
+    assert len(capped["rows"]) == 10 and capped["total"] == 150 and capped["truncated"]
+
+    script = engine.call(
+        "sql.run",
+        {
+            "sql": "create temp table big as select * from customer_churn where tenure_months > 24;\nselect count(*) from big"
+        },
+    )
+    assert script["rows"][0][0] > 0
+    assert "do not change them" in engine.call("sql.run", {"sql": "create table x as select 1 as a"})["message"]
+
+
+def test_query_mistakes_say_where_and_what(engine):
+    missing = engine.safe_call("sql.run", {"sql": "select * from iris"})["error"]
+    assert (
+        missing["user"] and missing["message"] == "There is no table iris. Your tables: customer_churn, iris_flowers."
+    )
+    parse = engine.safe_call("sql.run", {"sql": "select 1;\nselec 2"})["error"]
+    assert parse["line"] == 2 and "syntax error" in parse["message"]
+    overloads = engine.safe_call("sql.run", {"sql": "select avg(plan_type) from customer_churn"})["error"]
+    assert "Candidate functions" not in overloads["message"]
+    assert engine.safe_call("sql.run", {"sql": "  -- nothing\n"})["error"]["message"] == "write a query first"
+
+
+def test_a_result_saved_as_a_dataset_can_be_queried_and_trained(engine):
+    meta = engine.call(
+        "sql.save", {"sql": "select * from customer_churn where tenure_months > 24", "name": "Loyal customers"}
+    )
+    assert meta["kind"] == "tabular" and meta["file"] == "data.parquet" and meta["source"].startswith("SQL: select")
+    assert 0 < meta["rows"] < 2000 and meta["columns"] == 9
+    assert engine.call("sql.run", {"sql": "select count(*) from loyal_customers"})["rows"][0][0] == meta["rows"]
+    project = engine.call("projects.create", {"dataset_id": meta["id"], "target": "churned"})
+    assert project["target"] == "churned"
+
+
+def test_sqlite_connection_is_read_only_until_changes_are_allowed(engine, shop):
+    given = {"kind": "sqlite", "database": str(shop)}
+    assert engine.call("sql.connection_test", {"connection": given})["ok"]
+    saved = engine.call("sql.connection_save", {"connection": given})
+    assert saved["name"] == "shop.sqlite" and saved["allow_changes"] is False
+    tables = engine.call("sql.connection_tables", {"connection_id": saved["id"]})
+    assert tables[0]["name"] == "orders" and [c["name"] for c in tables[0]["columns"]] == [
+        "id",
+        "city",
+        "amount",
+        "placed",
+    ]
+
+    by_city = engine.call(
+        "sql.run",
+        {
+            "sql": "select city, sum(amount) as total from orders group by city order by city",
+            "connection_id": saved["id"],
+        },
+    )
+    assert by_city["rows"] == [["Delhi", 20.0], ["Pune", 13.75]] and by_city["types"] == ["text", "number"]
+
+    refused = engine.safe_call("sql.run", {"sql": "delete from orders", "connection_id": saved["id"]})["error"]
+    assert "read-only" in refused["message"] and "DELETE" in refused["message"]
+    assert (
+        engine.safe_call("sql.run", {"sql": "select * from nope", "connection_id": saved["id"]})["error"]["message"]
+        == "no such table: nope"
+    )
+
+    engine.call("sql.connection_save", {"connection": {**saved, "allow_changes": True}})
+    changed = engine.call(
+        "sql.run", {"sql": "update orders set amount = amount * 2 where city = 'Pune'", "connection_id": saved["id"]}
+    )
+    assert changed["message"] == "Done. 2 rows changed."
+    with sqlite3.connect(shop) as db:
+        assert db.execute("select sum(amount) from orders").fetchone()[0] == pytest.approx(47.5)
+
+    meta = engine.call("sql.save", {"sql": "select * from orders", "name": "orders", "connection_id": saved["id"]})
+    assert meta["rows"] == 3 and meta["columns"] == 4
+    engine.call("sql.connection_delete", {"connection_id": saved["id"]})
+    assert engine.call("sql.connections") == []
+
+
+def test_passwords_stay_on_the_engine(engine, tmp_path):
+    saved = engine.call(
+        "sql.connection_save",
+        {
+            "connection": {
+                "kind": "postgresql",
+                "host": "db.example",
+                "user": "me",
+                "password": "s3cret",
+                "database": "shop",
+            }
+        },
+    )
+    assert saved["port"] == 5432 and saved["password_set"] and "password" not in saved
+    assert "s3cret" not in json.dumps(engine.call("sql.connections"))
+    stored = tmp_path / "ws" / "connections.json"
+    assert json.loads(stored.read_text())[0]["password"] == "s3cret"
+    if os.name != "nt":
+        assert stat.S_IMODE(stored.stat().st_mode) == 0o600
+    renamed = engine.call(
+        "sql.connection_save", {"connection": {**saved, "name": "Shop", "password": ""}}
+    )  # blank keeps it
+    assert renamed["name"] == "Shop" and json.loads(stored.read_text())[0]["password"] == "s3cret"
+
+    url = engine.call("sql.connection_save", {"connection": {"kind": "url", "url": "postgresql+psycopg://u:pw@h/db"}})
+    assert url["url"] == "postgresql+psycopg://u:***@h/db"
+    engine.call("sql.connection_save", {"connection": {**url, "name": "renamed"}})  # the masked URL keeps the real one
+    assert json.loads(stored.read_text())[-1]["url"] == "postgresql+psycopg://u:pw@h/db"
+
+    refused = engine.call(
+        "sql.connection_test", {"connection": {"kind": "postgresql", "host": "127.0.0.1", "port": 1, "database": "x"}}
+    )
+    assert refused["ok"] is False and refused["message"]
+
+
+def test_duckdb_file_connection(engine, tmp_path):
+    import duckdb
+
+    path = tmp_path / "warehouse.duckdb"
+    with duckdb.connect(str(path)) as db:
+        db.execute("create table sales as select range as id, range * 1.5 as amount from range(100)")
+    saved = engine.call("sql.connection_save", {"connection": {"kind": "duckdb", "database": str(path)}})
+    assert engine.call("sql.connection_tables", {"connection_id": saved["id"]})[0]["name"] == "sales"
+    result = engine.call("sql.run", {"sql": "select count(*), sum(amount) from sales", "connection_id": saved["id"]})
+    assert result["rows"] == [[100, 7425.0]]
+    assert (
+        "read-only"
+        in engine.safe_call("sql.run", {"sql": "drop table sales", "connection_id": saved["id"]})["error"]["message"]
+    )
+
+
+@pytest.mark.parametrize("variable", ["FLOWLABS_TEST_POSTGRES", "FLOWLABS_TEST_MYSQL"])
+def test_database_servers(engine, variable):
+    """e.g. FLOWLABS_TEST_POSTGRES='{"kind": "postgresql", "host": "127.0.0.1", "port": 5432, "user": "postgres",
+    "password": "...", "database": "shop"}' with a table sales(region text, amount numeric, sold_on date)."""
+    given = os.environ.get(variable)
+    if not given:
+        pytest.skip(f"set {variable} to test against a real server")
+    saved = engine.call("sql.connection_save", {"connection": json.loads(given)})
+    assert engine.call("sql.connection_test", {"connection": json.loads(given) | {"id": saved["id"]}})["ok"]
+    result = engine.call(
+        "sql.run",
+        {
+            "sql": "select region, sum(amount) as total, min(sold_on) as first from sales group by region",
+            "connection_id": saved["id"],
+        },
+    )
+    assert result["types"] == ["text", "number", "date"]
+    meta = engine.call("sql.save", {"sql": "select * from sales", "name": "sales", "connection_id": saved["id"]})
+    assert meta["rows"] > 0

@@ -15,7 +15,7 @@ from typing import Any
 import flowlabs_runtime as rt
 
 from . import catalogue as cat
-from . import codegen, datasets, env, evaluation, export, predict, training
+from . import codegen, datasets, env, evaluation, export, predict, sql, training
 from . import project as projects
 from .training import Job
 from .util import Cancelled, UserError, jsonable
@@ -44,7 +44,8 @@ class Engine:
         try:
             return {"result": self.call(method, params)}
         except (UserError, rt.CodeError) as error:  # a code step's own mistake is the user's to fix
-            return {"error": {"message": str(error), "user": True}}
+            line = getattr(error, "line", None)  # where a SQL query failed, when the database says
+            return {"error": {"message": str(error), "user": True, **({"line": line} if line else {})}}
         except Exception as error:  # noqa: BLE001 - every failure goes back to the UI
             return {"error": {"message": f"{type(error).__name__}: {error}", "user": False,
                               "traceback": traceback.format_exc(limit=8)}}  # fmt: skip
@@ -140,6 +141,17 @@ METHODS: dict[str, Callable[[Engine, dict[str, Any]], Any]] = {
     "export.build": lambda e, p: export.build(e.ws, _p(p, "project_id"), _p(p, "run_id"), _p(p, "model_id"),
                                               bool(p.get("include_data"))),
     "export.list": lambda e, p: export.list_exports(e.ws, _p(p, "project_id")),
+    "sql.tables": lambda e, p: sql.tables(e.ws),
+    "sql.run": lambda e, p: sql.run(e.ws, str(p.get("sql") or ""), p.get("connection_id"),
+                                    int(p.get("limit", sql.PREVIEW_ROWS))),
+    "sql.save": lambda e, p: sql.save_result(e.ws, str(p.get("sql") or ""), str(p.get("name") or ""),
+                                             p.get("connection_id")),
+    "sql.kinds": lambda e, p: sql.kinds(),
+    "sql.connections": lambda e, p: sql.list_connections(e.ws),
+    "sql.connection_save": lambda e, p: sql.save_connection(e.ws, _p(p, "connection")),
+    "sql.connection_delete": lambda e, p: sql.delete_connection(e.ws, _p(p, "connection_id")),
+    "sql.connection_test": lambda e, p: sql.test_connection(e.ws, _p(p, "connection")),
+    "sql.connection_tables": lambda e, p: sql.connection_tables(e.ws, _p(p, "connection_id")),
     "predict.rows": lambda e, p: predict.predict_rows(e.ws, _p(p, "project_id"), _p(p, "run_id"), _p(p, "model_id"),
                                                       _p(p, "rows")),
     "predict.dataset": lambda e, p: predict.predict_dataset(e.ws, _p(p, "project_id"), _p(p, "run_id"),

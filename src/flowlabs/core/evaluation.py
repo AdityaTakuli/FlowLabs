@@ -112,7 +112,26 @@ def classification_details(
         bins = np.clip((proba[:, 1] * 10).astype(int), 0, 9)
         details["calibration"] = [[round(float(proba[bins == b, 1].mean()), 3), round(float(y[bins == b].mean()), 3),
                                    int((bins == b).sum())] for b in range(10) if (bins == b).any()]  # fmt: skip
+    if proba is not None and 2 <= n <= 8 and len(proba) == len(y):
+        details["separation"] = separation(y, proba, classes)
     return round_floats(details, 4)
+
+
+def separation(y: np.ndarray, proba: np.ndarray, classes: list[str], bins: int = 20) -> dict[str, Any]:
+    """How far apart the classes sit in the model's probabilities: one histogram per true class.
+    Two classes: the probability of the second class. More: the probability given to the true class."""
+    edges = np.linspace(0, 1, bins + 1)
+    y = np.asarray(y).astype(int)
+    if len(classes) == 2:
+        values, axis = proba[:, 1], f"probability of {classes[1]}"
+    else:
+        values, axis = (
+            proba[np.arange(len(y)), np.clip(y, 0, proba.shape[1] - 1)],
+            "probability given to the true class",
+        )
+    groups = [{"label": label, "counts": np.histogram(values[y == i], bins=edges)[0].tolist()}
+              for i, label in enumerate(classes) if (y == i).any()]  # fmt: skip
+    return {"axis": axis, "edges": edges.round(3).tolist(), "groups": groups}
 
 
 def regression_details(y: np.ndarray, pred: np.ndarray) -> dict[str, Any]:

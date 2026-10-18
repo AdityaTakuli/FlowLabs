@@ -688,8 +688,7 @@ export function PipelineTab({ api, training }: { api: ProjectApi; training: Trai
           nodesConnectable={false}
           proOptions={{ hideAttribution: true }}
         >
-          <Background id="minor" variant={BackgroundVariant.Lines} gap={20} lineWidth={0.5} color="var(--grid-minor)" />
-          <Background id="major" variant={BackgroundVariant.Lines} gap={100} lineWidth={1} color="var(--grid-major)" />
+          <Background id="dots" variant={BackgroundVariant.Dots} gap={18} size={1.4} color="var(--grid-major)" />
           <Controls showInteractive={false} onFitView={() => void fit()} />
         </ReactFlow>
       </div>

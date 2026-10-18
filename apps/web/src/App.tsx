@@ -1,3 +1,4 @@
+import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppContext, type AppState, type Toast } from "./context";
 import { androidBridge, BrowserEngine, chooseEngine, EngineError, type Engine } from "./engine/engine";
@@ -7,18 +8,21 @@ import { Icon } from "./components/Icon";
 import { Bar } from "./components/ui";
 import { Home } from "./pages/Home";
 import { ProjectPage, type Tab } from "./pages/ProjectPage";
+import { SqlPage } from "./pages/SqlPage";
 import type { Catalogue, EngineEvent, EngineInfo } from "./types";
 
-type Route = { page: "home" } | { page: "project"; id: string; tab: Tab };
+type Route = { page: "home" } | { page: "sql" } | { page: "project"; id: string; tab: Tab };
 
 function readRoute(): Route {
   const query = new URLSearchParams(location.search);
   const id = query.get("project");
+  if (query.get("page") === "sql") return { page: "sql" };
   return id ? { page: "project", id, tab: (query.get("tab") as Tab) || "pipeline" } : { page: "home" };
 }
 
 function writeRoute(route: Route, replace = false) {
   const query = new URLSearchParams();
+  if (route.page === "sql") query.set("page", "sql");
   if (route.page === "project") {
     query.set("project", route.id);
     query.set("tab", route.tab);
@@ -145,7 +149,9 @@ export function App() {
       {state ? (
         <AppContext.Provider value={state}>
           {route.page === "home" ? (
-            <Home open={(id) => navigate({ page: "project", id, tab: "data" })} />
+            <Home open={(id) => navigate({ page: "project", id, tab: "data" })} openSql={() => navigate({ page: "sql" })} />
+          ) : route.page === "sql" ? (
+            <SqlPage goHome={() => navigate({ page: "home" })} openProject={(id) => navigate({ page: "project", id, tab: "data" })} />
           ) : (
             <ProjectPage
               key={route.id}
@@ -205,15 +211,25 @@ export function App() {
         </div>
       )}
       <div className="toasts" aria-live="polite">
+        <AnimatePresence initial={false}>
         {toasts.map((toast) => (
-          <div key={toast.id} className={`toast ${toast.level}`}>
+          <motion.div
+            key={toast.id}
+            layout
+            className={`toast ${toast.level}`}
+            initial={{ opacity: 0, y: 24, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.94, transition: { duration: 0.18 } }}
+            transition={{ type: "spring", stiffness: 420, damping: 30 }}
+          >
             <Icon name={toast.level === "error" ? "error" : toast.level === "ok" ? "check" : "info"} className={toast.level === "error" ? "error-text" : toast.level === "ok" ? "ok-text" : "accent-text"} />
             <span style={{ flex: 1 }}>{toast.message}</span>
             <button className="ghost icon-only" onClick={() => setToasts((list) => list.filter((t) => t.id !== toast.id))} aria-label="Dismiss">
               <Icon name="close" size={12} />
             </button>
-          </div>
+          </motion.div>
         ))}
+        </AnimatePresence>
       </div>
     </>
   );

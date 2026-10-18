@@ -12,6 +12,8 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 ROOT = Path(SPECPATH).resolve().parent
+sys.path.insert(0, str(ROOT / "src"))
+from flowlabs import __version__ as VERSION  # noqa: E402
 ICON = ROOT / "packaging" / "icons" / ("flowlabs.icns" if sys.platform == "darwin" else "flowlabs.ico")
 
 datas = [
@@ -33,7 +35,20 @@ hiddenimports = [
     "PIL.Image",
     "openpyxl",
     "pyarrow",
+    # SQL: DuckDB for your datasets, SQLAlchemy and drivers for PostgreSQL, MySQL/MariaDB and SQLite
+    "duckdb",
+    "sqlalchemy.dialects.postgresql.psycopg",
+    "sqlalchemy.dialects.mysql.pymysql",
+    "sqlalchemy.dialects.sqlite.pysqlite",
+    *collect_submodules("psycopg"),
+    *collect_submodules("pymysql"),
 ]
+try:  # psycopg's compiled build (libpq inside); without it psycopg needs libpq on the system
+    import psycopg_binary  # noqa: F401
+
+    hiddenimports += collect_submodules("psycopg_binary")
+except ImportError:
+    pass
 
 analysis = Analysis(
     [str(ROOT / "packaging" / "flowlabs_app.py")],
@@ -45,7 +60,7 @@ analysis = Analysis(
     excludes=[
         "torch", "torchvision", "tensorflow", "jax", "matplotlib", "IPython", "ipykernel", "jupyterlab",
         "jupyter_server", "notebook", "nbformat", "bokeh", "babel", "polars", "dask", "sympy", "plotly",
-        "numba", "llvmlite", "sqlalchemy", "pytest", "mypy", "ruff", "tkinter", "PyQt5", "PyQt6", "PySide6",
+        "numba", "llvmlite", "pytest", "mypy", "ruff", "tkinter", "PyQt5", "PyQt6", "PySide6",
     ],
     # Linux window (GTK): the page draws its own UI, so GTK's default icons and theme are enough;
     # without this PyInstaller copies every icon theme on the build machine (over 200 MB)
@@ -96,7 +111,8 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "FlowLabs",
             "CFBundleDisplayName": "FlowLabs",
-            "CFBundleShortVersionString": "0.2.0",
+            "CFBundleShortVersionString": VERSION,
+            "CFBundleVersion": VERSION,
             "NSHighResolutionCapable": True,
             "LSMinimumSystemVersion": "11.0",
         },

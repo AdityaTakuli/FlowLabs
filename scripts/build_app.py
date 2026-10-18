@@ -54,6 +54,7 @@ echo "FlowLabs installed. Start it from your applications menu, or run flowlabs-
 """
 INNO = r"""
 [Setup]
+AppId=FlowLabs
 AppName=FlowLabs
 AppVersion={#MyAppVersion}
 DefaultDirName={autopf}\FlowLabs
@@ -64,6 +65,8 @@ SetupIconFile={#MySourceDir}\..\..\packaging\icons\flowlabs.ico
 Compression=lzma2
 SolidCompression=yes
 PrivilegesRequired=lowest
+CloseApplications=yes
+RestartApplications=no
 ArchitecturesInstallIn64BitMode=x64compatible
 
 [Files]
@@ -75,6 +78,8 @@ Name: "{userdesktop}\FlowLabs"; Filename: "{app}\FlowLabs.exe"
 
 [Run]
 Filename: "{app}\FlowLabs.exe"; Description: "Start FlowLabs"; Flags: nowait postinstall skipifsilent
+; an update installs silently from inside FlowLabs, then starts it again
+Filename: "{app}\FlowLabs.exe"; Flags: nowait; Check: WizardSilent
 """
 
 

@@ -1,3 +1,4 @@
+import { motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../context";
 import { Icon } from "../components/Icon";
@@ -234,6 +235,7 @@ export function ProjectPage({ projectId, tab, setTab, goHome }: { projectId: str
         <nav className="rail" aria-label="Steps">
           {TABS.map((t, i) => (
             <button key={t.id} className={tab === t.id ? "active" : ""} onClick={() => setTab(t.id)} aria-current={tab === t.id ? "page" : undefined} title={t.label}>
+              {tab === t.id && <motion.span layoutId="rail-pill" className="rail-pill" transition={{ type: "spring", stiffness: 480, damping: 38 }} />}
               <StepDot state={states[t.id]} index={i} />
               <span className="rail-text">
                 <span className="rail-label">{t.label}</span>
@@ -242,13 +244,20 @@ export function ProjectPage({ projectId, tab, setTab, goHome }: { projectId: str
             </button>
           ))}
         </nav>
-        <div className="content" style={tab === "pipeline" ? { overflow: "hidden" } : undefined}>
+        <motion.div
+          key={tab}
+          className="content"
+          style={tab === "pipeline" ? { overflow: "hidden" } : undefined}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+        >
           {tab === "data" && <DataTab api={api} />}
           {tab === "pipeline" && <PipelineTab api={api} training={training} />}
           {tab === "results" && <ResultsTab api={api} training={training} onTrain={() => void start(latest.current ?? project)} trainable={trainable} />}
           {tab === "predict" && <PredictTab api={api} />}
           {tab === "export" && <ExportTab api={api} />}
-        </div>
+        </motion.div>
       </div>
       <nav className="bottom-nav" aria-label="Steps">
         {TABS.map((t, i) => (

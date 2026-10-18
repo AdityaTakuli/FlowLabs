@@ -169,7 +169,16 @@ def check(root: Path, port: int | None = None) -> int:
         if "result" not in answer:
             print(f"the engine did not answer: {answer}", file=sys.stderr)
             return 1
-        print(f"FlowLabs serves the app and its engine (Python {answer['result']['python']}) from {server.base}")
+        query = urllib.request.Request(
+            f"{server.base}/api/rpc", data=json.dumps({"method": "sql.run", "params": {"sql": "select 6 * 7 as answer"}}).encode(),
+            headers={"Authorization": "Bearer check-token", "Content-Type": "application/json"},
+        )  # fmt: skip
+        with urllib.request.urlopen(query, timeout=60) as reply:
+            sql_answer = json.loads(reply.read())
+        if sql_answer.get("result", {}).get("rows") != [[42]]:
+            print(f"SQL does not work in this build: {sql_answer}", file=sys.stderr)
+            return 1
+        print(f"FlowLabs serves the app, its engine (Python {answer['result']['python']}) and SQL from {server.base}")
         return 0
     finally:
         server.stop()

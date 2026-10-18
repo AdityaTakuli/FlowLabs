@@ -1,5 +1,6 @@
+import { motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
-import { Bars, Heatmap, Histogram, LineChart, Scatter, type Series } from "../charts/charts";
+import { BarLine, Bars, BoxPlot, CountUp, Density, DotHistogram, Heatmap, LineChart, Ring, Scatter, type Series } from "../charts/charts";
 import { Icon } from "../components/Icon";
 import { Notice, Segmented, Spinner } from "../components/ui";
 import { ago, duration, fmt, LOWER_IS_BETTER, metricValue } from "../format";
@@ -115,12 +116,12 @@ function ModelDetail({ run, model, api }: { run: RunResult; model: ModelResult; 
       <div className="stat-row">
         {metrics.map((name) => (
           <div className="stat" key={name} title={EXPLAIN[name]}>
-            <div className="value">{metricValue(name, model.metrics?.[name])}</div>
+            <CountUp className="value" value={model.metrics?.[name]} format={(v) => metricValue(name, v)} />
             <div className="label">{LABELS[name]} {name === run.metric && <span className="faint">(ranks models)</span>}</div>
             {model.train_metrics?.[name] !== undefined && <div className="faint tiny">training rows: {metricValue(name, model.train_metrics[name])}</div>}
           </div>
         ))}
-        <div className="stat"><div className="value">{duration(model.fit_seconds)}</div><div className="label">to train</div><div className="faint tiny">{model.size_kb} KB on disk</div></div>
+        <div className="stat"><CountUp className="value" value={model.fit_seconds} format={(v) => duration(v)} /><div className="label">to train</div><div className="faint tiny">{model.size_kb} KB on disk</div></div>
       </div>
       {model.cv && model.cv.mean !== null && (
         <Notice level="info">
@@ -137,7 +138,14 @@ function ModelDetail({ run, model, api }: { run: RunResult; model: ModelResult; 
               <Segmented value={normalized ? "share" : "count"} onChange={(v) => setNormalized(v === "share")} options={[{ value: "count", label: "Counts" }, { value: "share", label: "Row %" }]} />
             </div>
             <p className="dim tiny" style={{ marginBottom: 6 }}>Rows: true class. Columns: predicted. The diagonal is correct.</p>
-            <Heatmap labels={d.confusion.labels} matrix={d.confusion.matrix} normalizeRows={normalized} format={(v) => (normalized ? `${Math.round(v * 100)}` : fmt(v))} title={(r, c) => `true ${r}, predicted ${c}`} />
+            <Heatmap labels={d.confusion.labels} matrix={d.confusion.matrix} normalizeRows={normalized} accentDiagonal format={(v) => (normalized ? `${Math.round(v * 100)}` : fmt(v))} title={(r, c) => `true ${r}, predicted ${c}`} />
+          </div>
+        )}
+        {d.separation && d.separation.groups.length > 1 && (
+          <div className="chart-card">
+            <h3>How well the classes separate</h3>
+            <p className="chart-sub">Test rows of each true class, by the {d.separation.axis}. Less overlap is better.</p>
+            <Density edges={d.separation.edges} groups={d.separation.groups.map((g, i) => ({ ...g, colour: d.separation!.groups.length === 2 ? (i === 1 ? "var(--signal)" : "var(--c-blue)") : undefined }))} xLabel={d.separation.axis} />
           </div>
         )}
         {d.roc && (
@@ -166,8 +174,9 @@ function ModelDetail({ run, model, api }: { run: RunResult; model: ModelResult; 
         )}
         {d.residual_histogram && (
           <div className="chart-card">
-            <h3>Errors (actual − predicted)</h3>
-            <Histogram edges={d.residual_histogram.edges} counts={d.residual_histogram.counts} colour="var(--c-orange)" height={160} />
+            <h3>Errors</h3>
+            <p className="chart-sub">Centred on zero and narrow is best; a long tail means some rows are badly off.</p>
+            <DotHistogram edges={d.residual_histogram.edges} groups={[{ label: "test rows", counts: d.residual_histogram.counts }]} xLabel={`actual − predicted ${run.target}`} unitLabel="test rows" />
           </div>
         )}
         {importance && importance.length > 0 && (
@@ -182,7 +191,7 @@ function ModelDetail({ run, model, api }: { run: RunResult; model: ModelResult; 
             <p className="dim tiny" style={{ marginBottom: 6 }}>
               {importanceKind === "permutation" ? "How much the score drops when an input column is shuffled." : "The model's internal weights or split importance, per prepared feature."}
             </p>
-            <Bars items={importance.slice(0, 15).map((f) => ({ label: f.feature, value: f.value }))} format={(v) => fmt(v)} signed />
+            <Bars items={importance.slice(0, 15).map((f) => ({ label: f.feature, value: f.value }))} format={(v) => fmt(v)} signed highlight={importance[0]?.feature} />
           </div>
         )}
         {loss.length > 0 && (
@@ -247,6 +256,45 @@ function ModelDetail({ run, model, api }: { run: RunResult; model: ModelResult; 
   );
 }
 
+/** The ring shows a 0 to 1 share: the ranking score when it is one, else R² for regression. */
+function ringShare(metric: string, model: ModelResult): number {
+  const value = model.metrics?.[metric];
+  if (value !== undefined && !LOWER_IS_BETTER.has(metric) && value >= 0 && value <= 1) return value;
+  return Math.max(0, Math.min(1, model.metrics?.r2 ?? 0));
+}
+
+function Comparison({ run, ranked }: { run: RunResult; ranked: ModelResult[] }) {
+  const done = ranked.filter((m) => m.status === "done" && m.metrics?.[run.metric] !== undefined);
+  const folds = done.filter((m) => m.cv && m.cv.folds.length > 1);
+  if (done.length < 2 && folds.length === 0) return null;
+  const best = run.models.find((m) => m.id === run.best_model_id)?.label;
+  return (
+    <div className="chart-grid">
+      {done.length >= 2 && (
+        <div className="chart-card">
+          <h3>Score and training time</h3>
+          <p className="chart-sub">{run.metric_label} on the test rows (bars), seconds to train (line).</p>
+          <BarLine
+            items={done.map((m) => ({ label: m.label, bar: m.metrics?.[run.metric] ?? null, line: m.fit_seconds ?? null }))}
+            barLabel={run.metric_label}
+            lineLabel="seconds to train"
+            formatBar={(v) => metricValue(run.metric, v)}
+            formatLine={(v) => duration(v)}
+            highlight={best}
+          />
+        </div>
+      )}
+      {folds.length > 0 && (
+        <div className="chart-card">
+          <h3>Cross-validation folds</h3>
+          <p className="chart-sub">Each dot is one fold of the training rows; the box holds the middle half. A narrow box means a steady model.</p>
+          <BoxPlot rows={folds.map((m) => ({ label: m.label, values: m.cv!.folds }))} format={(v) => metricValue(folds[0]!.cv!.metric, v)} highlight={best} label="Scores per cross-validation fold" />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ResultsTab({ api, training, onTrain, trainable }: { api: ProjectApi; training: Training | null; onTrain: () => void; trainable: boolean }) {
   const { run, runs, openRun } = api;
   const [selected, setSelected] = useState<string | null>(null);
@@ -284,17 +332,14 @@ export function ResultsTab({ api, training, onTrain, trainable }: { api: Project
             <span className="dim small">Took {duration(run.seconds)}. Trained on {run.data.train_rows.toLocaleString()} rows, tested on {run.data.test_rows.toLocaleString()}{run.data.features_out ? `, ${run.data.features_in} inputs became ${run.data.features_out} features` : ""}.</span>
           </div>
           {best && (
-            <div className="winner">
-              <div style={{ flex: 1, minWidth: 220 }}>
-                <div className="dim small">Best model</div>
-                <h2 style={{ fontSize: 20 }}>{best.label}</h2>
-                <div className="dim small" style={{ marginTop: 4 }}>
+            <motion.div className="winner" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}>
+              <Ring value={ringShare(run.metric, best)} label={run.metric_label} display={<CountUp value={best.metrics?.[run.metric]} format={(v) => metricValue(run.metric, v)} />} />
+              <div style={{ minWidth: 0 }}>
+                <div className="kicker">Best model</div>
+                <h2>{best.label}</h2>
+                <div className="dim small" style={{ maxWidth: "60ch" }}>
                   {EXPLAIN[run.metric]} Measured on {run.data.test_rows.toLocaleString()} rows it never saw.
                 </div>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <div className="big num">{metricValue(run.metric, best.metrics?.[run.metric])}</div>
-                <div className="dim small">{run.metric_label}</div>
               </div>
               <div className="row">
                 <button onClick={() => api.setTab("predict")}>
@@ -304,10 +349,11 @@ export function ResultsTab({ api, training, onTrain, trainable }: { api: Project
                   <Icon name="package" /> Export
                 </button>
               </div>
-            </div>
+            </motion.div>
           )}
           {run.warnings.map((w, i) => <Notice key={i} level="warning">{w}</Notice>)}
           {run.data.row_steps && <Notice level="info">{run.data.row_steps}</Notice>}
+          <Comparison run={run} ranked={ranked} />
           <div className="card">
             <h2>Leaderboard</h2>
             <div className="table-wrap leaderboard">

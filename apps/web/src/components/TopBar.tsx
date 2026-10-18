@@ -1,7 +1,9 @@
+import { motion } from "motion/react";
 import { useState, type ReactNode } from "react";
 import { useApp } from "../context";
 import { androidBridge } from "../engine/engine";
 import { Icon } from "./Icon";
+import { UpdateButton } from "./Updates";
 
 export function LogoMark({ size = 28 }: { size?: number }) {
   return (
@@ -82,8 +84,25 @@ export function TopBar({ children, actions, onHome }: { children?: ReactNode; ac
       {children}
       <span className="spacer" />
       {actions}
+      <UpdateButton />
       <EngineChip />
       <ThemeButton />
     </header>
+  );
+}
+
+/** Projects | SQL, as a pill switch whose thumb slides between the two pages. */
+export function SectionNav({ current, onProjects, onSql }: { current: "projects" | "sql"; onProjects: () => void; onSql: () => void }) {
+  const item = (id: "projects" | "sql", label: ReactNode, go: () => void) => (
+    <button className={`ghost small ${current === id ? "active" : ""}`} aria-current={current === id ? "page" : undefined} onClick={current === id ? undefined : go}>
+      {current === id && <motion.span layoutId="section-thumb" className="nav-thumb" transition={{ type: "spring", stiffness: 480, damping: 38 }} />}
+      {label}
+    </button>
+  );
+  return (
+    <nav className="top-nav" aria-label="Sections">
+      {item("projects", "Projects", onProjects)}
+      {item("sql", <><Icon name="database" size={13} /> SQL</>, onSql)}
+    </nav>
   );
 }

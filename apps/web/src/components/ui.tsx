@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { motion } from "motion/react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "./Icon";
 
 export function Modal({ title, onClose, children, footer, wide }: { title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
@@ -8,8 +9,15 @@ export function Modal({ title, onClose, children, footer, wide }: { title: React
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
-    <div className="overlay" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className={`modal ${wide ? "wide" : ""}`} role="dialog" aria-modal="true">
+    <motion.div className="overlay" onMouseDown={(event) => event.target === event.currentTarget && onClose()} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
+      <motion.div
+        className={`modal ${wide ? "wide" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        initial={{ opacity: 0, scale: 0.96, y: 14 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ type: "spring", stiffness: 420, damping: 32 }}
+      >
         <div className="modal-head">
           <h2>{title}</h2>
           <span className="spacer" />
@@ -19,8 +27,8 @@ export function Modal({ title, onClose, children, footer, wide }: { title: React
         </div>
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-foot">{footer}</div>}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -34,11 +42,14 @@ export function Switch({ on, onChange, label, disabled }: { on: boolean; onChang
   );
 }
 
+/** An Apple-style segmented control: the white thumb slides to the chosen option. */
 export function Segmented<T extends string | number>({ value, options, onChange }: { value: T; options: { value: T; label: ReactNode }[]; onChange: (value: T) => void }) {
+  const id = useId();
   return (
-    <div className="segmented">
+    <div className="segmented" role="tablist">
       {options.map((option) => (
-        <button key={String(option.value)} className={option.value === value ? "active" : ""} onClick={() => onChange(option.value)}>
+        <button key={String(option.value)} role="tab" aria-selected={option.value === value} className={option.value === value ? "active" : ""} onClick={() => onChange(option.value)}>
+          {option.value === value && <motion.span layoutId={`seg-${id}`} className="seg-thumb" transition={{ type: "spring", stiffness: 500, damping: 38 }} />}
           {option.label}
         </button>
       ))}

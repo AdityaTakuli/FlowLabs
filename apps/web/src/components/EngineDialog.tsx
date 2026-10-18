@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useApp } from "../context";
 import { BrowserEngine, parseEngineLink, rememberEngine, RemoteEngine, savedEngine, type Engine } from "../engine/engine";
-import type { EngineEvent, Interpreter, KernelState } from "../types";
+import type { EngineEvent, Interpreter, KernelState, UpdateInfo } from "../types";
+import { UpdateDialog } from "./Updates";
 import { Icon } from "./Icon";
 import { Modal, Notice, Spinner } from "./ui";
 
@@ -176,6 +177,11 @@ export function EngineDialog({ onClose, onSwitch }: { onClose: () => void; onSwi
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const servedLocally = engine.kind === "local";
+  const [updates, setUpdates] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  useEffect(() => {
+    if (updates && engine.updates) engine.updates.check().then(setUpdateInfo, fail);
+  }, [updates, engine, fail]);
 
   const connect = async () => {
     const parsed = parseEngineLink(link, token);
@@ -255,6 +261,14 @@ export function EngineDialog({ onClose, onSwitch }: { onClose: () => void; onSwi
                 </div>
               )}
               <Packages packages={info.packages} />
+              {engine.updates && (
+                <div className="row small" style={{ marginTop: 10 }}>
+                  <span className="dim">FlowLabs {info.flowlabs}</span>
+                  <button className="small" onClick={() => setUpdates(true)}>
+                    <Icon name="refresh" size={12} /> Updates
+                  </button>
+                </div>
+              )}
             </div>
           </div>
           <div className="card tight">
@@ -299,6 +313,7 @@ export function EngineDialog({ onClose, onSwitch }: { onClose: () => void; onSwi
         </div>
         {engine.kernel ? <KernelPanel engine={engine} /> : <Notice>The browser engine runs Python in this tab. To use a GPU, or PyTorch, XGBoost and LightGBM, connect an engine.</Notice>}
       </div>
+      {updates && updateInfo && <UpdateDialog initial={updateInfo} onClose={() => setUpdates(false)} />}
     </Modal>
   );
 }

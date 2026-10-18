@@ -57,7 +57,12 @@ export function Markdown({ text }: { text: string }) {
       i--;
       const List = ordered ? "ol" : "ul";
       out.push(<List key={i}>{items.map((item, k) => <li key={k}>{inline(item)}</li>)}</List>);
-    } else if (line.trim()) out.push(<p key={i}>{inline(line)}</p>);
+    } else if (line.trim()) {
+      // a paragraph runs until a blank line or another block
+      const words = [line];
+      while (i + 1 < lines.length && lines[i + 1]!.trim() && !/^(#|\||- |\d+\. )/.test(lines[i + 1]!)) words.push(lines[++i]!);
+      out.push(<p key={i}>{inline(words.join(" "))}</p>);
+    }
   }
   return <div className="markdown">{out}</div>;
 }

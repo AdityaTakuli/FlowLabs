@@ -18,7 +18,16 @@ opened as Python and edited by hand.
 | --- | --- | --- |
 | **In the browser** | Open the hosted app (GitHub Pages). Python runs inside the tab via [Pyodide](https://pyodide.org). | Trying it, teaching, small and medium tables. Nothing to install, and data never leaves your device. |
 | **Desktop app** | From Releases: `.deb` for Ubuntu/Debian (double-click, or `sudo apt install ./FlowLabs-*.deb`), `.tar.gz` for other Linux (`sh FlowLabs/install.sh`), `.dmg` for macOS, `setup.exe`/`.zip` for Windows. | Larger data and every feature, offline. |
-| **pip** | `pip install "flowlabs[deep]"`, then `flowlabs app` | People who already have Python, a GPU, or a server. |
+| **pip** | `pip install "flowlabs[deep,sql]"`, then `flowlabs app` | People who already have Python, a GPU, or a server. |
+
+The desktop app updates itself. When a new release is out, an **Update** button appears in the top
+bar and installs it:
+- **Linux:** the new `.deb` (Ubuntu asks for your password);
+- **macOS:** replaces the app;
+- **Windows:** runs the installer silently.
+
+Each download is checked against the SHA-256 in the release's `latest.json`. Turn checking off in
+the update dialog; the Engine menu has an **Updates** button to check by hand.
 
 ### The engine: use your own computer's power from the browser
 
@@ -91,9 +100,26 @@ to, so only connect to engines you trust and share engine tokens only with peopl
 Optional automatic tuning on any model. Training is live: per-epoch loss curves, tuning trials,
 progress.
 
-**Evaluate.** A leaderboard against a baseline, and for each model:
+**SQL.** The SQL page, next to Projects, queries your data with SQL:
+
+- **Your datasets:** every dataset is a table (`Customer churn` is `customer_churn`), queried with
+  [DuckDB](https://duckdb.org), joins and window functions included. Queries run on copies of your
+  data, so the files never change. Save any result as a new dataset and start a project from it.
+- **Your databases:** connect PostgreSQL, MySQL or MariaDB, a SQLite or DuckDB file, or any
+  [SQLAlchemy URL](https://docs.sqlalchemy.org/en/20/core/engines.html#database-urls) (install its
+  driver in the engine first). Browse the tables, query them, and import a result as a dataset.
+  Connections are read-only unless you allow changes. A read-only connection refuses statements
+  that write and rolls back whatever a query ran.
+
+The editor completes table and column names, and Ctrl+Enter runs the query. Connections, passwords
+included, are saved in the engine's workspace (`connections.json`, readable only by you). Queries
+run on the computer the engine runs on. The browser version queries your datasets but cannot reach
+database servers.
+
+**Evaluate.** A leaderboard against a baseline, a score-and-training-time chart, and box plots of
+cross-validation folds. For each model:
 - test and training scores (overfitting warnings), cross-validation spread;
-- confusion matrix, ROC and precision-recall curves, calibration;
+- confusion matrix, ROC and precision-recall curves, calibration, and how well the classes separate;
 - predicted-vs-actual and residual plots;
 - feature importance, both permutation and the model's own;
 - per-class scores, and a gallery of misclassified images.
@@ -139,7 +165,7 @@ The same `core` code runs in the desktop kernel, in `flowlabs engine`, and in th
 ## Develop
 
 ```bash
-pip install -e ".[dev,deep]"
+pip install -e ".[dev,deep,sql]"
 make test lint typecheck              # pytest, ruff, mypy
 cd apps/web && npm install && npm test && npm run build
 
@@ -150,6 +176,14 @@ python scripts/bundle_web.py          # put the built app inside the Python pack
 python scripts/build_app.py           # desktop app for this OS (dist/)
 python scripts/build_apk.py           # Android APK (experimental, not released yet; needs a JDK and the Android SDK)
 ```
+
+**Release a version:** set `__version__` in `src/flowlabs/__init__.py` (the only place it is set),
+write the notes in `docs/releases/v<version>.md`, commit, then tag and push it
+(`git tag v<version> && git push origin v<version>`). The Desktop app workflow:
+1. checks the tag matches the version;
+2. creates the release with those notes;
+3. builds and uploads every app, retrying uploads that time out;
+4. writes `latest.json`, which installed apps read to update themselves.
 
 **Add a technique:** add an entry to `core/catalogue.py` (parameters plus a builder that returns a
 scikit-learn transformer or estimator). The app shows it with no frontend change. Add a test in

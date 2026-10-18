@@ -2,7 +2,7 @@
 //   browser  Python inside this tab (Pyodide). Nothing to install; classic ML and small networks.
 //   local    the desktop app's own server (same origin as the page).
 //   remote   `flowlabs engine` on this or another computer: your CPU cores, RAM and GPU.
-import type { DatasetMeta, EngineEvent, Interpreter, KernelState } from "../types";
+import type { DatasetMeta, EngineEvent, Interpreter, KernelState, UpdateInfo } from "../types";
 
 export type EngineKind = "browser" | "local" | "remote";
 
@@ -39,7 +39,15 @@ export interface Engine {
   /** Stop a training job. The browser engine restarts itself to do this. */
   cancel(jobId: string): Promise<void>;
   kernel?: KernelControls;
+  /** The desktop app only: new versions from GitHub. */
+  updates?: UpdateControls;
   close(): void;
+}
+
+export interface UpdateControls {
+  check(force?: boolean): Promise<UpdateInfo>;
+  install(): Promise<void>;
+  setAutomatic(on: boolean): Promise<void>;
 }
 
 interface AndroidBridge {
@@ -85,6 +93,7 @@ export class RemoteEngine implements Engine {
   private polling = false;
   private closed = false;
   kernel: KernelControls;
+  updates?: UpdateControls;
 
   constructor(
     private base: string,
@@ -105,6 +114,17 @@ export class RemoteEngine implements Engine {
         await json("/api/kernel/install", { method: "POST", body: JSON.stringify({ packages }) });
       },
     };
+    if (kind === "local") {
+      this.updates = {
+        check: (force = false) => json<UpdateInfo>(`/api/update${force ? "?force=true" : ""}`),
+        install: async () => {
+          await json("/api/update/install", { method: "POST", body: "{}" });
+        },
+        setAutomatic: async (on) => {
+          await json("/api/update/settings", { method: "POST", body: JSON.stringify({ check: on }) });
+        },
+      };
+    }
   }
 
   private headers(extra?: HeadersInit): HeadersInit {

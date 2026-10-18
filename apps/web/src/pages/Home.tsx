@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApp } from "../context";
 import { Icon } from "../components/Icon";
-import { TopBar } from "../components/TopBar";
+import { SectionNav, TopBar } from "../components/TopBar";
 import { Spinner } from "../components/ui";
 import { ago, bytes, metricValue } from "../format";
 import type { DatasetMeta, ProjectSummary } from "../types";
@@ -81,7 +81,7 @@ function DataGrid({ onFile, onBrowse }: { onFile: (file: File) => void; onBrowse
   );
 }
 
-export function Home({ open }: { open: (id: string) => void }) {
+export function Home({ open, openSql }: { open: (id: string) => void; openSql: () => void }) {
   const { engine, info, catalogue, fail, openEngine, notify } = useApp();
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
@@ -139,7 +139,9 @@ export function Home({ open }: { open: (id: string) => void }) {
   const where = engine.kind === "browser" ? "Training in this browser. Your data stays on this device." : `Training on ${engine.kind === "local" ? "this computer" : engine.label}, with ${info.cpus} CPU cores${gpu ? ` and ${gpu.name}` : ""}.`;
   return (
     <div className="shell">
-      <TopBar />
+      <TopBar>
+        <SectionNav current="projects" onProjects={() => undefined} onSql={openSql} />
+      </TopBar>
       <main className="content">
         <div className="page home">
           <section className="intro">
@@ -279,6 +281,9 @@ export function Home({ open }: { open: (id: string) => void }) {
               <div className="section-head">
                 <h2>Stored datasets</h2>
                 <span className="dim small">Kept {engine.kind === "browser" ? "in this browser" : info.workspace ? `in ${info.workspace}` : "by this engine"}.</span>
+                <button className="small" onClick={openSql}>
+                  <Icon name="database" size={13} /> Query with SQL
+                </button>
               </div>
               <div className="table-wrap">
                 <table className="list-table">

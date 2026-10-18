@@ -34,6 +34,7 @@ from flowlabs import __version__
 from flowlabs.core.workspace import Workspace
 
 from . import interpreters
+from . import updates as updating
 from .kernel import Kernel
 
 WEB = Path(__file__).resolve().parents[1] / "web"
@@ -45,7 +46,8 @@ DEFAULT_ORIGINS = (
     "http://127.0.0.1:5173",
 )
 INSTALLABLE = {"numpy", "pandas", "scikit-learn", "scipy", "joblib", "torch", "torchvision", "xgboost", "lightgbm",
-               "pillow", "openpyxl", "pyarrow", "onnx", "psutil"}  # fmt: skip
+               "pillow", "openpyxl", "pyarrow", "onnx", "psutil", "duckdb", "sqlalchemy", "psycopg[binary]",
+               "pymysql"}  # fmt: skip
 LOOPBACK = {"127.0.0.1", "localhost", "[::1]"}
 
 
@@ -110,8 +112,10 @@ def create_app(
 
     app = FastAPI(title="FlowLabs", version=__version__, docs_url=None, redoc_url=None, openapi_url=None,
                   lifespan=lifespan)  # fmt: skip
+    updater = updating.Updater(events.push)
     app.state.kernel = kernel
     app.state.events = events
+    app.state.updater = updater
     app.state.token = token
     installs: dict[str, Any] = {"running": False}
 
@@ -226,6 +230,39 @@ def create_app(
         kernel.notice = None
         await asyncio.to_thread(kernel.restart, path)
         return kernel.describe()
+
+    @app.get("/api/update")
+    async def update_info(force: bool = False) -> dict[str, Any]:
+        """Is there a newer FlowLabs? Checked at most every few hours, unless turned off."""
+        enabled = settings.read().get("update_check", True) is not False
+        if not enabled and not force:
+            return {"current": __version__, "available": False, "checked": False, "enabled": False,
+                    "method": updating.install_method()}  # fmt: skip
+        info = await asyncio.to_thread(updater.check, force)
+        return {**info, "enabled": enabled}
+
+    @app.post("/api/update/settings")
+    async def update_settings(request: Request) -> dict[str, Any]:
+        body = await request.json()
+        settings.write(update_check=bool(body.get("check", True)))
+        return {"enabled": bool(body.get("check", True))}
+
+    @app.post("/api/update/install")
+    async def update_install() -> dict[str, Any]:
+        if not updating.frozen():
+            raise HTTPException(400, "Only the desktop app installs updates itself. Use: pip install -U flowlabs")
+
+        def restart() -> None:
+            command = updating.restart_command(updating.install_method())
+            if command:
+                subprocess.Popen(command, start_new_session=True, close_fds=True)  # noqa: S603
+            kernel.stop()
+            os._exit(0)  # the installer or the restart command starts the new version
+
+        try:
+            return updater.start_install(restart)
+        except RuntimeError as error:
+            raise HTTPException(400, str(error)) from error
 
     @app.post("/api/kernel/restart")
     async def restart() -> dict[str, Any]:

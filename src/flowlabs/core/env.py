@@ -13,6 +13,7 @@ PACKAGES = {
     "numpy": "numpy", "pandas": "pandas", "sklearn": "scikit-learn", "scipy": "scipy", "joblib": "joblib",
     "torch": "torch", "torchvision": "torchvision", "xgboost": "xgboost", "lightgbm": "lightgbm",
     "onnx": "onnx", "onnxruntime": "onnxruntime", "PIL": "pillow", "openpyxl": "openpyxl", "pyarrow": "pyarrow",
+    "duckdb": "duckdb", "sqlalchemy": "sqlalchemy",
 }  # fmt: skip
 
 

@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { useApp } from "../context";
-import { Bars, Heatmap, Histogram, Spark } from "../charts/charts";
+import { Bars, CountUp, Density, DotHistogram, Heatmap, Spark } from "../charts/charts";
 import { Icon } from "../components/Icon";
 import { KindBadge, Notice, Segmented, Spinner } from "../components/ui";
 import { cell, fmt } from "../format";
-import type { ModelEntry, Step, Suggestion, Task } from "../types";
+import type { ColumnProfile, ModelEntry, Step, Suggestion, Task } from "../types";
 import type { ProjectApi } from "./ProjectPage";
 
 const DEFAULTS: Record<Task, string[]> = {
@@ -22,6 +22,41 @@ const FLAG_TEXT: Record<string, string> = {
   high_cardinality: "many categories",
   mostly_missing: "mostly empty",
 };
+
+/** One number column at a time, as dots or curves, split by the target's classes when it has a few. */
+function Distributions({ columns, target }: { columns: ColumnProfile[]; target: string }) {
+  const numeric = columns.filter((c) => c.histogram && c.histogram.edges.length > 2 && c.name !== target);
+  const [name, setName] = useState<string | null>(null);
+  const [view, setView] = useState<"dots" | "curves">("dots");
+  const column = numeric.find((c) => c.name === name) ?? numeric.find((c) => c.by_target) ?? numeric[0];
+  if (!column?.histogram) return null;
+  const split = column.by_target && column.by_target.length > 1;
+  const groups = split
+    ? column.by_target!.map((g, i) => ({ ...g, colour: column.by_target!.length === 2 ? (i === 1 ? "var(--signal)" : "var(--c-blue)") : undefined }))
+    : [{ label: column.name, counts: column.histogram.counts }];
+  return (
+    <div className="card">
+      <div className="dist-head">
+        <h2>Distribution</h2>
+        <select value={column.name} onChange={(e) => setName(e.target.value)} aria-label="Column">
+          {numeric.map((c) => (
+            <option key={c.name} value={c.name}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        <span className="dim small">{split ? `split by ${target}` : "all rows"}</span>
+        <span className="spacer" />
+        {split && <Segmented value={view} onChange={setView} options={[{ value: "dots", label: "Dots" }, { value: "curves", label: "Curves" }]} />}
+      </div>
+      {view === "curves" && split ? (
+        <Density key={`d-${column.name}`} edges={column.histogram.edges} groups={groups} xLabel={column.name} />
+      ) : (
+        <DotHistogram key={`h-${column.name}`} edges={column.histogram.edges} groups={groups} xLabel={column.name} height={210} />
+      )}
+    </div>
+  );
+}
 
 export function DataTab({ api }: { api: ProjectApi }) {
   const { engine, catalogue, fail, notify } = useApp();
@@ -103,11 +138,11 @@ export function DataTab({ api }: { api: ProjectApi }) {
   return (
     <div className="page col" style={{ gap: 18 }}>
       <div className="stat-row">
-        <div className="stat"><div className="value">{profile.rows.toLocaleString()}</div><div className="label">rows{profile.sampled ? " (profiled on a sample)" : ""}</div></div>
-        <div className="stat"><div className="value">{columns.length}</div><div className="label">columns</div></div>
-        <div className="stat"><div className="value">{profile.missing_cells_pct}%</div><div className="label">cells missing</div></div>
-        <div className="stat"><div className="value">{profile.duplicates}</div><div className="label">duplicate rows</div></div>
-        <div className="stat"><div className="value">{profile.memory_mb} MB</div><div className="label">in memory</div></div>
+        <div className="stat"><CountUp className="value" value={profile.rows} format={(v) => Math.round(v).toLocaleString()} /><div className="label">rows{profile.sampled ? " (profiled on a sample)" : ""}</div></div>
+        <div className="stat"><CountUp className="value" value={columns.length} format={(v) => String(Math.round(v))} /><div className="label">columns</div></div>
+        <div className="stat"><CountUp className="value" value={profile.missing_cells_pct} format={(v) => `${v.toFixed(1)}%`} /><div className="label">cells missing</div></div>
+        <div className="stat"><CountUp className="value" value={profile.duplicates} format={(v) => Math.round(v).toLocaleString()} /><div className="label">duplicate rows</div></div>
+        <div className="stat"><CountUp className="value" value={profile.memory_mb} format={(v) => `${v.toFixed(1)} MB`} /><div className="label">in memory</div></div>
       </div>
 
       <div className="grid2" style={{ alignItems: "start" }}>
@@ -132,10 +167,10 @@ export function DataTab({ api }: { api: ProjectApi }) {
           {target?.classes && project.task === "classification" && (
             <>
               <h3 className="section-title">Classes</h3>
-              <Bars items={target.classes.slice(0, 15).map((c) => ({ label: c.value, value: c.count }))} format={(v) => fmt(v)} colour="var(--c-orange)" />
+              <Bars items={target.classes.slice(0, 15).map((c) => ({ label: c.value, value: c.count }))} format={(v) => fmt(v)} colour="var(--signal)" />
             </>
           )}
-          {target?.histogram && project.task === "regression" && <Histogram edges={target.histogram.edges} counts={target.histogram.counts} colour="var(--c-orange)" />}
+          {target?.histogram && project.task === "regression" && <DotHistogram edges={target.histogram.edges} groups={[{ label: target.name, counts: target.histogram.counts, colour: "var(--signal)" }]} height={150} />}
         </div>
         <div className="card">
           <div className="card-head"><Icon name="sparkles" className="accent-text" /><h2>Suggested fixes</h2></div>
@@ -149,6 +184,8 @@ export function DataTab({ api }: { api: ProjectApi }) {
           ))}
         </div>
       </div>
+
+      <Distributions columns={columns} target={project.target} />
 
       <div className="card">
         <div className="card-head"><h2>Columns</h2><span className="dim small">click Drop to remove a column in the Clean stage</span></div>
@@ -169,7 +206,7 @@ export function DataTab({ api }: { api: ProjectApi }) {
                     </div>
                   </td>
                   <td className="num dim">{c.unique.toLocaleString()}</td>
-                  <td>{c.histogram ? <Spark counts={c.histogram.counts} /> : c.top ? <Spark counts={c.top.slice(0, 10).map((t) => t.count)} colour="var(--c-purple)" /> : null}</td>
+                  <td>{c.histogram ? <Spark counts={c.histogram.counts} colour="var(--c-blue)" /> : c.top ? <Spark counts={c.top.slice(0, 10).map((t) => t.count)} colour="var(--c-purple)" /> : null}</td>
                   <td className="small dim">
                     {c.stats && "mean" in c.stats ? `${fmt(c.stats.min)} – ${fmt(c.stats.max)}, mean ${fmt(c.stats.mean)}` : c.top ? c.top.slice(0, 3).map((t) => `${t.value} (${t.count})`).join(", ") : c.stats ? `${String(c.stats.min ?? "").slice(0, 10)} → ${String(c.stats.max ?? "").slice(0, 10)}` : ""}
                   </td>

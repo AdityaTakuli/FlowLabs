@@ -96,6 +96,8 @@ export interface ColumnProfile {
   flags: string[];
   stats?: Record<string, number | string>;
   histogram?: { edges: number[]; counts: number[] };
+  /** The histogram again, one per class of the target (2 to 6 classes). */
+  by_target?: { label: string; counts: number[] }[];
   top?: { value: string; count: number }[];
 }
 
@@ -249,6 +251,8 @@ export interface ModelResult {
     residual_histogram?: { edges: number[]; counts: number[] };
     range?: [number, number];
     mistakes?: { image: string; true: string; predicted: string; confidence: number }[];
+    /** One histogram of predicted probability per true class. */
+    separation?: { axis: string; edges: number[]; groups: { label: string; counts: number[] }[] };
   };
   importance?: { native?: { feature: string; value: number }[]; permutation?: { feature: string; value: number; std: number }[] };
   artifact?: string;
@@ -384,6 +388,7 @@ export type EngineEvent =
   | JobEvent
   | { type: "kernel"; status: string; message?: string; info?: EngineInfo }
   | { type: "install"; line?: string; done?: boolean; code?: number }
+  | { type: "update"; stage: "download" | "installing" | "restarting" | "error"; progress?: number | null; message?: string }
   | { type: "log"; text: string }
   | { type: "connection"; status: "online" | "offline" }
   | { type: "boot"; stage: string; message: string; progress?: number };
@@ -392,4 +397,66 @@ export type EngineEvent =
 export interface StepCode {
   code: string;
   replacement: { op?: string; algo?: string; label?: string; params: Record<string, unknown> };
+}
+
+export interface SqlColumn {
+  name: string;
+  type: string;
+}
+
+export interface SqlTable {
+  name: string;
+  columns: SqlColumn[];
+  /** Your datasets only. */
+  dataset_id?: string;
+  label?: string;
+  rows?: number;
+}
+
+export interface SqlResult {
+  columns: string[];
+  types: string[];
+  rows: unknown[][];
+  /** null when the database did not say how many rows there are in all. */
+  total: number | null;
+  truncated: boolean;
+  elapsed_ms: number;
+  message: string | null;
+}
+
+export interface SqlKind {
+  id: "postgresql" | "mysql" | "sqlite" | "duckdb" | "url";
+  label: string;
+  port: number | null;
+  file: boolean;
+}
+
+export interface SqlConnection {
+  id: string;
+  kind: SqlKind["id"];
+  kind_label: string;
+  name: string;
+  allow_changes: boolean;
+  host?: string;
+  port?: number;
+  database?: string;
+  user?: string;
+  url?: string;
+  password_set: boolean;
+}
+
+export interface UpdateInfo {
+  current: string;
+  latest?: string;
+  available: boolean;
+  /** False when GitHub could not be reached, or checking is turned off. */
+  checked: boolean;
+  enabled: boolean;
+  /** deb, macos and windows install themselves; manual and pip show how. */
+  method: "deb" | "macos" | "windows" | "manual" | "pip";
+  can_install?: boolean;
+  notes?: string;
+  page?: string;
+  asset?: { name: string; size: number } | null;
+  error?: string;
 }

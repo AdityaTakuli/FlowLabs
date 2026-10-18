@@ -6,7 +6,7 @@ const CDN = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
 const PACKAGES = ["numpy", "pandas", "scikit-learn", "scipy", "joblib", "pillow"];
 const ROOT = "/flowlabs";
 const WORKSPACE = `${ROOT}/workspace`;
-const READ_ONLY = /^(engine\.|catalogue\.|datasets\.(list|profile|preview)|projects\.(list|get|check|preview|new_step|new_model)|runs\.(list|get)|export\.list|predict\.rows)/;
+const READ_ONLY = /^(engine\.|catalogue\.|datasets\.(list|profile|preview)|projects\.(list|get|check|preview|new_step|new_model)|runs\.(list|get)|export\.list|predict\.rows|sql\.(tables|kinds|connections))/;
 
 const scope = self as unknown as { postMessage(message: unknown, transfer?: Transferable[]): void; onmessage: ((event: MessageEvent) => void) | null };
 type Py = {
@@ -22,6 +22,16 @@ let py: Py | null = null;
 let bridge: { call(method: string, params: string): string } | null = null;
 let ready: Promise<void> | null = null;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let duckdb: Promise<void> | null = null;
+
+/** DuckDB loads the first time the SQL page runs a query, so the app starts without it. */
+function loadDuckdb(): Promise<void> {
+  duckdb ??= py!.loadPackage("duckdb").catch((error) => {
+    duckdb = null;
+    throw error;
+  });
+  return duckdb;
+}
 
 function report(stage: string, message: string, progress?: number) {
   scope.postMessage({ type: "event", event: { type: "boot", stage, message, progress } });
@@ -115,6 +125,7 @@ scope.onmessage = async (message: MessageEvent) => {
     }
     await ready;
     if (type === "call") {
+      if (/^sql\.(run|save)$/.test(message.data.method)) await loadDuckdb();
       scope.postMessage({ id, ...(call(message.data.method, message.data.params) as object) });
     } else if (type === "upload") {
       scope.postMessage({ id, ...((await upload(message.data.name, message.data.buffer)) as object) });

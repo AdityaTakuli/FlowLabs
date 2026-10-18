@@ -1,7 +1,9 @@
-// A Python editor for code steps (CodeMirror 6), themed with the app's colour tokens.
+// The code editor (CodeMirror 6) for Python code steps and SQL queries, themed with the app's colour tokens.
+import { closeCompletion } from "@codemirror/autocomplete";
 import { python } from "@codemirror/lang-python";
+import { MySQL, PostgreSQL, sql, SQLite, StandardSQL } from "@codemirror/lang-sql";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState, Prec, type Extension } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { indentWithTab } from "@codemirror/commands";
 import { tags as t } from "@lezer/highlight";
@@ -14,7 +16,7 @@ const highlight = HighlightStyle.define([
   { tag: [t.number, t.bool, t.null], color: "var(--code-number)" },
   { tag: [t.comment, t.lineComment, t.docString], color: "var(--code-comment)", fontStyle: "italic" },
   { tag: [t.function(t.variableName), t.function(t.propertyName), t.definition(t.function(t.variableName))], color: "var(--code-function)" },
-  { tag: [t.className, t.definition(t.className)], color: "var(--code-class)" },
+  { tag: [t.className, t.definition(t.className), t.typeName], color: "var(--code-class)" },
   { tag: [t.self, t.special(t.variableName)], color: "var(--code-keyword)" },
 ]);
 
@@ -45,18 +47,36 @@ function errorLine(view: EditorView, line: number | null) {
   element?.closest(".cm-line")?.classList.add("cm-error-line");
 }
 
-export function CodeEditor({ value, onChange, readOnly = false, minLines = 8, errorAt = null, label }: {
+export type SqlDialect = "postgresql" | "mysql" | "sqlite" | "standard";
+const DIALECTS = { postgresql: PostgreSQL, mysql: MySQL, sqlite: SQLite, standard: StandardSQL };
+
+function languageOf(language: "python" | "sql", dialect: SqlDialect, schema?: Record<string, string[]>): Extension {
+  return language === "sql" ? sql({ dialect: DIALECTS[dialect], schema, upperCaseKeywords: false }) : python();
+}
+
+export function CodeEditor({ value, onChange, readOnly = false, minLines = 8, errorAt = null, label, language = "python", dialect = "postgresql", schema, onRun, insert }: {
   value: string;
   onChange?: (code: string) => void;
   readOnly?: boolean;
   minLines?: number;
   errorAt?: number | null;
   label: string;
+  language?: "python" | "sql";
+  dialect?: SqlDialect;
+  /** SQL: table name -> column names, for completion. */
+  schema?: Record<string, string[]>;
+  /** Ctrl+Enter (Cmd+Enter on a Mac), with the editor's text as it is now. */
+  onRun?: (code: string) => void;
+  /** Text to put at the cursor; a new `n` inserts it again. */
+  insert?: { text: string; n: number };
 }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const changed = useRef(onChange);
   changed.current = onChange;
+  const run = useRef(onRun);
+  run.current = onRun;
+  const lang = useRef(new Compartment());
 
   useEffect(() => {
     if (!host.current) return;
@@ -65,8 +85,21 @@ export function CodeEditor({ value, onChange, readOnly = false, minLines = 8, er
       state: EditorState.create({
         doc: value,
         extensions: [
+          Prec.highest(
+            keymap.of([
+              {
+                key: "Mod-Enter",
+                run: (target) => {
+                  if (!run.current) return false;
+                  closeCompletion(target);
+                  run.current(target.state.doc.toString());
+                  return true;
+                },
+              },
+            ]),
+          ),
           basicSetup,
-          python(),
+          lang.current.of(languageOf(language, dialect, schema)),
           keymap.of([indentWithTab]),
           syntaxHighlighting(highlight),
           theme,
@@ -100,6 +133,17 @@ export function CodeEditor({ value, onChange, readOnly = false, minLines = 8, er
   useEffect(() => {
     if (view.current) requestAnimationFrame(() => view.current && errorLine(view.current, errorAt));
   }, [errorAt, value]);
+
+  useEffect(() => {
+    view.current?.dispatch({ effects: lang.current.reconfigure(languageOf(language, dialect, schema)) });
+  }, [language, dialect, schema]);
+
+  useEffect(() => {
+    const editor = view.current;
+    if (!editor || !insert) return;
+    editor.dispatch(editor.state.replaceSelection(insert.text));
+    editor.focus();
+  }, [insert]);
 
   return <div className="code-editor" ref={host} />;
 }

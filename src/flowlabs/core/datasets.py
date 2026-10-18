@@ -605,6 +605,8 @@ def profile(ws: Workspace, dataset_id: str, target: str | None = None) -> dict[s
     columns = [profile_column(sample[c], rows) for c in sample.columns]
     if not target or target not in frame.columns:
         target = (meta.get("sample") or {}).get("target") or guess_target(frame)
+    if target in sample.columns:
+        _split_by_target(sample, columns, target)
     return {
         "dataset": meta, "kind": "tabular", "rows": int(len(frame)), "columns": columns,
         "duplicates": int(sample.duplicated().sum()),
@@ -614,6 +616,25 @@ def profile(ws: Workspace, dataset_id: str, target: str | None = None) -> dict[s
         "suggested_target": target, "correlations": _correlations(sample, target),
         "suggestions": suggestions(sample, columns, target), "sampled": len(frame) > rows,
     }  # fmt: skip
+
+
+def _split_by_target(frame: pd.DataFrame, columns: list[dict[str, Any]], target: str, most: int = 6) -> None:
+    """Each number column's histogram again, one per class of a categorical target (2 to ``most`` classes)."""
+    labels = frame[target]
+    if rt.is_numeric_series(labels) and labels.nunique() > most:
+        return
+    classes = labels.dropna().astype(str).value_counts()
+    if not 2 <= len(classes) <= most:
+        return
+    as_text = labels.astype(str).where(labels.notna())
+    for column in columns:
+        edges = (column.get("histogram") or {}).get("edges") or []
+        if column["name"] == target or len(edges) < 3:
+            continue
+        values = pd.to_numeric(frame[column["name"]], errors="coerce")
+        column["by_target"] = [{"label": str(label), "counts": np.histogram(values[(as_text == label) & values.notna()],
+                                                                             bins=np.asarray(edges, float))[0].tolist()}
+                               for label in classes.index]  # fmt: skip
 
 
 def preview(ws: Workspace, dataset_id: str, offset: int = 0, limit: int = 100) -> dict[str, Any]:
