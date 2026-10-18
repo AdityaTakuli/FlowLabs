@@ -455,6 +455,8 @@ export interface UpdateInfo {
   /** deb, macos and windows install themselves; manual and pip show how. */
   method: "deb" | "macos" | "windows" | "manual" | "pip";
   can_install?: boolean;
+  /** The release exists but this system's file is still being built. */
+  pending?: boolean;
   notes?: string;
   page?: string;
   asset?: { name: string; size: number } | null;

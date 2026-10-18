@@ -1,7 +1,7 @@
 {
   "name": "flowlabs-web",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.5.1",
   "type": "module",
   "scripts": {
     "pack-core": "node scripts/pack-core.mjs",

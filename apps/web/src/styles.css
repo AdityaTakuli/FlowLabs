@@ -212,7 +212,7 @@ input[type="checkbox"] { accent-color: var(--ink); min-height: 0; width: 16px; h
 /* pages fill the window; text keeps its own readable width */
 .page { width: 100%; padding: 28px clamp(20px, 2.4vw, 44px) 80px; }
 
-.workspace { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 0; }
+.workspace { display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: 0; }
 /* the rail, after Motion's scroll-highlight example: big bold labels at 30%, the current one lit */
 .rail { background: var(--paper); border-right: 1px solid var(--rule); padding: 22px 14px 22px 8px; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 6px; overflow-y: auto; align-content: start; }
 .rail-title { position: sticky; top: 0; align-self: start; display: flex; justify-content: center; padding-top: 4px; }
@@ -222,18 +222,27 @@ input[type="checkbox"] { accent-color: var(--ink); min-height: 0; width: 16px; h
 }
 .rail-list { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .rail-step {
-  display: flex; align-items: flex-start; gap: 10px; text-align: left; justify-content: flex-start; padding: 8px 6px; min-height: 0; white-space: normal;
-  background: none; border: none; border-radius: 10px; opacity: 0.3; transform: translateX(0);
-  transition: opacity 0.18s ease-in-out, transform 0.18s ease-in-out;
+  display: flex; align-items: flex-start; gap: 9px; text-align: left; justify-content: flex-start; padding: 7px 6px; min-height: 0; white-space: normal;
+  background: none; border: none; border-radius: 10px; opacity: 0.38;
+  transition: opacity 0.3s ease;
 }
-.rail-step:hover:not(:disabled) { background: none; opacity: 0.65; }
-.rail-step.active { opacity: 1; transform: translateX(5px); }
+.rail-step:hover:not(:disabled) { background: none; opacity: 0.75; }
+.rail-step:active:not(:disabled) { transform: none; }
+.rail-step.active { opacity: 1; }
 .rail-step.error { opacity: 0.75; }
 .rail-step:focus-visible { opacity: 1; }
 .rail-text { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
-.rail-label { font-family: var(--display); font-weight: 800; font-size: 21px; line-height: 1.02; letter-spacing: -0.01em; text-transform: uppercase; color: var(--text); }
-.rail-note { font-size: 12px; color: var(--text-dim); line-height: 1.3; }
-.step-dot { width: 16px; height: 16px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 9.5px; font-weight: 700; border: 1.5px solid var(--text); color: var(--text); flex: none; margin-top: 3px; background: transparent; }
+/* a label grows a little on hover and stays bigger while selected; the items below slide along */
+.rail-label {
+  font-family: var(--display); font-weight: 800; font-size: 14px; line-height: 1.1; letter-spacing: 0.01em; text-transform: uppercase; color: var(--text);
+  transition: font-size 0.38s cubic-bezier(0.22, 1, 0.36, 1), letter-spacing 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.rail-step:hover .rail-label { font-size: 16px; }
+.rail-step.active .rail-label { font-size: 18px; letter-spacing: -0.005em; }
+.rail-note { font-size: 11.5px; color: var(--text-dim); line-height: 1.3; }
+.step-dot { width: 15px; height: 15px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 9px; font-weight: 700; border: 1.5px solid var(--text); color: var(--text); flex: none; margin-top: 1px; background: transparent; transition: margin-top 0.38s cubic-bezier(0.22, 1, 0.36, 1); }
+.rail-step:hover .step-dot { margin-top: 2px; }
+.rail-step.active .step-dot { margin-top: 3px; }
 .step-dot.done { background: var(--text); border-color: var(--text); color: var(--paper); }
 .step-dot.error { background: var(--c-red); border-color: var(--c-red); color: #fff; }
 .rail-step.active .step-dot:not(.done):not(.error) { border-color: var(--signal); color: var(--signal-text); }
@@ -357,13 +366,13 @@ th.metric-col { box-shadow: inset 0 -2px 0 var(--signal); }
 .code-view { display: flex; flex-direction: column; gap: 10px; }
 
 /* ------------------------------------------------------------------- modal */
-.overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.32); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); display: grid; place-items: center; z-index: 50; padding: 24px; }
+.overlay { position: fixed; inset: 0; overflow: auto; background: rgba(0, 0, 0, 0.32); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); display: grid; place-items: center; z-index: 50; padding: 24px; }
 .modal { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--r-lg); width: min(760px, 100%); max-height: calc(100dvh - 48px); display: flex; flex-direction: column; box-shadow: var(--shadow-lg); overflow: hidden; }
 .modal.wide { width: min(1080px, 100%); }
-.modal-head { display: flex; align-items: center; gap: 10px; padding: 16px 22px; border-bottom: 1px solid var(--rule); }
+.modal-head { display: flex; align-items: center; gap: 10px; padding: 16px 22px; border-bottom: 1px solid var(--rule); flex: none; }
 .modal-head h2 { font-size: 19px; }
-.modal-body { padding: 22px; overflow: auto; }
-.modal-foot { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--rule); flex-wrap: wrap; }
+.modal-body { padding: 22px; overflow: auto; min-height: 0; flex: 1 1 auto; } /* shrinks and scrolls in short windows */
+.modal-foot { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--rule); flex-wrap: wrap; flex: none; }
 
 .toasts { position: fixed; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 60; max-width: min(420px, calc(100vw - 32px)); }
 .toast { background: var(--bar-bg); backdrop-filter: saturate(180%) blur(24px); -webkit-backdrop-filter: saturate(180%) blur(24px); border: 1px solid var(--rule); border-radius: 14px; padding: 11px 13px; display: flex; gap: 10px; align-items: flex-start; box-shadow: var(--shadow-lg); }
@@ -562,7 +571,7 @@ details > summary { cursor: pointer; min-height: 24px; }
 /* ------------------------------------------------------------------- updates */
 .update-pill { display: inline-flex; align-items: center; gap: 7px; background: var(--signal-soft); color: var(--signal-text); font-weight: 600; font-size: 13px; min-height: 30px; }
 .update-pill:hover:not(:disabled) { background: color-mix(in srgb, var(--signal) 20%, transparent); }
-.update-notes { max-height: 40vh; overflow: auto; }
+.update-notes { overflow: visible; }
 
 /* ------------------------------------------------------------------- sql */
 .sql-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); min-height: 0; }
@@ -744,14 +753,15 @@ kbd { font-family: var(--font); font-size: 0.82em; font-weight: 600; background:
 .chart-window-body .chart-sub { margin-bottom: 14px; }
 
 /* rail: the page's sections, the one being read lit up */
-.rail-sections { display: flex; flex-direction: column; margin: 0 0 10px 32px; overflow: hidden; }
+.rail-sections { display: flex; flex-direction: column; margin: 0 0 8px 30px; overflow: hidden; }
 .rail-sections button {
-  justify-content: flex-start; text-align: left; background: none; border: none; border-radius: 6px; min-height: 0; padding: 4px 6px;
-  font-family: var(--display); font-size: 14px; font-weight: 700; letter-spacing: -0.005em; color: var(--text); white-space: normal;
-  opacity: 0.3; transform: translateX(0); transition: opacity 0.15s ease-in-out, transform 0.15s ease-in-out;
+  justify-content: flex-start; text-align: left; background: none; border: none; border-radius: 6px; min-height: 0; padding: 3px 6px;
+  font-family: var(--display); font-size: 12.5px; font-weight: 700; letter-spacing: 0; color: var(--text); white-space: normal;
+  opacity: 0.38; transition: opacity 0.3s ease, font-size 0.38s cubic-bezier(0.22, 1, 0.36, 1);
 }
-.rail-sections button:hover:not(:disabled) { opacity: 0.65; background: none; }
-.rail-sections button.on { opacity: 1; transform: translateX(5px); }
+.rail-sections button:hover:not(:disabled) { opacity: 0.75; background: none; font-size: 13.5px; }
+.rail-sections button:active:not(:disabled) { transform: none; }
+.rail-sections button.on { opacity: 1; font-size: 14.5px; }
 
 
 /* ------------------------------------------------------------------- splash (intro and loading) */

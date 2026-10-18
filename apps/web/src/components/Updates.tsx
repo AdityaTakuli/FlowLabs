@@ -138,7 +138,13 @@ export function UpdateDialog({ initial, onClose, onChange }: { initial: UpdateIn
     >
       <p className="dim" style={{ marginBottom: 14 }}>
         You have {info.current}
-        {info.available ? `. ${how[info.method]}` : info.checked ? "." : `. ${info.error ?? "Checking is turned off."}`}
+        {info.available
+          ? `. ${how[info.method]}`
+          : info.pending
+            ? `. FlowLabs ${info.latest} is being prepared for your system; check again in a few minutes.`
+            : info.checked
+              ? "."
+              : `. ${info.error ?? "Checking is turned off."}`}
       </p>
       {progress && (
         <div style={{ marginBottom: 16 }}>

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import time
 
 import pytest
 
@@ -176,3 +177,25 @@ def test_the_release_manifest_is_preferred_over_the_api(monkeypatch):
         return RELEASE
 
     assert updates.Updater(lambda e: None, fetch=old_release).check()["latest"] == "9.1.0"
+
+
+def test_a_release_still_being_built_is_not_announced(monkeypatch):
+    """GitHub creates the release first and uploads each system's file minutes later."""
+    monkeypatch.setattr(updates, "install_method", lambda: "deb")
+    monkeypatch.setattr(updates.platform, "machine", lambda: "x86_64")
+    building = {**RELEASE, "assets": [a for a in RELEASE["assets"] if not a["name"].endswith(".deb")]}
+
+    def fetch(url):
+        if url == updates.MANIFEST:
+            raise OSError("404: latest.json is written last")
+        return building
+
+    updater = updates.Updater(lambda e: None, fetch=fetch)
+    info = updater.check()
+    assert (
+        info["available"] is False and info["pending"] is True and info["latest"] == "9.1.0" and not info["can_install"]
+    )
+    assert time.time() - updater.checked_at > updates.CHECK_EVERY_S - 700  # checked again in about ten minutes
+
+    monkeypatch.setattr(updates, "install_method", lambda: "manual")
+    assert updates.Updater(lambda e: None, fetch=fetch).check()["available"] is True  # the release page works already

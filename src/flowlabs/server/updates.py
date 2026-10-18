@@ -147,8 +147,12 @@ class Updater:
         info.update(latest=latest.lstrip("vV"), available=bool(latest) and newer(latest), notes=str(release.get("body") or ""),
                     page=str(release.get("html_url") or f"https://github.com/{REPO}/releases/latest"),
                     published=release.get("published_at"), asset=asset)  # fmt: skip
+        if info["available"] and method in ("deb", "macos", "windows") and asset is None:
+            # the release exists but this system's file is not uploaded yet (it is still being built):
+            # say nothing until it is, so the update can install itself
+            info.update(available=False, pending=True)
         info["can_install"] = bool(info["available"] and asset and str(asset["url"]).startswith(DOWNLOADS))
-        self.cached, self.checked_at = info, time.time()
+        self.cached, self.checked_at = info, time.time() - (CHECK_EVERY_S - 600 if info.get("pending") else 0)
         return info
 
     # ------------------------------------------------------------------------------- install
