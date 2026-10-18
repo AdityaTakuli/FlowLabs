@@ -6,6 +6,23 @@ export it as Python that runs anywhere. Everything happens on your own computer.
 
 ## Install
 
+The quickest way is one command. On **Linux or macOS**, in a terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.sh | sh
+```
+
+On **Windows**, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.ps1 | iex
+```
+
+It downloads the right file for your computer from the latest release, checks it, and installs it.
+On Ubuntu and Debian it asks for your password, to install with `apt`.
+
+To install by hand instead:
+
 | System | Download | Install |
 | --- | --- | --- |
 | Ubuntu, Debian | `FlowLabs-*-linux-amd64.deb` | Double-click it, or run `sudo apt install ./FlowLabs-*-linux-amd64.deb` |
@@ -17,9 +34,9 @@ export it as Python that runs anywhere. Everything happens on your own computer.
 
 Downloads are on the [releases page](https://github.com/AdityaTakuli/FlowLabs/releases/latest).
 
-> **First launch.** The apps are not code-signed yet. On macOS, right-click FlowLabs, choose
-> **Open**, then **Open** again. On Windows, SmartScreen shows a warning: click **More info**, then
-> **Run anyway**. You only do this once.
+> **First launch, when you downloaded by hand.** The apps are not code-signed yet. On macOS,
+> right-click FlowLabs, choose **Open**, then **Open** again. On Windows, SmartScreen shows a warning:
+> click **More info**, then **Run anyway**. You only do this once.
 
 There is also a version that runs inside your web browser with nothing to install. It suits trying
 FlowLabs out and small to medium tables. See [Engines and GPUs](guide:engines).

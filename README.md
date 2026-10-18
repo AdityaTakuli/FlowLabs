@@ -28,52 +28,63 @@ or more. A GPU is optional (NVIDIA with CUDA, or Apple silicon), see [the engine
 
 ### Desktop app
 
+**Linux and macOS:** run this in a terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.sh | sh
+```
+
+**Windows:** run this in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.ps1 | iex
+```
+
+The command finds the latest release and downloads the file for your computer. It checks the file
+against the release's SHA-256 checksum, then installs it:
+
+| System | What it installs |
+| --- | --- |
+| Ubuntu, Debian | The `.deb`, with `apt`, which asks for your password. `apt` also installs GTK and WebKitGTK for the app window. |
+| Other Linux | Installs for your user only, no password needed. |
+| macOS | `FlowLabs.app` into Applications. |
+| Windows | For your user, no administrator rights needed. FlowLabs opens when it is done. |
+
+Then open **FlowLabs** from your applications menu, Launchpad or Start menu.
+
+To install a particular version, or only download and check the file without installing it:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.sh | FLOWLABS_VERSION=0.5.1 sh
+curl -fsSL https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.sh | FLOWLABS_DRY_RUN=1 sh
+```
+
+On Windows, set `$env:FLOWLABS_VERSION = "0.5.1"` or `$env:FLOWLABS_DRY_RUN = "1"` before the command.
+The scripts are short and readable: [install.sh](install.sh), [install.ps1](install.ps1).
+
+Supported systems: 64-bit Linux on Intel/AMD (Ubuntu 22.04, Debian 12 or newer), macOS 11 or newer
+(Apple silicon or Intel), and Windows 10 or 11 (64-bit).
+
+<details>
+<summary><b>Install by hand instead</b></summary>
+
 Download the file for your system from the
 [latest release](https://github.com/AdityaTakuli/FlowLabs/releases/latest), then:
 
-**Ubuntu and Debian** (Ubuntu 22.04 or newer, Debian 12 or newer, 64-bit Intel/AMD)
+| System | File | Install |
+| --- | --- | --- |
+| Ubuntu, Debian | `FlowLabs-*-linux-amd64.deb` | Double-click it, or run `sudo apt install ./FlowLabs-*-linux-amd64.deb` |
+| Other Linux | `FlowLabs-*-linux-x86_64.tar.gz` | `tar -xzf FlowLabs-*.tar.gz && sh FlowLabs/install.sh`. For the app's own window, install WebKitGTK 4.1 (`webkit2gtk4.1` on Fedora, `webkit2gtk-4.1` on Arch); without it FlowLabs opens in your browser. |
+| macOS, Apple silicon | `FlowLabs-*-macos-arm64.dmg` | Open it and drag FlowLabs to Applications |
+| macOS, Intel | `FlowLabs-*-macos-x86_64.dmg` | Open it and drag FlowLabs to Applications |
+| Windows | `FlowLabs-*-windows-x64-setup.exe` | Run it (or unzip `FlowLabs-*-windows-x64.zip` and run `FlowLabs.exe`) |
 
-Double-click the `.deb` file and click **Install**, or run this in the folder you downloaded it to:
+The apps are not code-signed yet. Files downloaded in a browser trigger a warning the first time:
 
-```bash
-sudo apt install ./FlowLabs-*-linux-amd64.deb
-```
+- **macOS:** right-click FlowLabs in Applications, choose **Open**, then **Open** again;
+- **Windows:** SmartScreen shows a warning: click **More info**, then **Run anyway**.
 
-Or download and install the latest release in one go, with the [GitHub CLI](https://cli.github.com):
-
-```bash
-gh release download --repo AdityaTakuli/FlowLabs --pattern "*linux-amd64.deb" --dir /tmp/flowlabs --clobber
-sudo apt install /tmp/flowlabs/FlowLabs-*-linux-amd64.deb
-```
-
-`apt` also installs what the app window needs (GTK and WebKitGTK). Open **FlowLabs** from your
-applications menu, or run `flowlabs-app`.
-
-**Other Linux** (64-bit Intel/AMD)
-
-```bash
-tar -xzf FlowLabs-*-linux-x86_64.tar.gz
-sh FlowLabs/install.sh   # installs to ~/.local/share/flowlabs, adds a menu entry and the flowlabs-app command
-```
-
-For the app's own window, install your distribution's WebKitGTK 4.1 package (`webkit2gtk4.1` on
-Fedora, `webkit2gtk-4.1` on Arch). Without it, FlowLabs opens in your browser instead.
-
-**macOS** (11 Big Sur or newer)
-
-1. Download `FlowLabs-*-macos-arm64.dmg` for Apple silicon (M1 and later), or
-   `FlowLabs-*-macos-x86_64.dmg` for Intel Macs.
-2. Open it and drag **FlowLabs** to **Applications**.
-3. The first time, right-click FlowLabs in Applications, choose **Open**, then **Open** again. The
-   app is not code-signed yet, so macOS asks once.
-
-**Windows** (10 and 11, 64-bit)
-
-1. Download and run `FlowLabs-*-windows-x64-setup.exe`. No administrator rights are needed.
-2. If SmartScreen warns about an unrecognised app, click **More info**, then **Run anyway**. The
-   app is not code-signed yet.
-
-Prefer not to install? Unzip `FlowLabs-*-windows-x64.zip` and run `FlowLabs.exe`.
+</details>
 
 **After installing**
 
