@@ -19,7 +19,7 @@ from typing import Any
 
 from flowlabs import __version__
 
-from . import datasets, sql
+from . import datasets, sources, sql
 from .util import UserError
 from .workspace import Workspace
 
@@ -101,7 +101,8 @@ def schema(ws: Workspace, connection_id: str | None, dataset_id: str | None) -> 
     lines: list[str] = []
     if connection_id:
         connection = sql._get_connection(ws, connection_id)
-        dialect = sql.KINDS.get(connection["kind"], {}).get("label", "standard SQL")
+        source = sources.SOURCES.get(connection["kind"])
+        dialect = source.dialect if source else "standard SQL"
         for table in sql.connection_tables(ws, connection_id)[:MAX_TABLES]:
             columns = ", ".join(f"{c['name']} {c['type']}" for c in table["columns"][:MAX_COLUMNS])
             lines.append(f"{table['name']}({columns})")

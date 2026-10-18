@@ -187,9 +187,24 @@ function rowsLine(result: SqlResult): string {
 
 type Draft = Partial<SqlConnection> & { kind: SqlKind["id"]; password?: string };
 
-function ConnectionDialog({ kinds, initial, onClose, onSaved }: { kinds: SqlKind[]; initial: SqlConnection | null; onClose: () => void; onSaved: (connection: SqlConnection) => void }) {
+// Until the Connect form is drawn from each source's fields (Phase 1, in progress), this dialog offers
+// the sources it was built for, and reads the engine's source descriptions in the old shape.
+const CLASSIC = new Set(["postgresql", "mysql", "sqlite", "duckdb", "url"]);
+
+function classic(described: (SqlKind & { fields?: { name: string; kind: string; default: unknown }[] })[]): SqlKind[] {
+  return described
+    .filter((k) => CLASSIC.has(k.id))
+    .map((k) => ({
+      ...k,
+      port: k.port ?? ((k.fields?.find((f) => f.name === "port")?.default as number | undefined) ?? null),
+      file: k.file ?? Boolean(k.fields?.some((f) => f.kind === "path")),
+    }));
+}
+
+function ConnectionDialog({ kinds: described, initial, onClose, onSaved }: { kinds: SqlKind[]; initial: SqlConnection | null; onClose: () => void; onSaved: (connection: SqlConnection) => void }) {
   const { engine, fail, openGuide } = useApp();
-  const [draft, setDraft] = useState<Draft>(initial ? { ...initial } : { kind: "postgresql", port: 5432, allow_changes: false });
+  const kinds = classic(described);
+  const [draft, setDraft] = useState<Draft>(initial ? { ...initial, ...((initial as { values?: Partial<Draft> }).values ?? {}) } : { kind: "postgresql", port: 5432, allow_changes: false });
   const [test, setTest] = useState<{ ok: boolean; message: string } | null>(null);
   const [busy, setBusy] = useState<"test" | "save" | null>(null);
   const kind = kinds.find((k) => k.id === draft.kind);

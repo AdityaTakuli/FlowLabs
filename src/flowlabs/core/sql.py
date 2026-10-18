@@ -4,10 +4,10 @@ Every table dataset is a SQL table named after the dataset (``Customer churn`` i
 ``customer_churn``). Queries run in a fresh in-memory DuckDB each time, so they never change the
 stored datasets: to keep a result, save it as a new dataset.
 
-Connections (PostgreSQL, MySQL/MariaDB, SQLite, DuckDB, or any SQLAlchemy URL) are kept in
-``<workspace>/connections.json``, readable only by you, and run on the computer the engine runs on.
-They are read-only unless you allow changes: a read-only connection refuses statements that write
-and rolls back whatever it ran.
+Connections (databases, warehouses and cloud storage: see sources.py) are kept in
+``<workspace>/connections.json``; their passwords, keys and tokens in the keychain (vault.py). They
+run on the computer the engine runs on, and are read-only unless you allow changes: a read-only
+connection refuses statements that write and rolls back whatever it ran.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from typing import Any
 
 import pandas as pd
 
-from . import datasets
+from . import datasets, plugins, sources, vault
 from .util import UserError, frame_rows, new_id, now
 from .workspace import Workspace
 
@@ -29,20 +29,15 @@ PREVIEW_ROWS = 500
 MAX_PREVIEW_ROWS = 5000
 CONNECT_TIMEOUT_S = 10
 READ_WORDS = {"select", "with", "show", "describe", "desc", "explain", "pragma", "values", "table", "from", "summarize"}
-KINDS: dict[str, dict[str, Any]] = {
-    "postgresql": {"label": "PostgreSQL", "driver": "postgresql+psycopg", "port": 5432, "package": "psycopg[binary]"},
-    "mysql": {"label": "MySQL or MariaDB", "driver": "mysql+pymysql", "port": 3306, "package": "pymysql"},
-    "sqlite": {"label": "SQLite file", "driver": "sqlite", "file": True},
-    "duckdb": {"label": "DuckDB file", "file": True},
-    "url": {"label": "Other (SQLAlchemy URL)"},
-}
-SECRET_FIELDS = ("password", "url")
 _DIALECT_NAMES = {
     "postgresql": "PostgreSQL",
     "mysql": "MySQL",
     "sqlite": "SQLite",
     "mssql": "SQL Server",
     "oracle": "Oracle",
+    "snowflake": "Snowflake",
+    "bigquery": "BigQuery",
+    "databricks": "Databricks",
 }
 
 
@@ -168,11 +163,17 @@ def _pandas_type(series: pd.Series) -> str:
     return {"i": "integer", "u": "integer", "f": "number", "b": "boolean", "M": "date"}.get(kind, "text")
 
 
-def _local_connection(ws: Workspace, sql: str, dataset_id: str | None = None) -> Any:
+def _local_connection(ws: Workspace, sql: str, dataset_id: str | None = None, prepare: Any = None) -> Any:
     """An in-memory DuckDB with the datasets the query names registered as tables (``data``: the
-    project's own dataset, when there is one)."""
+    project's own dataset, when there is one). ``prepare`` sets it up first (cloud storage)."""
     duckdb = _duckdb()
     connection = duckdb.connect()
+    if prepare is not None:
+        try:
+            prepare(connection)
+        except duckdb.Error as error:
+            connection.close()
+            raise UserError(f"could not set up the storage connection: {_tidy_message(str(error))}") from error
     words = {w.lower() for w in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", sql)}
     for name, meta in dataset_tables(ws).items():
         if name in words and not (dataset_id and name == PROJECT_TABLE):
@@ -183,10 +184,10 @@ def _local_connection(ws: Workspace, sql: str, dataset_id: str | None = None) ->
 
 
 def _run_local(
-    ws: Workspace, sql: str, limit: int | None, offset: int = 0, dataset_id: str | None = None
+    ws: Workspace, sql: str, limit: int | None, offset: int = 0, dataset_id: str | None = None, prepare: Any = None
 ) -> tuple[pd.DataFrame | None, int | None, str | None]:
     duckdb = _duckdb()
-    connection = _local_connection(ws, sql, dataset_id)
+    connection = _local_connection(ws, sql, dataset_id, prepare)
     try:
         relation = connection.sql(sql)
         if relation is None:
@@ -221,8 +222,15 @@ def _tidy_message(message: str) -> str:
 # ------------------------------------------------------------------------------ connections
 
 
+class DriverMissing(UserError):
+    """The source's Python driver is not installed yet; the Connect dialog offers to install it."""
+
+
 def _connections_file(ws: Workspace) -> Path:
     return ws.root / "connections.json"
+
+
+LEGACY_FIELDS = ("host", "port", "database", "user")
 
 
 def _read_connections(ws: Workspace) -> list[dict[str, Any]]:
@@ -230,36 +238,51 @@ def _read_connections(ws: Workspace) -> list[dict[str, Any]]:
     if not path.is_file():
         return []
     try:
-        return list(ws.read_json(path))
+        stored = list(ws.read_json(path))
     except ValueError:
         return []
+    for connection in stored:  # connections saved before sources.py: flat fields, secrets in the file
+        if "values" not in connection:
+            connection["values"] = {k: connection[k] for k in LEGACY_FIELDS if connection.get(k) not in (None, "")}
+            connection["legacy_secrets"] = {k: connection[k] for k in ("password", "url") if connection.get(k)}
+            connection["secret_names"] = list(connection["legacy_secrets"])
+    return stored
 
 
 def _write_connections(ws: Workspace, connections: list[dict[str, Any]]) -> None:
     path = _connections_file(ws)
-    ws.write_json(path, connections)
+    kept = [
+        {k: v for k, v in c.items() if k not in ("legacy_secrets", "password", "url", *LEGACY_FIELDS)}
+        for c in connections
+    ]
+    ws.write_json(path, kept)
     try:
-        os.chmod(path, 0o600)  # it holds passwords: only you can read it
+        os.chmod(path, 0o600)
     except OSError:
         pass
 
 
+def _secret_key(connection_id: str, name: str) -> str:
+    return f"connection:{connection_id}:{name}"
+
+
+def _secrets(ws: Workspace, connection: dict[str, Any]) -> dict[str, str]:
+    found = dict(connection.get("legacy_secrets") or {})
+    for name in connection.get("secret_names") or []:
+        value = vault.get(ws, _secret_key(connection["id"], name))
+        if value is not None:
+            found[name] = value
+    return found
+
+
 def _public(connection: dict[str, Any]) -> dict[str, Any]:
-    shown = {k: v for k, v in connection.items() if k not in SECRET_FIELDS}
-    shown["password_set"] = bool(connection.get("password"))
-    if connection.get("url"):
-        shown["url"] = _hide_password(connection["url"])
-    shown["kind_label"] = KINDS.get(connection.get("kind", ""), {}).get("label", connection.get("kind"))
-    return shown
-
-
-def _hide_password(url: str) -> str:
-    try:
-        from sqlalchemy.engine import make_url
-
-        return make_url(url).render_as_string(hide_password=True)
-    except Exception:  # noqa: BLE001 - not a URL SQLAlchemy understands: hide everything after the scheme
-        return re.sub(r"//[^@/]*@", "//***@", url)
+    source = sources.SOURCES.get(connection.get("kind", ""))
+    names = list(connection.get("secret_names") or [])
+    return {"id": connection["id"], "kind": connection.get("kind"), "name": connection.get("name"),
+            "kind_label": source.label if source else connection.get("kind"), "group": source.group if source else "",
+            "allow_changes": bool(connection.get("allow_changes")), "created": connection.get("created"),
+            "values": dict(connection.get("values") or {}), "secrets_set": names,
+            "password_set": "password" in names}  # fmt: skip
 
 
 def list_connections(ws: Workspace) -> list[dict[str, Any]]:
@@ -267,63 +290,68 @@ def list_connections(ws: Workspace) -> list[dict[str, Any]]:
 
 
 def kinds() -> list[dict[str, Any]]:
-    return [
-        {"id": k, "label": v["label"], "port": v.get("port"), "file": bool(v.get("file"))} for k, v in KINDS.items()
-    ]
+    return sources.describe()
 
 
-def _clean_connection(given: dict[str, Any], previous: dict[str, Any] | None) -> dict[str, Any]:
+def _form(given: dict[str, Any]) -> dict[str, Any]:
+    """The Connect form's values: ``values`` from the app, or flat fields."""
+    form = dict(given.get("values") or {})
+    for key, value in given.items():
+        if key not in (
+            "id",
+            "kind",
+            "name",
+            "allow_changes",
+            "values",
+            "created",
+            "kind_label",
+            "group",
+            "secrets_set",
+            "password_set",
+        ):
+            form.setdefault(key, value)
+    return form
+
+
+def _clean_connection(
+    ws: Workspace, given: dict[str, Any], previous: dict[str, Any] | None
+) -> tuple[dict[str, Any], dict[str, str]]:
     kind = str(given.get("kind") or "")
-    if kind not in KINDS:
-        raise UserError("choose a database type")
+    source = sources.get(kind)
+    values, secrets = sources.clean(
+        source, _form(given), _secrets(ws, previous) if previous and previous.get("kind") == kind else {}
+    )
     connection: dict[str, Any] = {
         "id": (previous or {}).get("id") or new_id("c"),
         "kind": kind,
-        "name": str(given.get("name") or "").strip(),
+        "name": str(given.get("name") or "").strip() or sources.default_name(source, values),
         "allow_changes": bool(given.get("allow_changes")),
         "created": (previous or {}).get("created") or now(),
+        "values": values,
+        "secret_names": sorted(secrets),
     }
-    if kind == "url":
-        url = str(given.get("url") or "").strip()
-        if not url or "***" in url:  # the masked URL came back unchanged: keep the stored one
-            url = (previous or {}).get("url", "")
-        if "://" not in url:
-            raise UserError("enter a database URL, e.g. mssql+pyodbc://user:password@host/db")
-        connection["url"] = url
-    elif KINDS[kind].get("file"):
-        path = str(given.get("database") or "").strip()
-        if not path:
-            raise UserError("enter the path of the database file")
-        connection["database"] = str(Path(path).expanduser())
-    else:
-        host = str(given.get("host") or "").strip()
-        if not host:
-            raise UserError("enter the server's host name or address")
-        connection.update(host=host, database=str(given.get("database") or "").strip(),
-                          user=str(given.get("user") or "").strip())  # fmt: skip
-        port = given.get("port") or KINDS[kind]["port"]
-        try:
-            connection["port"] = int(port)
-        except (TypeError, ValueError) as error:
-            raise UserError("the port must be a number") from error
-        password = given.get("password")
-        connection["password"] = (previous or {}).get("password", "") if password in (None, "") else str(password)
-    if not connection["name"]:
-        connection["name"] = connection.get("database") or connection.get("host") or KINDS[kind]["label"]
-        connection["name"] = Path(connection["name"]).name if KINDS[kind].get("file") else connection["name"]
-    return connection
+    return connection, secrets
 
 
 def save_connection(ws: Workspace, given: dict[str, Any]) -> dict[str, Any]:
     stored = _read_connections(ws)
     previous = next((c for c in stored if c["id"] == given.get("id")), None)
-    connection = _clean_connection(given, previous)
+    connection, secrets = _clean_connection(ws, given, previous)
+    for name in set((previous or {}).get("secret_names") or []) - set(secrets):
+        vault.delete(ws, _secret_key(connection["id"], name))
+    places = {vault.put(ws, _secret_key(connection["id"], name), value) for name, value in secrets.items()}
+    connection["secret_store"] = "keychain" if places == {"keychain"} else ("file" if places else None)
     _write_connections(ws, [c for c in stored if c["id"] != connection["id"]] + [connection])
     return _public(connection)
 
 
 def delete_connection(ws: Workspace, connection_id: str) -> None:
-    _write_connections(ws, [c for c in _read_connections(ws) if c["id"] != connection_id])
+    stored = _read_connections(ws)
+    for connection in stored:
+        if connection["id"] == connection_id:
+            for name in connection.get("secret_names") or []:
+                vault.delete(ws, _secret_key(connection_id, name))
+    _write_connections(ws, [c for c in stored if c["id"] != connection_id])
 
 
 def _get_connection(ws: Workspace, connection_id: str) -> dict[str, Any]:
@@ -333,50 +361,48 @@ def _get_connection(ws: Workspace, connection_id: str) -> dict[str, Any]:
     raise UserError("that connection was deleted")
 
 
-def _url(connection: dict[str, Any]) -> Any:
-    from sqlalchemy.engine import URL, make_url
-
-    kind = connection["kind"]
-    if kind == "url":
-        return make_url(connection["url"])
-    if kind == "sqlite":
-        return URL.create("sqlite", database=connection["database"])
-    return URL.create(KINDS[kind]["driver"], username=connection.get("user") or None,
-                      password=connection.get("password") or None, host=connection.get("host"),
-                      port=connection.get("port"), database=connection.get("database") or None)  # fmt: skip
+def _require_driver(source: sources.Source) -> None:
+    absent = plugins.missing(list(source.modules)) if source.modules else []
+    if absent:
+        size = f", about {source.size_mb} MB" if source.size_mb else ""
+        raise DriverMissing(
+            f"{source.label} needs its driver ({', '.join(source.packages)}{size}). Install it in the connection's settings."
+        )
 
 
-def _sqlalchemy_engine(connection: dict[str, Any]) -> Any:
-    if sys.platform == "emscripten" and connection["kind"] not in ("sqlite",):
+def _sqlalchemy_engine(source: sources.Source, values: dict[str, Any], secrets: dict[str, str]) -> Any:
+    if sys.platform == "emscripten" and source.id != "sqlite":
         raise UserError("The browser cannot reach a database server. Use the desktop app, or run `flowlabs engine`.")
+    _require_driver(source)
     try:
         from sqlalchemy import create_engine
         from sqlalchemy.pool import NullPool
     except ImportError as error:
         raise UserError("Connecting to a database needs SQLAlchemy. Install it from the Engine menu.") from error
-    url = _url(connection)
-    if connection["kind"] == "sqlite" and not Path(connection["database"]).is_file():
-        raise UserError(f"there is no SQLite file at {connection['database']}")
-    connect_args: dict[str, Any] = {}
-    if url.get_backend_name() in ("postgresql", "mysql", "mariadb"):
-        connect_args["connect_timeout"] = CONNECT_TIMEOUT_S
+    if source.id == "sqlite" and not Path(values["database"]).is_file():
+        raise UserError(f"there is no SQLite file at {values['database']}")
+    url = sources.sqlalchemy_url(source, values, secrets)
     try:
-        return create_engine(url, poolclass=NullPool, connect_args=connect_args)
-    except ImportError as error:  # the database's driver
-        package = KINDS.get(connection["kind"], {}).get("package")
-        hint = f"{package}: pip install {package}" if package else f"its Python driver ({error})"
-        raise UserError(f"Connecting to this database needs {hint}") from error
+        return create_engine(url, poolclass=NullPool, **sources.engine_options(source, values, CONNECT_TIMEOUT_S))
+    except ImportError as error:  # the database's driver (a SQLAlchemy URL to something not installed)
+        raise UserError(f"Connecting to this database needs its Python driver ({error})") from error
 
 
-def _duckdb_file(connection: dict[str, Any]) -> Any:
+def _duckdb_file(values: dict[str, Any], allow_changes: bool) -> Any:
     duckdb = _duckdb()
-    path = connection["database"]
-    if not Path(path).is_file() and not connection.get("allow_changes"):
+    path = values["database"]
+    if not Path(path).is_file() and not allow_changes:
         raise UserError(f"there is no DuckDB file at {path}")
     try:
-        return duckdb.connect(path, read_only=not connection.get("allow_changes"))
+        return duckdb.connect(path, read_only=not allow_changes)
     except duckdb.Error as error:
         raise UserError(f"could not open {path}: {_tidy_message(str(error))}") from error
+
+
+def _storage(source: sources.Source, values: dict[str, Any], secrets: dict[str, str]) -> Any:
+    if sys.platform == "emscripten":
+        raise UserError("The browser cannot reach cloud storage. Use the desktop app, or run `flowlabs engine`.")
+    return lambda connection: sources.prepare_storage(connection, source, values, secrets)
 
 
 def _friendly_connection_error(error: Exception) -> str:
@@ -411,19 +437,34 @@ def _plain_values(frame: pd.DataFrame) -> pd.DataFrame:
 
 def test_connection(ws: Workspace, given: dict[str, Any]) -> dict[str, Any]:
     stored = next((c for c in _read_connections(ws) if c["id"] == given.get("id")), None)
-    connection = _clean_connection(given, stored)
+    connection, secrets = _clean_connection(ws, given, stored)
+    source = sources.get(connection["kind"])
+    values = connection["values"]
     started = time.perf_counter()
-    if connection["kind"] == "duckdb":
-        _duckdb_file(connection).close()
+    if source.engine == "duckdb":
+        _duckdb_file(values, connection["allow_changes"]).close()
         return {"ok": True, "message": "Opened the DuckDB file.", "elapsed_ms": _ms(started)}
-    engine = _sqlalchemy_engine(connection)
+    if source.engine == "storage":
+        try:
+            live = _local_connection(ws, "", None, _storage(source, values, secrets))
+            try:
+                found = sources.list_files(live, source, values, limit=1000)
+            finally:
+                live.close()
+        except UserError as error:
+            return {"ok": False, "message": str(error), "elapsed_ms": _ms(started)}
+        except Exception as error:  # noqa: BLE001 - DuckDB's own message: wrong key, no such bucket...
+            return {"ok": False, "message": _tidy_message(str(error))[:400], "elapsed_ms": _ms(started)}
+        where = sources.storage_root(source, values)
+        return {"ok": True, "message": f"Found {len(found)} data files in {where}.", "elapsed_ms": _ms(started)}
+    engine = _sqlalchemy_engine(source, values, secrets)
     try:
         with engine.connect() as live:
             version = live.dialect.server_version_info
             name = (
                 "MariaDB"
                 if getattr(live.dialect, "is_mariadb", False)
-                else _DIALECT_NAMES.get(engine.dialect.name, engine.dialect.name)
+                else _DIALECT_NAMES.get(engine.dialect.name, source.label)
             )
         shown = ".".join(str(v) for v in version) if version else ""
         return {"ok": True, "message": f"Connected to {name} {shown}".strip() + ".", "elapsed_ms": _ms(started)}
@@ -435,8 +476,18 @@ def test_connection(ws: Workspace, given: dict[str, Any]) -> dict[str, Any]:
 
 def connection_tables(ws: Workspace, connection_id: str) -> list[dict[str, Any]]:
     connection = _get_connection(ws, connection_id)
-    if connection["kind"] == "duckdb":
-        live = _duckdb_file(connection)
+    source = sources.get(connection["kind"])
+    values, secrets = connection["values"], _secrets(ws, connection)
+    if source.engine == "storage":
+        live = _local_connection(ws, "", None, _storage(source, values, secrets))
+        try:
+            return sources.list_files(live, source, values)
+        except Exception as error:  # noqa: BLE001
+            raise UserError(_tidy_message(str(error))[:400]) from error
+        finally:
+            live.close()
+    if source.engine == "duckdb":
+        live = _duckdb_file(values, bool(connection.get("allow_changes")))
         try:
             rows = live.sql(
                 "select table_name, column_name, data_type from information_schema.columns "
@@ -450,7 +501,7 @@ def connection_tables(ws: Workspace, connection_id: str) -> list[dict[str, Any]]
         return [{"name": t, "columns": c} for t, c in found.items()]
     from sqlalchemy import inspect
 
-    engine = _sqlalchemy_engine(connection)
+    engine = _sqlalchemy_engine(source, values, secrets)
     try:
         inspector = inspect(engine)
         names = sorted(inspector.get_table_names())[:200] + sorted(inspector.get_view_names())[:50]
@@ -471,7 +522,12 @@ def connection_tables(ws: Workspace, connection_id: str) -> list[dict[str, Any]]
 
 
 def _run_connection(
-    connection: dict[str, Any], sql: str, limit: int | None
+    ws: Workspace,
+    connection: dict[str, Any],
+    sql: str,
+    limit: int | None,
+    offset: int = 0,
+    dataset_id: str | None = None,
 ) -> tuple[pd.DataFrame | None, int | None, str | None]:
     statements = split_statements(sql)
     allowed = bool(connection.get("allow_changes"))
@@ -479,14 +535,18 @@ def _run_connection(
         for statement in statements:
             if writes(statement):
                 raise SqlError(
-                    f"This connection is read-only, and {first_word(statement).upper()} changes the database. "
+                    f"This connection is read-only, and {first_word(statement).upper()} changes the data. "
                     "Edit the connection and allow changes to run it."
                 )
-    if connection["kind"] == "duckdb":
-        return _run_duckdb_file(connection, statements, limit)
+    source = sources.get(connection["kind"])
+    values, secrets = connection["values"], _secrets(ws, connection)
+    if source.engine == "storage":  # files in the cloud, read by DuckDB next to your datasets
+        return _run_local(ws, sql, limit, offset, dataset_id, _storage(source, values, secrets))
+    if source.engine == "duckdb":
+        return _run_duckdb_file(values, allowed, statements, limit)
     from sqlalchemy import text
 
-    engine = _sqlalchemy_engine(connection)
+    engine = _sqlalchemy_engine(source, values, secrets)
     frame, changed = None, 0
     try:
         with engine.connect() as live:
@@ -522,10 +582,10 @@ def _run_connection(
 
 
 def _run_duckdb_file(
-    connection: dict[str, Any], statements: list[str], limit: int | None
+    values: dict[str, Any], allowed: bool, statements: list[str], limit: int | None
 ) -> tuple[pd.DataFrame | None, int | None, str | None]:
     duckdb = _duckdb()
-    live = _duckdb_file(connection)
+    live = _duckdb_file(values, allowed)
     try:
         relation = None
         for statement in statements:
@@ -560,7 +620,7 @@ def _execute(
     if not split_statements(sql or ""):
         raise UserError("write a query first")
     if connection_id:
-        return _run_connection(_get_connection(ws, connection_id), sql, limit)
+        return _run_connection(ws, _get_connection(ws, connection_id), sql, limit, offset, dataset_id)
     return _run_local(ws, sql, limit, offset, dataset_id)
 
 

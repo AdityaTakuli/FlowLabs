@@ -1,33 +1,144 @@
 # FlowLabs
 
-**Machine learning without writing code.** Bring a table or a folder of images, clean and prepare
-it, train and compare models (from linear regression to neural networks you design layer by layer),
-then export a model that runs anywhere.
+**Data, SQL and machine learning in one place, without writing code.** Bring a table or a folder of
+images. Explore it in a grid, query it with SQL (or ask in plain English), clean and prepare it, train
+and compare models (from linear regression to neural networks you design layer by layer), see every
+result as interactive charts, then export a model that runs anywhere.
 
 ```
-Data → Clean → Split → Training rows → Transform → Models → Evaluate → Export
+Data → Analyze → Clean → Split → Training rows → Transform → Models → Evaluate → Export
 ```
 
 Everything happens on a visual pipeline. Every step shows its effect on the data before you train,
 and every technique explains what it does. When you want more control, any step or model can be
-opened as Python and edited by hand.
+opened as Python and edited by hand. A built-in **Guide** explains every page.
 
-## Three ways to run it
+## Install
 
-| | How | Good for |
+FlowLabs runs three ways. Pick one:
+
+| | Good for | Needs |
 | --- | --- | --- |
-| **In the browser** | Open the hosted app (GitHub Pages). Python runs inside the tab via [Pyodide](https://pyodide.org). | Trying it, teaching, small and medium tables. Nothing to install, and data never leaves your device. |
-| **Desktop app** | From Releases: `.deb` for Ubuntu/Debian (double-click, or `sudo apt install ./FlowLabs-*.deb`), `.tar.gz` for other Linux (`sh FlowLabs/install.sh`), `.dmg` for macOS, `setup.exe`/`.zip` for Windows. | Larger data and every feature, offline. |
-| **pip** | `pip install "flowlabs[deep,sql]"`, then `flowlabs app` | People who already have Python, a GPU, or a server. |
+| [**Desktop app**](#desktop-app) (recommended) | Everyday use: every feature, offline, large data, database connections, Ask AI, GPUs | Linux, macOS or Windows (64-bit); about 200 MB to download and 750 MB on disk |
+| [**In the browser**](https://adityatakuli.github.io/FlowLabs/) | Trying it, teaching, small and medium tables | A modern browser. Nothing to install; data never leaves your device |
+| [**Python package**](#python-package) | People who already work in Python, or a GPU server | Python 3.11 or newer |
 
-The desktop app updates itself. When a new release is out, an **Update** button appears in the top
-bar and installs it:
-- **Linux:** the new `.deb` (Ubuntu asks for your password);
-- **macOS:** replaces the app;
-- **Windows:** runs the installer silently.
+4 GB of memory is enough for most tables; large datasets and neural networks are happier with 8 GB
+or more. A GPU is optional (NVIDIA with CUDA, or Apple silicon), see [the engine](#the-engine-use-your-own-computers-power-from-the-browser).
 
-Each download is checked against the SHA-256 in the release's `latest.json`. Turn checking off in
-the update dialog; the Engine menu has an **Updates** button to check by hand.
+### Desktop app
+
+Download the file for your system from the
+[latest release](https://github.com/AdityaTakuli/FlowLabs/releases/latest), then:
+
+**Ubuntu and Debian** (Ubuntu 22.04 or newer, Debian 12 or newer, 64-bit Intel/AMD)
+
+Double-click the `.deb` file and click **Install**, or run this in the folder you downloaded it to:
+
+```bash
+sudo apt install ./FlowLabs-*-linux-amd64.deb
+```
+
+Or download and install the latest release in one go, with the [GitHub CLI](https://cli.github.com):
+
+```bash
+gh release download --repo AdityaTakuli/FlowLabs --pattern "*linux-amd64.deb" --dir /tmp/flowlabs --clobber
+sudo apt install /tmp/flowlabs/FlowLabs-*-linux-amd64.deb
+```
+
+`apt` also installs what the app window needs (GTK and WebKitGTK). Open **FlowLabs** from your
+applications menu, or run `flowlabs-app`.
+
+**Other Linux** (64-bit Intel/AMD)
+
+```bash
+tar -xzf FlowLabs-*-linux-x86_64.tar.gz
+sh FlowLabs/install.sh   # installs to ~/.local/share/flowlabs, adds a menu entry and the flowlabs-app command
+```
+
+For the app's own window, install your distribution's WebKitGTK 4.1 package (`webkit2gtk4.1` on
+Fedora, `webkit2gtk-4.1` on Arch). Without it, FlowLabs opens in your browser instead.
+
+**macOS** (11 Big Sur or newer)
+
+1. Download `FlowLabs-*-macos-arm64.dmg` for Apple silicon (M1 and later), or
+   `FlowLabs-*-macos-x86_64.dmg` for Intel Macs.
+2. Open it and drag **FlowLabs** to **Applications**.
+3. The first time, right-click FlowLabs in Applications, choose **Open**, then **Open** again. The
+   app is not code-signed yet, so macOS asks once.
+
+**Windows** (10 and 11, 64-bit)
+
+1. Download and run `FlowLabs-*-windows-x64-setup.exe`. No administrator rights are needed.
+2. If SmartScreen warns about an unrecognised app, click **More info**, then **Run anyway**. The
+   app is not code-signed yet.
+
+Prefer not to install? Unzip `FlowLabs-*-windows-x64.zip` and run `FlowLabs.exe`.
+
+**After installing**
+
+- **Your work** (datasets, projects, models, exports) is kept in a `FlowLabs` folder in your home
+  folder, so updating or reinstalling keeps it.
+- **Updates** install themselves. From 0.4.0 on, an **Update to …** button appears in the top bar
+  when a new release is out, and installs it:
+  - **Linux:** the new `.deb` (Ubuntu asks for your password);
+  - **macOS:** replaces the app;
+  - **Windows:** runs the installer silently.
+
+  Each download is checked against the SHA-256 in the release's `latest.json`. Turn checking off
+  in the update dialog; the Engine menu has an **Updates** button to check by hand.
+- **The first start** after installing takes a little longer while your system loads the app. You
+  see the FlowLabs intro while Python starts.
+- **Check the version:** open the engine menu (the chip at the top right, "This computer") and look
+  under **Updates**.
+- **Something went wrong?** The app window opening in your browser, macOS or Windows refusing to
+  open it, or "The engine did not start": see
+  [Troubleshooting](docs/guide/troubleshooting.md), also in the app under **Guide**.
+- **Uninstall:**
+
+  | System | How |
+  | --- | --- |
+  | Ubuntu, Debian | `sudo apt remove flowlabs` |
+  | macOS | Move FlowLabs to the Bin |
+  | Windows | Settings → Apps → FlowLabs → Uninstall |
+
+  Your `~/FlowLabs` folder stays; delete it yourself if you no longer need it.
+
+### Python package
+
+```bash
+python -m venv flowlabs-env && source flowlabs-env/bin/activate   # Windows: flowlabs-env\Scripts\activate
+pip install "flowlabs[deep,sql]"     # [deep]: PyTorch for neural networks and images; [sql]: database drivers
+flowlabs app                         # opens the app in your browser
+```
+
+For the app's own window instead of a browser tab, install `flowlabs[deep,sql,desktop]`. On Linux
+the window also needs PyGObject and WebKitGTK from your distribution. On Ubuntu, run
+`sudo apt install python3-gi gir1.2-webkit2-4.1`, and create the environment with
+`python -m venv --system-site-packages flowlabs-env` so it can see them.
+
+Leave out `[deep]` for a much smaller install with classic models only.
+`pip install -U "flowlabs[deep,sql]"` updates it, and `flowlabs --version` shows the version.
+
+### From source (developers)
+
+```bash
+git clone https://github.com/AdityaTakuli/FlowLabs.git && cd FlowLabs
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev,deep,sql,desktop]"
+npm install --prefix apps/web && npm run build --prefix apps/web
+python scripts/bundle_web.py --no-build   # puts the built web app inside the Python package
+flowlabs app
+```
+
+To build the installable app for your system (`dist/`):
+
+```bash
+pip install -e ".[build,sql]"
+python scripts/build_app.py
+```
+
+See [Develop](#develop) for tests and the release process.
 
 ### The engine: use your own computer's power from the browser
 
@@ -108,7 +219,9 @@ progress.
 - **Your databases:** connect PostgreSQL, MySQL or MariaDB, a SQLite or DuckDB file, or any
   [SQLAlchemy URL](https://docs.sqlalchemy.org/en/20/core/engines.html#database-urls) (Snowflake,
   SQL Server…; install the driver in the engine). Connections are read-only unless you allow changes.
-  They are saved in the engine's workspace (`connections.json`, readable only by you).
+  They are saved in the engine's workspace (`connections.json`, readable only by you). First-class
+  forms for Snowflake, BigQuery, Redshift, Databricks, SQL Server, Oracle and cloud storage (S3,
+  Azure, Google Cloud Storage), with passwords in your system's keychain, are on the way.
 - **Results:** keep any result as a dataset, or as the project's own data, and train on it.
 - **Ask AI:** a question in plain English becomes SQL, written by a model on
   [Groq](https://console.groq.com/keys) with your own key (`GROQ_API_KEY`, or saved in the app).
@@ -154,10 +267,14 @@ src/flowlabs/
     training.py      split → training rows → pipelines → tuning/CV → evaluation
     images.py        CNNs and transfer learning
     export.py        export folders, train.py code generation, model cards
+    sql.py           SQL on datasets (DuckDB) and on connected databases
+    ai.py            Ask AI: plain English to SQL with Groq
     rpc.py           Engine.call(method, params): the single API every frontend uses
   worker.py          the kernel process (JSON lines over stdin/stdout)
   browser.py         the same API inside Pyodide
-  server/            FastAPI server, kernel manager, Python discovery, desktop window
+  server/            FastAPI server, kernel manager, Python discovery, desktop window, updates
+docs/guide/          the user guide, shown in the app's Guide page
+docs/releases/       release notes, one file per version
 ```
 
 The same `core` code runs in the desktop kernel, in `flowlabs engine`, and in the browser.
@@ -201,6 +318,8 @@ scikit-learn transformer or estimator). The app shows it with no frontend change
   start downloads about 40 MB; browsers cache it afterwards.
 - From the hosted page, browsers allow an engine on the same computer (`127.0.0.1`). For an engine
   on another machine, open the page that engine serves itself.
+- Database connections and Ask AI need the desktop app or an engine: browsers cannot reach database
+  servers or Groq.
 - Not yet: clustering and other tasks without a target, text and sequence models, ONNX export of
   table pipelines, code-signed desktop builds.
 

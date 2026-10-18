@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+# connection passwords go to a file in the test's workspace, never into the real keychain
+os.environ["FLOWLABS_SECRETS"] = "file"
 
 import pytest
 

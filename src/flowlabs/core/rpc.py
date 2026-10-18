@@ -14,7 +14,7 @@ from typing import Any
 
 import flowlabs_runtime as rt
 
-from . import ai, codegen, datasets, env, evaluation, export, predict, sql, training
+from . import ai, codegen, datasets, env, evaluation, export, plugins, predict, sources, sql, training
 from . import catalogue as cat
 from . import project as projects
 from .training import Job
@@ -28,6 +28,7 @@ Spawn = Callable[[Callable[[], None]], None]
 class Engine:
     def __init__(self, root: str | Path, emit: Emit | None = None, spawn: Spawn | None = None) -> None:
         self.ws = Workspace(root)
+        plugins.activate()  # drivers installed on first use (Snowflake, BigQuery...)
         self.emit: Emit = emit or (lambda event: None)
         self.spawn = spawn  # None: run jobs inline (Pyodide); else start them in the background
         self.jobs: dict[str, Job] = {}
@@ -101,6 +102,29 @@ def _new_step(engine: Engine, p: dict[str, Any]) -> Any:
     return projects._step(op.stage, op.id, p.get("params"))
 
 
+def _install_driver(engine: Engine, p: dict[str, Any]) -> Any:
+    """Install a source's driver in the background; pip's output arrives as "install" events."""
+    from .util import new_id
+
+    source = sources.get(_p(p, "kind"))
+    if not source.packages:
+        raise UserError(f"{source.label} needs nothing installed")
+    job_id = new_id("i")
+
+    def work() -> None:
+        code = plugins.install(
+            list(source.packages), lambda line: engine.emit({"type": "install", "line": line, "job_id": job_id})
+        )
+        engine.emit({"type": "install", "done": True, "code": code, "job_id": job_id, "kind": source.id,
+                     "needs": plugins.missing(list(source.modules))})  # fmt: skip
+
+    if engine.spawn is None:
+        work()
+    else:
+        engine.spawn(work)
+    return {"job_id": job_id, "packages": list(source.packages)}
+
+
 def _cancel(engine: Engine, p: dict[str, Any]) -> Any:
     job = engine.jobs.get(_p(p, "job_id"))
     if job is not None:
@@ -151,6 +175,7 @@ METHODS: dict[str, Callable[[Engine, dict[str, Any]], Any]] = {
     "ai.sql": lambda e, p: ai.write_sql(e.ws, str(p.get("question") or ""), p.get("connection_id"), p.get("dataset_id"),
                                         str(p.get("sql") or ""), p.get("error")),
     "sql.kinds": lambda e, p: sql.kinds(),
+    "sources.install": _install_driver,
     "sql.connections": lambda e, p: sql.list_connections(e.ws),
     "sql.connection_save": lambda e, p: sql.save_connection(e.ws, _p(p, "connection")),
     "sql.connection_delete": lambda e, p: sql.delete_connection(e.ws, _p(p, "connection_id")),

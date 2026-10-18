@@ -100,7 +100,7 @@ def test_sqlite_connection_is_read_only_until_changes_are_allowed(engine, shop):
     given = {"kind": "sqlite", "database": str(shop)}
     assert engine.call("sql.connection_test", {"connection": given})["ok"]
     saved = engine.call("sql.connection_save", {"connection": given})
-    assert saved["name"] == "shop.sqlite" and saved["allow_changes"] is False
+    assert saved["name"] == "shop.sqlite" and saved["allow_changes"] is False and saved["group"] == "Databases"
     tables = engine.call("sql.connection_tables", {"connection_id": saved["id"]})
     assert tables[0]["name"] == "orders" and [c["name"] for c in tables[0]["columns"]] == [
         "id",
@@ -140,38 +140,118 @@ def test_sqlite_connection_is_read_only_until_changes_are_allowed(engine, shop):
 
 
 def test_passwords_stay_on_the_engine(engine, tmp_path):
-    saved = engine.call(
-        "sql.connection_save",
-        {
-            "connection": {
-                "kind": "postgresql",
-                "host": "db.example",
-                "user": "me",
-                "password": "s3cret",
-                "database": "shop",
-            }
-        },
-    )
-    assert saved["port"] == 5432 and saved["password_set"] and "password" not in saved
+    saved = engine.call("sql.connection_save", {"connection": {"kind": "postgresql", "host": "db.example", "user": "me",
+                                                               "password": "s3cret", "database": "shop"}})  # fmt: skip
+    assert saved["values"]["port"] == 5432 and saved["values"]["sslmode"] == "prefer"
+    assert saved["password_set"] and saved["secrets_set"] == ["password"] and "s3cret" not in json.dumps(saved)
     assert "s3cret" not in json.dumps(engine.call("sql.connections"))
     stored = tmp_path / "ws" / "connections.json"
-    assert json.loads(stored.read_text())[0]["password"] == "s3cret"
+    secrets = tmp_path / "ws" / ".secrets.json"
+    assert "s3cret" not in stored.read_text() and "s3cret" in secrets.read_text()  # the keychain's stand-in in tests
     if os.name != "nt":
-        assert stat.S_IMODE(stored.stat().st_mode) == 0o600
+        assert stat.S_IMODE(stored.stat().st_mode) == 0o600 and stat.S_IMODE(secrets.stat().st_mode) == 0o600
     renamed = engine.call(
-        "sql.connection_save", {"connection": {**saved, "name": "Shop", "password": ""}}
-    )  # blank keeps it
-    assert renamed["name"] == "Shop" and json.loads(stored.read_text())[0]["password"] == "s3cret"
+        "sql.connection_save", {"connection": {**saved, "name": "Shop", "values": {**saved["values"], "password": ""}}}
+    )
+    assert renamed["name"] == "Shop" and renamed["password_set"] and "s3cret" in secrets.read_text()  # blank keeps it
 
     url = engine.call("sql.connection_save", {"connection": {"kind": "url", "url": "postgresql+psycopg://u:pw@h/db"}})
-    assert url["url"] == "postgresql+psycopg://u:***@h/db"
-    engine.call("sql.connection_save", {"connection": {**url, "name": "renamed"}})  # the masked URL keeps the real one
-    assert json.loads(stored.read_text())[-1]["url"] == "postgresql+psycopg://u:pw@h/db"
+    assert url["secrets_set"] == ["url"] and "pw@h" not in stored.read_text()
+    engine.call("sql.connection_delete", {"connection_id": url["id"]})
+    assert "pw@h" not in secrets.read_text()  # deleting a connection deletes its secrets
 
     refused = engine.call(
         "sql.connection_test", {"connection": {"kind": "postgresql", "host": "127.0.0.1", "port": 1, "database": "x"}}
     )
     assert refused["ok"] is False and refused["message"]
+    assert (
+        "enter the host"
+        in engine.safe_call("sql.connection_save", {"connection": {"kind": "postgresql"}})["error"]["message"]
+    )
+
+
+def test_connections_saved_before_sources_still_work(engine, tmp_path, shop):
+    stored = tmp_path / "ws" / "connections.json"
+    stored.write_text(json.dumps([{"id": "c_old", "kind": "sqlite", "name": "old shop", "allow_changes": False, "database": str(shop)},
+                                  {"id": "c_pg", "kind": "postgresql", "name": "old pg", "host": "h", "port": 5432, "user": "u",
+                                   "password": "legacy-pw", "database": "d"}]))  # fmt: skip
+    listed = {c["id"]: c for c in engine.call("sql.connections")}
+    assert listed["c_old"]["values"]["database"] == str(shop) and listed["c_pg"]["password_set"]
+    assert engine.call("sql.run", {"sql": "select count(*) from orders", "connection_id": "c_old"})["rows"] == [[3]]
+    engine.call("sql.connection_save", {"connection": {**listed["c_pg"], "name": "pg"}})
+    assert "legacy-pw" not in stored.read_text() and "legacy-pw" in (tmp_path / "ws" / ".secrets.json").read_text()
+
+
+def test_every_source_draws_its_form(engine):
+    kinds = {k["id"]: k for k in engine.call("sql.kinds")}
+    assert {
+        "postgresql",
+        "mysql",
+        "sqlserver",
+        "oracle",
+        "snowflake",
+        "bigquery",
+        "redshift",
+        "databricks",
+        "s3",
+        "azure",
+        "gcs",
+    } <= set(kinds)
+    snowflake = kinds["snowflake"]
+    assert snowflake["group"] == "Warehouses" and snowflake["packages"] == ["snowflake-sqlalchemy"]
+    assert [f["name"] for f in snowflake["fields"]][:3] == ["account", "user", "auth"]
+    assert next(f for f in snowflake["fields"] if f["name"] == "password")["when"] == ["auth", ["password"]]
+    assert kinds["postgresql"]["needs"] == []  # bundled
+
+
+def test_urls_for_warehouses():
+    from flowlabs.core import sources
+
+    url = sources.sqlalchemy_url(sources.get("snowflake"), {"account": "org-acct", "user": "me", "auth": "password", "warehouse": "WH",
+                                                            "database": "DB", "schema": "PUBLIC", "role": "ANALYST"}, {"password": "p@ss"})  # fmt: skip
+    assert (
+        url.drivername == "snowflake"
+        and url.host == "org-acct"
+        and url.database == "DB/PUBLIC"
+        and url.password == "p@ss"
+    )
+    assert dict(url.query) == {"warehouse": "WH", "role": "ANALYST"}
+    sso = sources.sqlalchemy_url(
+        sources.get("snowflake"), {"account": "a", "user": "me", "auth": "externalbrowser"}, {}
+    )
+    assert sso.password is None and dict(sso.query)["authenticator"] == "externalbrowser"
+    bq = sources.get("bigquery")
+    assert str(sources.sqlalchemy_url(bq, {"project": "p1", "dataset": "sales"}, {})) == "bigquery://p1/sales"
+    assert sources.engine_options(bq, {"auth": "keyfile", "keyfile": "/k.json"}, 10)["credentials_path"] == "/k.json"
+    databricks = sources.sqlalchemy_url(
+        sources.get("databricks"), {"host": "adb.net", "http_path": "/sql/1", "catalog": "main"}, {"token": "dapi"}
+    )
+    assert (
+        databricks.username == "token"
+        and databricks.password == "dapi"
+        and dict(databricks.query) == {"http_path": "/sql/1", "catalog": "main"}
+    )
+    oracle = sources.sqlalchemy_url(sources.get("oracle"), {"host": "o", "port": 1521, "service": "ORCLPDB1"}, {})
+    assert oracle.drivername == "oracle+oracledb" and dict(oracle.query) == {"service_name": "ORCLPDB1"}
+    redshift = sources.sqlalchemy_url(sources.get("redshift"), {"host": "r", "port": 5439, "database": "dev"}, {})
+    assert dict(redshift.query) == {"sslmode": "require"}
+    assert sources.storage_root(sources.get("s3"), {"bucket": "b", "prefix": "/sales/2026/"}) == "s3://b/sales/2026/"
+    assert sources.storage_root(sources.get("azure"), {"container": "c"}) == "az://c/"
+    assert sources.reader("s3://b/x.parquet") == "read_parquet('s3://b/x.parquet')" and sources.reader(
+        "az://c/y.csv.gz"
+    ).startswith("read_csv_auto")
+
+
+def test_a_missing_driver_is_offered_for_install(engine, monkeypatch):
+    from flowlabs.core import plugins
+
+    monkeypatch.setattr(plugins, "missing", lambda modules: list(modules))
+    saved = engine.call(
+        "sql.connection_save", {"connection": {"kind": "snowflake", "account": "a", "user": "u", "password": "p"}}
+    )
+    error = engine.safe_call("sql.run", {"sql": "select 1", "connection_id": saved["id"]})["error"]
+    assert "Snowflake needs its driver (snowflake-sqlalchemy, about 60 MB)" in error["message"]
+    assert next(k for k in engine.call("sql.kinds") if k["id"] == "snowflake")["installable"]
 
 
 def test_duckdb_file_connection(engine, tmp_path):
