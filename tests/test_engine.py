@@ -164,3 +164,29 @@ def test_desktop_windows_open_only_flowlabs_pages():
     assert not api.open_window("https://evil.example/", "x")
     assert not api.open_window("http://127.0.0.1:88990/", "x")
     assert opened == [("ROC curve - FlowLabs", "http://127.0.0.1:8899/?page=chart&project=p&chart=model-roc")]
+
+
+def test_restart_survives_a_slow_start(tmp_path, monkeypatch):
+    """On Windows a new process takes a while to start. The old kernel's reader, seeing its process
+    exit in that moment, must not mark the new kernel dead (it once did: CI on Windows)."""
+    import subprocess as sp
+
+    from flowlabs.server import kernel as kernels
+
+    real = sp.Popen
+
+    def slow(*args, **kwargs):
+        time.sleep(0.8)  # the old process exits and its reader finishes meanwhile
+        return real(*args, **kwargs)
+
+    events: list = []
+    k = kernels.Kernel(tmp_path, None, events.append)
+    k.start()
+    k.wait_ready()
+    monkeypatch.setattr(kernels.subprocess, "Popen", slow)
+    k.restart()
+    assert k.status in ("starting", "ready")
+    k.wait_ready()
+    assert k.call("engine.ping")["result"]["pong"]
+    assert not [e for e in events if e.get("status") == "dead"]
+    k.stop()

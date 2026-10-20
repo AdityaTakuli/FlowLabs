@@ -180,7 +180,10 @@ class Kernel:
                 future = self.pending.pop(message.get("id"), None)
             if future is not None and not future.done():
                 future.set_result({k: v for k, v in message.items() if k != "id"})
-        if process is self.process or self.process is None:
+        # Only the reader of the current process may declare the kernel dead. During a restart the
+        # old process exits while the new one is still starting (slowly, on Windows); its reader
+        # must not mark the new kernel dead. After a deliberate stop, self.process is None.
+        if process is self.process:
             code = process.wait()
             if self.status != "stopped":
                 tail = "\n".join(list(self.stderr)[-6:])
