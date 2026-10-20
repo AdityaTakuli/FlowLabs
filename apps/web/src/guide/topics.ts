@@ -2,6 +2,7 @@
 // files can feed the website later. "reference" is generated from the engine's catalogue.
 import code from "../../../../docs/guide/code.md?raw";
 import data from "../../../../docs/guide/data.md?raw";
+import databases from "../../../../docs/guide/databases.md?raw";
 import engines from "../../../../docs/guide/engines.md?raw";
 import gettingStarted from "../../../../docs/guide/getting-started.md?raw";
 import pipeline from "../../../../docs/guide/pipeline.md?raw";
@@ -31,6 +32,7 @@ export const TOPICS: Topic[] = [
   topic("getting-started", "Start", gettingStarted),
   topic("data", "Build a model", data),
   topic("sql", "Build a model", sql),
+  topic("databases", "Databases", databases),
   topic("pipeline", "Build a model", pipeline),
   topic("code", "Build a model", code),
   topic("results", "Results", results),

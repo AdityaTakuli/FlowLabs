@@ -32,6 +32,7 @@ dependencies = [
     "uvicorn>=0.29",
     "duckdb>=1.1",
     "sqlalchemy>=2.0",
+    "keyring>=24",  # connection passwords in the system keychain (vault.py)
 ]
 
 [project.optional-dependencies]

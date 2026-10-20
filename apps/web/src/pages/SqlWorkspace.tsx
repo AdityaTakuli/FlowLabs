@@ -6,14 +6,19 @@ import { useApp } from "../context";
 import { CodeEditor } from "../components/LazyCodeEditor";
 import type { SqlDialect } from "../components/CodeEditor";
 import { Icon } from "../components/Icon";
-import { Modal, Notice, Spinner, Switch } from "../components/ui";
+import { Modal, Notice, Spinner } from "../components/ui";
 import { EngineError } from "../engine/engine";
-import type { AiStatus, DatasetMeta, SqlConnection, SqlKind, SqlResult, SqlTable } from "../types";
+import { ConnectionDialog } from "../components/ConnectionDialog";
+import type { AiStatus, DatasetMeta, DbConnection, SourceKind, SqlResult, SqlTable } from "../types";
 import type { ProjectApi } from "./ProjectPage";
 
 const LOCAL = "local";
 const DRAFT_KEY = "flowlabs-sql-draft:";
-const DIALECT: Record<SqlKind["id"], SqlDialect> = { postgresql: "postgresql", mysql: "mysql", sqlite: "sqlite", duckdb: "postgresql", url: "standard" };
+/** The editor's dialect for a source (sources.py names CodeMirror's dialects). */
+function dialectFor(kinds: SourceKind[], kind: string): SqlDialect {
+  const editor = kinds.find((k) => k.id === kind)?.editor;
+  return editor === "postgresql" || editor === "mysql" || editor === "sqlite" ? editor : "standard";
+}
 
 function readDraft(source: string): string | null {
   try {
@@ -185,150 +190,6 @@ function rowsLine(result: SqlResult): string {
   return `First ${shown.toLocaleString()} rows, in ${time}`;
 }
 
-type Draft = Partial<SqlConnection> & { kind: SqlKind["id"]; password?: string };
-
-// Until the Connect form is drawn from each source's fields (Phase 1, in progress), this dialog offers
-// the sources it was built for, and reads the engine's source descriptions in the old shape.
-const CLASSIC = new Set(["postgresql", "mysql", "sqlite", "duckdb", "url"]);
-
-function classic(described: (SqlKind & { fields?: { name: string; kind: string; default: unknown }[] })[]): SqlKind[] {
-  return described
-    .filter((k) => CLASSIC.has(k.id))
-    .map((k) => ({
-      ...k,
-      port: k.port ?? ((k.fields?.find((f) => f.name === "port")?.default as number | undefined) ?? null),
-      file: k.file ?? Boolean(k.fields?.some((f) => f.kind === "path")),
-    }));
-}
-
-function ConnectionDialog({ kinds: described, initial, onClose, onSaved }: { kinds: SqlKind[]; initial: SqlConnection | null; onClose: () => void; onSaved: (connection: SqlConnection) => void }) {
-  const { engine, fail, openGuide } = useApp();
-  const kinds = classic(described);
-  const [draft, setDraft] = useState<Draft>(initial ? { ...initial, ...((initial as { values?: Partial<Draft> }).values ?? {}) } : { kind: "postgresql", port: 5432, allow_changes: false });
-  const [test, setTest] = useState<{ ok: boolean; message: string } | null>(null);
-  const [busy, setBusy] = useState<"test" | "save" | null>(null);
-  const kind = kinds.find((k) => k.id === draft.kind);
-  const set = (change: Partial<Draft>) => {
-    setDraft((d) => ({ ...d, ...change }));
-    setTest(null);
-  };
-
-  const check = async () => {
-    setBusy("test");
-    try {
-      setTest(await engine.call<{ ok: boolean; message: string }>("sql.connection_test", { connection: draft }));
-    } catch (error) {
-      setTest({ ok: false, message: (error as Error).message });
-    } finally {
-      setBusy(null);
-    }
-  };
-  const save = async () => {
-    setBusy("save");
-    try {
-      onSaved(await engine.call<SqlConnection>("sql.connection_save", { connection: draft }));
-    } catch (error) {
-      fail(error);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  return (
-    <Modal
-      title={initial ? `Edit ${initial.name}` : "Connect a database"}
-      onClose={onClose}
-      footer={
-        <>
-          {test && (
-            <span className={`small ${test.ok ? "ok-text" : "error-text"} sql-test`}>
-              <Icon name={test.ok ? "check" : "error"} size={13} /> {test.message}
-            </span>
-          )}
-          <span className="spacer" />
-          <button onClick={() => void check()} disabled={busy !== null}>
-            {busy === "test" ? <Spinner /> : <Icon name="bolt" size={13} />} Test
-          </button>
-          <button className="primary" onClick={() => void save()} disabled={busy !== null}>
-            {busy === "save" ? <Spinner /> : null} {initial ? "Save changes" : "Save connection"}
-          </button>
-        </>
-      }
-    >
-      <div className="field">
-        <label htmlFor="sql-kind">Database</label>
-        <select id="sql-kind" value={draft.kind} onChange={(e) => {
-          const next = kinds.find((k) => k.id === e.target.value);
-          set({ kind: e.target.value as SqlKind["id"], port: next?.port ?? undefined });
-        }}>
-          {kinds.map((k) => (
-            <option key={k.id} value={k.id}>
-              {k.label}
-            </option>
-          ))}
-        </select>
-      </div>
-      {draft.kind === "url" ? (
-        <div className="field">
-          <label htmlFor="sql-url">Database URL</label>
-          <input id="sql-url" value={draft.url ?? ""} onChange={(e) => set({ url: e.target.value })} placeholder="mssql+pyodbc://user:password@host/db?driver=ODBC+Driver+18+for+SQL+Server" spellCheck={false} />
-          <span className="help">Any SQLAlchemy URL. Install the database's Python driver in the engine first.</span>
-        </div>
-      ) : kind?.file ? (
-        <div className="field">
-          <label htmlFor="sql-file">File on {engine.kind === "remote" ? "the engine's computer" : "this computer"}</label>
-          <input id="sql-file" value={draft.database ?? ""} onChange={(e) => set({ database: e.target.value })} placeholder={draft.kind === "sqlite" ? "/home/me/data/shop.sqlite" : "/home/me/data/warehouse.duckdb"} spellCheck={false} />
-        </div>
-      ) : (
-        <>
-          <div className="sql-form-row">
-            <div className="field grow">
-              <label htmlFor="sql-host">Host</label>
-              <input id="sql-host" value={draft.host ?? ""} onChange={(e) => set({ host: e.target.value })} placeholder="localhost" spellCheck={false} />
-            </div>
-            <div className="field port">
-              <label htmlFor="sql-port">Port</label>
-              <input id="sql-port" type="number" value={draft.port ?? ""} onChange={(e) => set({ port: e.target.value ? Number(e.target.value) : undefined })} />
-            </div>
-          </div>
-          <div className="field">
-            <label htmlFor="sql-db">Database name</label>
-            <input id="sql-db" value={draft.database ?? ""} onChange={(e) => set({ database: e.target.value })} spellCheck={false} />
-          </div>
-          <div className="sql-form-row">
-            <div className="field grow">
-              <label htmlFor="sql-user">User</label>
-              <input id="sql-user" value={draft.user ?? ""} onChange={(e) => set({ user: e.target.value })} autoComplete="off" spellCheck={false} />
-            </div>
-            <div className="field grow">
-              <label htmlFor="sql-password">Password</label>
-              <input id="sql-password" type="password" value={draft.password ?? ""} onChange={(e) => set({ password: e.target.value })} autoComplete="new-password" placeholder={initial?.password_set ? "Unchanged" : ""} />
-            </div>
-          </div>
-        </>
-      )}
-      <div className="field">
-        <label htmlFor="sql-name">Name in FlowLabs</label>
-        <input id="sql-name" value={draft.name ?? ""} onChange={(e) => set({ name: e.target.value })} placeholder="Defaults to the database name" />
-      </div>
-      <div className="field">
-        <Switch on={Boolean(draft.allow_changes)} onChange={(on) => set({ allow_changes: on })} label="Allow changes to this database" />
-        <span className="help">
-          {draft.allow_changes
-            ? "INSERT, UPDATE, DELETE and other statements that write run and are committed."
-            : "Read-only: statements that write are refused, and anything a query ran is rolled back."}
-        </span>
-      </div>
-      <p className="faint small">
-        The connection, password included, is saved in the engine's workspace in a file only you can read. Queries run on the computer the engine runs on.{" "}
-        <button className="link" onClick={() => openGuide("sql#connect-a-database")}>
-          More about connections
-        </button>
-      </p>
-    </Modal>
-  );
-}
-
 export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | null }) {
   const { engine, fail, notify } = useApp();
   const datasetId = api.project.dataset_id;
@@ -339,8 +200,8 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
   const [asking, setAsking] = useState(false);
   const [explanation, setExplanation] = useState<string | null>(null);
   const [tables, setTables] = useState<SqlTable[] | null>(null);
-  const [connections, setConnections] = useState<SqlConnection[]>([]);
-  const [kinds, setKinds] = useState<SqlKind[]>([]);
+  const [connections, setConnections] = useState<DbConnection[]>([]);
+  const [kinds, setKinds] = useState<SourceKind[]>([]);
   const [source, setSource] = useState(LOCAL);
   const [sourceTables, setSourceTables] = useState<SqlTable[] | null>(null);
   const [sourceError, setSourceError] = useState<string | null>(null);
@@ -357,7 +218,7 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
   const [error, setError] = useState<{ message: string; line: number | null } | null>(null);
   const [running, setRunning] = useState(false);
   const [insert, setInsert] = useState<{ text: string; n: number } | undefined>();
-  const [editing, setEditing] = useState<SqlConnection | "new" | null>(null);
+  const [editing, setEditing] = useState<DbConnection | "new" | null>(null);
   const [saveName, setSaveName] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<DatasetMeta | null>(null);
@@ -379,8 +240,8 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
   useEffect(() => {
     void loadTables().then((next) => setQuery((q) => q || starter(next)));
     if (!inBrowser) {
-      engine.call<SqlConnection[]>("sql.connections").then(setConnections, fail);
-      engine.call<SqlKind[]>("sql.kinds").then(setKinds, fail);
+      engine.call<DbConnection[]>("sql.connections").then(setConnections, fail);
+      engine.call<SourceKind[]>("sql.kinds").then(setKinds, fail);
       engine.call<AiStatus>("ai.status").then(setAi, () => setAi(null));
     }
   }, [engine, fail, inBrowser, loadTables]);
@@ -476,7 +337,7 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
     }
   };
 
-  const removeConnection = async (target: SqlConnection) => {
+  const removeConnection = async (target: DbConnection) => {
     if (!window.confirm(`Remove the connection “${target.name}”? The database itself is not touched.`)) return;
     try {
       await engine.call("sql.connection_delete", { connection_id: target.id });
@@ -603,7 +464,7 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
             }}
             label="SQL query"
             language="sql"
-            dialect={connection ? DIALECT[connection.kind] : "postgresql"}
+            dialect={connection ? dialectFor(kinds, connection.kind) : "postgresql"}
             schema={schema}
             onRun={(code) => {
               setQuery(code);
@@ -670,6 +531,7 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
           kinds={kinds}
           initial={editing === "new" ? null : editing}
           onClose={() => setEditing(null)}
+          onKindsChanged={() => engine.call<SourceKind[]>("sql.kinds").then(setKinds, fail)}
           onSaved={(saved) => {
             setConnections((list) => [...list.filter((c) => c.id !== saved.id), saved]);
             setEditing(null);

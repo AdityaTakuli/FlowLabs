@@ -387,7 +387,7 @@ export interface JobEvent {
 export type EngineEvent =
   | JobEvent
   | { type: "kernel"; status: string; message?: string; info?: EngineInfo }
-  | { type: "install"; line?: string; done?: boolean; code?: number }
+  | { type: "install"; line?: string; done?: boolean; code?: number; job_id?: string; kind?: string; extra?: string | null; needs?: string[] }
   | { type: "update"; stage: "download" | "installing" | "restarting" | "error"; progress?: number | null; message?: string }
   | { type: "log"; text: string }
   | { type: "connection"; status: "online" | "offline" }
@@ -424,27 +424,6 @@ export interface SqlResult {
   message: string | null;
 }
 
-export interface SqlKind {
-  id: "postgresql" | "mysql" | "sqlite" | "duckdb" | "url";
-  label: string;
-  port: number | null;
-  file: boolean;
-}
-
-export interface SqlConnection {
-  id: string;
-  kind: SqlKind["id"];
-  kind_label: string;
-  name: string;
-  allow_changes: boolean;
-  host?: string;
-  port?: number;
-  database?: string;
-  user?: string;
-  url?: string;
-  password_set: boolean;
-}
-
 export interface UpdateInfo {
   current: string;
   latest?: string;
@@ -470,4 +449,217 @@ export interface AiStatus {
   model: string;
   models: string[];
   available: boolean;
+}
+
+// ------------------------------------------------------------------ databases (databases.py)
+
+/** One field of a Connect form, as sources.py describes it. */
+export interface SourceField {
+  name: string;
+  label: string;
+  kind: "text" | "password" | "number" | "path" | "select" | "bool" | "textarea";
+  required: boolean;
+  default: unknown;
+  placeholder: string;
+  help: string;
+  options: [string, string][];
+  secret: boolean;
+  /** Shown only when the field named first has one of these values. */
+  when: [string, unknown[]] | null;
+}
+
+/** A kind of source (sql.kinds): PostgreSQL, MySQL, Snowflake, S3... */
+export interface SourceKind {
+  id: string;
+  label: string;
+  group: string;
+  engine: "sqlalchemy" | "duckdb" | "storage";
+  fields: SourceField[];
+  packages: string[];
+  editor: string;
+  about: string;
+  docs: string;
+  size_mb: number;
+  /** Python modules still missing here; installable when the engine can install them. */
+  needs: string[];
+  installable: boolean;
+  browser: boolean;
+  /** paramiko, when it is missing and the source can connect through SSH. */
+  ssh_needs: string[];
+}
+
+/** A saved connection (sql.connections). */
+export interface DbConnection {
+  id: string;
+  kind: string;
+  kind_label: string;
+  group: string;
+  name: string;
+  allow_changes: boolean;
+  values: Record<string, unknown>;
+  secrets_set: string[];
+  password_set: boolean;
+}
+
+export type DbFlavor = "postgresql" | "mysql" | "sqlite" | string;
+
+export interface DbOverview {
+  connection_id: string;
+  name: string;
+  kind: string;
+  flavor: DbFlavor;
+  mariadb: boolean;
+  server: string;
+  read_only: boolean;
+  default: string | null;
+  /** PostgreSQL: databases hold schemas. MySQL: a database is the schema. */
+  schemas: boolean;
+  databases: { name: string; system: boolean }[];
+}
+
+export interface DbObject {
+  name: string;
+  kind: string;
+  rows?: number | null;
+  bytes?: number | null;
+  comment?: string | null;
+  signature?: string;
+  returns?: string | null;
+  table?: string;
+}
+
+export interface DbObjects {
+  database: string;
+  schema: string | null;
+  tables: DbObject[];
+  views: DbObject[];
+  functions: DbObject[];
+  procedures: DbObject[];
+  triggers: DbObject[];
+  sequences: DbObject[];
+}
+
+export interface DbTableInfo {
+  name: string;
+  schema: string | null;
+  database: string;
+  view: boolean;
+  comment: string | null;
+  columns: { name: string; type: string; nullable: boolean; default: string | null; key: boolean; foreign: boolean; auto: boolean; comment: string | null }[];
+  primary_key: string[];
+  foreign_keys: { name: string | null; columns: string[]; references: string; referred_columns: string[]; on_delete?: string | null; on_update?: string | null }[];
+  indexes: { name: string | null; columns: string[]; unique: boolean }[];
+  uniques: { name: string | null; columns: string[] }[];
+  checks: { name: string | null; sql: string }[];
+  editable: boolean;
+  read_only: boolean;
+  ddl: string;
+}
+
+export interface DbSession {
+  session_id: string;
+  connection_id: string;
+  flavor: DbFlavor;
+  server: string;
+  read_only: boolean;
+  autocommit: boolean;
+  in_transaction: boolean;
+  backend_id: number | null;
+  database: string | null;
+  schema: string | null;
+}
+
+export interface DbStatementResult {
+  statement: number;
+  start: number;
+  end: number;
+  sql: string;
+  elapsed_ms: number;
+  columns?: string[];
+  types?: string[];
+  rows?: unknown[][];
+  truncated?: boolean;
+  message?: string;
+  rowcount?: number | null;
+}
+
+export interface DbRun {
+  results: DbStatementResult[];
+  error: { message: string; statement: number; line: number; start: number; end: number; cancelled: boolean } | null;
+  elapsed_ms: number;
+  session: DbSession;
+}
+
+export interface PlanNode {
+  label: string;
+  detail: string[];
+  children: PlanNode[];
+  cost?: number;
+  rows?: number;
+  actual_rows?: number;
+  time_ms?: number;
+  hint?: string;
+}
+
+export interface DbPlan {
+  flavor: DbFlavor;
+  analyze: boolean;
+  tree: PlanNode;
+  totals: { planning_ms?: number; execution_ms?: number };
+  raw: string;
+}
+
+export interface DbRows {
+  columns: { name: string; type: string; nullable: boolean; key: boolean; default: boolean }[];
+  primary_key: string[];
+  rows: unknown[][];
+  offset: number;
+  total: number;
+  exact: boolean;
+  editable: boolean;
+  read_only: boolean;
+}
+
+export interface DbActivity {
+  server: { version: string; uptime_s: number; connections: number; max_connections: number; database_bytes?: number; queries?: number };
+  sessions: { id: number; user: string | null; database: string | null; app: string | null; client: string | null; state: string | null; waiting: string | null; seconds: number; query: string | null; mine: boolean }[];
+  read_only: boolean;
+}
+
+export interface DbUser {
+  name: string;
+  host: string | null;
+  login: boolean;
+  superuser?: boolean;
+  create_db?: boolean;
+  create_role?: boolean;
+  replication?: boolean;
+  connection_limit?: number | null;
+  valid_until?: string | null;
+  member_of?: string[];
+}
+
+export interface DbUsers {
+  flavor: DbFlavor;
+  current: string;
+  users: DbUser[];
+  read_only: boolean;
+  note?: string;
+}
+
+export interface DbGrants {
+  /** MySQL: SHOW GRANTS. */
+  statements?: string[];
+  /** PostgreSQL: what the role may do. */
+  databases?: { name: string; connect: boolean; create: boolean; temp: boolean }[];
+  schemas?: { name: string; usage: boolean; create: boolean }[];
+  tables?: { schema: string; name: string; privileges: string }[];
+}
+
+export interface DbExport {
+  path: string;
+  name: string;
+  rows: number;
+  bytes: number;
+  elapsed_ms: number;
 }

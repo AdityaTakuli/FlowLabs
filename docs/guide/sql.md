@@ -94,19 +94,25 @@ This is the quickest way to prepare training data that needs joins or aggregatio
 
 ## Connect a database
 
-Click **Connect a database** and choose its type:
+Click **Connect a database** and choose what to connect to:
 
-| Database | You enter |
+| Kind | Examples |
 | --- | --- |
-| PostgreSQL | host, port (5432), database name, user, password |
-| MySQL or MariaDB | host, port (3306), database name, user, password |
-| SQLite file | the path of the file |
-| DuckDB file | the path of the file |
-| Other | any [SQLAlchemy URL](https://docs.sqlalchemy.org/en/20/core/engines.html#database-urls), such as Snowflake, SQL Server or Oracle. Install the database's Python driver in the engine first. |
+| Databases | PostgreSQL, MySQL or MariaDB, SQL Server, Oracle, a SQLite or DuckDB file |
+| Warehouses | Snowflake, BigQuery, Redshift, Databricks |
+| Cloud storage | Parquet, CSV and JSON files in Amazon S3 (or S3-compatible), Azure, Google Cloud Storage |
+
+The form asks for what that kind needs: host, port, database, user and password for a server,
+the path of a file, or a bucket and keys. Encryption (SSL) and **Connect through SSH** are there
+for servers that need them (see [Databases](guide:databases#connect)). If its Python driver is
+missing, the dialog installs it.
 
 **Test** checks the connection and shows the server's version. **Save connection** adds it to the
 list on the left, in every project. Select it to see its tables and query it the same way, with Ask
 AI too. Save a result as a dataset to bring that data into the project.
+
+To browse a server's schemas, edit rows, read query plans or manage users, use the
+[Databases](guide:databases) page; it shares these connections.
 
 ### Read-only or changes allowed
 
@@ -142,9 +148,11 @@ Creating one changes the database, so it needs **Allow changes to this database*
 
 ### Where connections are kept
 
-Connections, passwords included, are saved in the engine's workspace, in `connections.json`, which
-only your user account can read. Passwords are never sent back to the page. Leave the password blank
-when editing a connection to keep the current one.
+Connections are saved in the engine's workspace, in `connections.json`, which only your user
+account can read. Passwords, keys and tokens are kept in this computer's keychain (or, without
+one, in a second file only you can read), never in `connections.json`, and are never sent back to
+the page. Leave a password blank when editing a connection to keep the
+current one.
 
 Queries run on the computer the engine runs on. With an [engine](guide:engines) on another
 machine, "localhost" means that machine.

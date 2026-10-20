@@ -91,11 +91,11 @@ Your projects in the `FlowLabs` folder stay. Delete the folder yourself if you n
 <summary>Installer options: a particular version, or download only</summary>
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.sh | FLOWLABS_VERSION=0.5.2 sh
+curl -fsSL https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.sh | FLOWLABS_VERSION=0.5.3 sh
 curl -fsSL https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.sh | FLOWLABS_DRY_RUN=1 sh
 ```
 
-On Windows, set `$env:FLOWLABS_VERSION = "0.5.2"` or `$env:FLOWLABS_DRY_RUN = "1"` before the
+On Windows, set `$env:FLOWLABS_VERSION = "0.5.3"` or `$env:FLOWLABS_DRY_RUN = "1"` before the
 command. The scripts are short: [install.sh](install.sh), [install.ps1](install.ps1).
 
 </details>
@@ -158,17 +158,29 @@ progress.
 - **Table:** the whole dataset as a grid (sort, search every column, page through every row).
 - **SQL:** queries in [DuckDB](https://duckdb.org). `data` is the project's table, your other
   datasets are tables too, and queries never change your files.
-- **Your databases:** connect PostgreSQL, MySQL or MariaDB, a SQLite or DuckDB file, or any
-  [SQLAlchemy URL](https://docs.sqlalchemy.org/en/20/core/engines.html#database-urls) (Snowflake,
-  SQL Server…; install the driver in the engine). Connections are read-only unless you allow changes.
-  They are saved in the engine's workspace (`connections.json`, readable only by you). First-class
-  forms for Snowflake, BigQuery, Redshift, Databricks, SQL Server, Oracle and cloud storage (S3,
-  Azure, Google Cloud Storage), with passwords in your system's keychain, are on the way.
+- **Your databases:** query a connected database from the project too (see **Databases** below).
 - **Results:** keep any result as a dataset, or as the project's own data, and train on it.
 - **Ask AI:** a question in plain English becomes SQL, written by a model on
   [Groq](https://console.groq.com/keys) with your own key (`GROQ_API_KEY`, or saved in the app).
   It sends table and column names, and a few common category values, never rows. **Fix with AI**
   corrects a failed query.
+
+**Databases.** A page for working in PostgreSQL, MySQL and MariaDB (and SQLite) the way pgAdmin and
+MySQL Workbench do:
+
+- **Connect** with SSL (certificates checked if you ask) and SSH tunnels (the server's key is
+  checked). Snowflake, BigQuery, Redshift, Databricks, SQL Server, Oracle and cloud storage (S3,
+  Azure, Google Cloud Storage) connect too, for querying from a project. Drivers install on first
+  use; passwords go in your system's keychain. Connections are read-only unless you allow changes,
+  and a read-only session is read-only on the server itself.
+- **Browse** databases, schemas, tables, views, functions, procedures, triggers and sequences, with
+  sizes, columns, keys, indexes and each object's CREATE script.
+- **Query** in tabs that keep their own session (transactions, `SET`, `USE`, temporary tables).
+  Run the statement under the cursor, stop a running query on the server, read plans as a tree
+  (EXPLAIN and EXPLAIN ANALYZE), keep a history, export to CSV, Excel, JSON or Parquet, or keep a
+  result as a dataset to train on.
+- **Edit** rows in place (reviewed as SQL, saved in one transaction), and import a dataset as a table.
+- **Administer:** server activity with Stop query and End session, users and roles with grants.
 
 **Evaluate.** A leaderboard against a baseline, a score-and-training-time chart, and box plots of
 cross-validation folds. Every chart expands to full screen (zoom and pan) or opens in its own window.
@@ -210,6 +222,10 @@ src/flowlabs/
     images.py        CNNs and transfer learning
     export.py        export folders, train.py code generation, model cards
     sql.py           SQL on datasets (DuckDB) and on connected databases
+    sources.py       every kind of connection: its form fields, drivers and URL
+    databases.py     the Databases page: browse, sessions, edit, export, plans, admin
+    tunnel.py        SSH tunnels to databases behind a firewall
+    vault.py         passwords and keys in the system keychain
     ai.py            Ask AI: plain English to SQL with Groq
     rpc.py           Engine.call(method, params): the single API every frontend uses
   worker.py          the kernel process (JSON lines over stdin/stdout)
@@ -245,7 +261,7 @@ browser.
 FlowLabs is not on PyPI yet. Each release has the package attached; install it with pip:
 
 ```bash
-VERSION=0.5.2   # the latest release
+VERSION=0.5.3   # the latest release
 pip install "flowlabs[deep,sql] @ https://github.com/AdityaTakuli/FlowLabs/releases/download/v$VERSION/flowlabs-$VERSION-py3-none-any.whl"
 flowlabs app    # opens FlowLabs in your browser
 ```

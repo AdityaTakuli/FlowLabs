@@ -75,7 +75,12 @@ _ENDS_WITHOUT_BLOCK = {"if", "loop", "while", "repeat"}  # END IF and the like c
 
 
 def split_statements(sql: str) -> list[str]:
-    """Split a script into statements, the way database clients do.
+    """Split a script into statements, the way database clients do (see ``statement_spans``)."""
+    return [text for _, _, text in statement_spans(sql)]
+
+
+def statement_spans(sql: str) -> list[tuple[int, int, str]]:
+    """Each statement of a script with where it starts and ends in it: ``(start, end, text)``.
 
     Statements end at semicolons outside quotes and comments. Also:
 
@@ -85,13 +90,13 @@ def split_statements(sql: str) -> list[str]:
       semicolons included, with no DELIMITER needed;
     * PostgreSQL's dollar quotes (``$$ ... $$``, ``$body$ ... $body$``) are quotes.
     """
-    statements: list[str] = []
+    statements: list[tuple[int, str]] = []
     current: list[str] = []
-    delimiter, quote, depth, i = ";", "", 0, 0
+    delimiter, quote, depth, i, start = ";", "", 0, 0, 0
 
     def finish() -> None:
         nonlocal current, depth
-        statements.append("".join(current))
+        statements.append((start, "".join(current)))
         current, depth = [], 0
 
     while i < len(sql):
@@ -112,22 +117,23 @@ def split_statements(sql: str) -> list[str]:
                     finish()
                 current, depth = [], 0
                 delimiter = command.group(1)
-                i = command.end()
+                i = start = command.end()
                 continue
         if sql.startswith(delimiter, i) and (depth == 0 or delimiter != ";"):
             finish()
             i += len(delimiter)
+            start = i
             continue
         if char in "'\"`":
             quote = char
             current.append(char)
-        elif char == "$" and _DOLLAR_QUOTE.match(sql, i):
-            quote = _DOLLAR_QUOTE.match(sql, i).group(0)
+        elif char == "$" and (dollar := _DOLLAR_QUOTE.match(sql, i)):
+            quote = dollar.group(0)
             current.append(quote)
             i += len(quote)
             continue
         elif (char.isalpha() or char == "_") and (i == 0 or not (sql[i - 1].isalnum() or sql[i - 1] in "_$.")):
-            word = _WORD.match(sql, i).group(0)
+            word = _WORD.match(sql, i).group(0)  # type: ignore[union-attr]  # a letter starts a word
             lower = word.lower()
             if lower in ("begin", "case", "end") and _ROUTINE.match(_strip_comments("".join(current))):
                 if lower != "end":
@@ -154,8 +160,14 @@ def split_statements(sql: str) -> list[str]:
         else:
             current.append(char)
         i += 1
-    statements.append("".join(current))
-    return [s.strip() for s in statements if _strip_comments(s).strip()]
+    statements.append((start, "".join(current)))
+    spans = []
+    for begin, text in statements:
+        if not _strip_comments(text).strip():
+            continue
+        lead = len(text) - len(text.lstrip())
+        spans.append((begin + lead, begin + len(text.rstrip()), text.strip()))
+    return spans
 
 
 def first_word(statement: str) -> str:
@@ -437,19 +449,23 @@ def _get_connection(ws: Workspace, connection_id: str) -> dict[str, Any]:
     raise UserError("that connection was deleted")
 
 
-def _require_driver(source: sources.Source) -> None:
+def _require_driver(source: sources.Source, values: dict[str, Any] | None = None) -> None:
+    from . import tunnel
+
     absent = plugins.missing(list(source.modules)) if source.modules else []
     if absent:
         size = f", about {source.size_mb} MB" if source.size_mb else ""
         raise DriverMissing(
             f"{source.label} needs its driver ({', '.join(source.packages)}{size}). Install it in the connection's settings."
         )
+    if values and tunnel.wanted(values) and plugins.missing(list(tunnel.MODULES)):
+        raise DriverMissing("Connecting through SSH needs paramiko (about 6 MB). Install it in the connection's settings.")
 
 
 def _sqlalchemy_engine(source: sources.Source, values: dict[str, Any], secrets: dict[str, str]) -> Any:
     if sys.platform == "emscripten" and source.id != "sqlite":
         raise UserError("The browser cannot reach a database server. Use the desktop app, or run `flowlabs engine`.")
-    _require_driver(source)
+    _require_driver(source, values)
     try:
         from sqlalchemy import create_engine
         from sqlalchemy.pool import NullPool
@@ -457,6 +473,7 @@ def _sqlalchemy_engine(source: sources.Source, values: dict[str, Any], secrets: 
         raise UserError("Connecting to a database needs SQLAlchemy. Install it from the Engine menu.") from error
     if source.id == "sqlite" and not Path(values["database"]).is_file():
         raise UserError(f"there is no SQLite file at {values['database']}")
+    values = sources.connect_values(source, values, secrets)  # through an SSH tunnel when asked
     url = sources.sqlalchemy_url(source, values, secrets)
     try:
         return create_engine(url, poolclass=NullPool, **sources.engine_options(source, values, CONNECT_TIMEOUT_S))
@@ -533,7 +550,16 @@ def test_connection(ws: Workspace, given: dict[str, Any]) -> dict[str, Any]:
             return {"ok": False, "message": _tidy_message(str(error))[:400], "elapsed_ms": _ms(started)}
         where = sources.storage_root(source, values)
         return {"ok": True, "message": f"Found {len(found)} data files in {where}.", "elapsed_ms": _ms(started)}
-    engine = _sqlalchemy_engine(source, values, secrets)
+    from . import tunnel
+
+    try:
+        engine = _sqlalchemy_engine(source, values, secrets)
+    except tunnel.UnknownHostKey as error:
+        return {"ok": False, "message": str(error), "ssh_fingerprint": error.fingerprint, "elapsed_ms": _ms(started)}
+    except DriverMissing:
+        raise
+    except UserError as error:
+        return {"ok": False, "message": str(error), "elapsed_ms": _ms(started)}
     try:
         with engine.connect() as live:
             version = live.dialect.server_version_info

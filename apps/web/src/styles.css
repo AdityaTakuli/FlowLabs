@@ -890,3 +890,184 @@ kbd { font-family: var(--font); font-size: 0.82em; font-weight: 600; background:
   .sql-form-row .port { width: auto; }
   .top-nav button:not(.active) { padding: 0 9px; }
 }
+
+
+/* ------------------------------------------------------------------- databases
+   A sidebar of connections (the same raised pill marks what is open), tabs on the right. A query
+   tab is a toolbar, an editor you can resize, and the output below; everything scrolls inside. */
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.db-layout { display: grid; grid-template-columns: 290px minmax(0, 1fr); min-height: 0; }
+.db-layout.side-closed { grid-template-columns: 0 minmax(0, 1fr); }
+.db-layout.side-closed .db-side { visibility: hidden; border: none; padding: 0; }
+.db-side { background: var(--paper); border-right: 1px solid var(--rule); padding: 12px 8px 24px; overflow: auto; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.db-side-head { display: flex; align-items: center; gap: 4px; padding: 0 4px; }
+.db-side-head h3 { font-size: 13px; color: var(--text-dim); font-weight: 600; }
+.db-side-tools { display: flex; align-items: center; gap: 8px; padding: 0 4px; }
+.db-side-empty { padding: 4px 8px; }
+.db-system { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-dim); white-space: nowrap; cursor: pointer; }
+.db-search { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 0 8px; color: var(--text-faint); }
+.db-search:focus-within { border-color: var(--focus); box-shadow: 0 0 0 3px var(--focus-soft); }
+.db-search input { border: none; background: none; padding: 0; min-height: 28px; flex: 1; min-width: 0; box-shadow: none; font-size: 13px; }
+.db-search input:focus { box-shadow: none; }
+.db-search.wide { max-width: 520px; }
+
+.db-tree, .db-tree ul { list-style: none; margin: 0; padding: 0; }
+.db-node { display: flex; align-items: center; gap: 2px; border-radius: 8px; min-height: 28px; border: 1px solid transparent; color: var(--text-dim); position: relative; }
+.db-node:hover { background: var(--sheet-2); color: var(--text); }
+.db-node.active { background: var(--sheet); border-color: var(--rule); box-shadow: var(--shadow-sm); color: var(--text); }
+.db-twisty { width: 18px; height: 22px; display: inline-grid; place-items: center; flex: none; background: none; border: none; padding: 0; min-height: 0; color: var(--text-faint); border-radius: 4px; }
+.db-twisty:hover:not(:disabled) { background: none; color: var(--text); }
+.db-node-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; justify-content: flex-start; background: none; border: none; padding: 3px 4px; min-height: 0; font-weight: 500; font-size: 13px; color: inherit; border-radius: 6px; text-align: left; }
+.db-node-main:hover:not(:disabled) { background: none; }
+.db-node-main:active:not(:disabled) { transform: none; }
+.db-node-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.db-node-meta { margin-left: auto; font-size: 11.5px; color: var(--text-faint); font-weight: 400; font-variant-numeric: tabular-nums; padding-left: 6px; white-space: nowrap; }
+.db-node-actions { display: none; align-items: center; gap: 0; padding-right: 2px; }
+.db-node:hover .db-node-actions, .db-node:focus-within .db-node-actions { display: flex; }
+.db-node:hover .db-node-meta, .db-node:focus-within .db-node-meta { display: none; }
+.db-node-actions .icon-only.small { min-width: 24px; min-height: 24px; }
+.db-node-note { padding: 4px 8px; list-style: none; }
+
+.db-menu-anchor { position: relative; display: inline-flex; }
+.db-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 200px; background: var(--sheet); border: 1px solid var(--rule-strong); border-radius: 12px; box-shadow: var(--shadow-lg); padding: 5px; display: flex; flex-direction: column; }
+.db-menu.wide { width: min(460px, 80vw); max-height: 60vh; overflow: auto; }
+.db-menu > button { justify-content: flex-start; background: none; border-radius: 7px; min-height: 30px; padding: 0 10px; font-weight: 400; font-size: 13px; }
+.db-menu > button:hover:not(:disabled) { background: var(--focus); color: #fff; }
+.db-menu > button.danger { color: var(--red); background: none; }
+.db-menu > button.danger:hover:not(:disabled) { background: var(--c-red); color: #fff; }
+.db-menu-sep { height: 1px; background: var(--rule); margin: 4px 6px; }
+.db-menu-head { display: flex; align-items: center; font-size: 12px; font-weight: 600; color: var(--text-dim); padding: 4px 8px; }
+.db-menu-empty { padding: 4px 10px 8px; }
+.db-history { gap: 8px; }
+.db-history-sql { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; text-align: left; }
+
+.db-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.db-tabs { position: static; flex: none; padding-left: 8px; }
+.db-side-toggle { align-self: center; margin: 0 4px 6px 0; }
+.db-tab { padding: 0 4px 0 12px; gap: 2px; max-width: 240px; }
+.db-tab-main { display: flex; align-items: center; gap: 7px; background: none; border: none; padding: 0; min-height: 36px; font-weight: inherit; color: inherit; min-width: 0; }
+.db-tab-main:hover:not(:disabled) { background: none; }
+.db-tab-main:active:not(:disabled) { transform: none; }
+.db-tab-close { opacity: 0.55; min-width: 22px; min-height: 22px; }
+.db-tab:hover .db-tab-close, .db-tab.active .db-tab-close { opacity: 1; }
+.db-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; background: var(--paper); }
+.db-pad { padding: 18px 22px 32px; }
+.db-welcome { padding: 48px clamp(20px, 4vw, 64px); }
+.db-start { max-width: 620px; display: flex; flex-direction: column; gap: 16px; }
+.db-start h1 { font-size: 34px; letter-spacing: -0.03em; line-height: 1.1; }
+.db-start .lead { font-size: 16px; line-height: 1.55; }
+.db-start-list { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-direction: column; gap: 10px; color: var(--text-dim); }
+.db-start-list li { display: flex; gap: 10px; align-items: flex-start; }
+.db-start-list .icon { margin-top: 3px; color: var(--text); }
+
+/* a query tab */
+.db-query { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.db-toolbar { display: flex; align-items: center; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--rule); background: var(--sheet); flex-wrap: wrap; flex: none; }
+.db-divider { width: 1px; height: 20px; background: var(--rule); margin: 0 4px; }
+.db-where { display: inline-flex; align-items: center; gap: 6px; color: var(--text-dim); }
+.db-where select { min-height: 30px; padding: 0 8px; font-size: 13px; max-width: 220px; }
+.db-txn { display: inline-flex; align-items: center; gap: 6px; }
+.db-editor { flex: none; padding: 10px 14px 0; min-height: 90px; display: flex; }
+.db-editor > .code-editor, .db-editor > .spinner { flex: 1; min-width: 0; }
+.db-editor .code-editor .cm-editor { height: 100%; max-height: none; }
+.db-splitter { flex: none; height: 12px; cursor: row-resize; position: relative; touch-action: none; }
+.db-splitter::after { content: ""; position: absolute; left: 50%; top: 4px; width: 40px; height: 4px; margin-left: -20px; border-radius: 2px; background: var(--rule-strong); }
+.db-splitter:hover::after { background: var(--text-faint); }
+.db-output { flex: 1; min-height: 120px; display: flex; flex-direction: column; border-top: 1px solid var(--rule); background: var(--sheet); }
+.db-output-tabs { display: flex; align-items: center; gap: 2px; padding: 6px 10px; border-bottom: 1px solid var(--rule); flex: none; overflow-x: auto; }
+.db-output-tabs > button { background: none; min-height: 28px; padding: 0 10px; font-size: 13px; color: var(--text-dim); border-radius: 8px; gap: 6px; }
+.db-output-tabs > button.active { background: var(--sheet-2); color: var(--text); font-weight: 600; }
+.tab-count.error { background: var(--red-soft); color: var(--red); }
+.db-output-body { flex: 1; min-height: 0; overflow: auto; padding: 10px 14px 14px; }
+.db-messages { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.db-messages li { display: grid; grid-template-columns: 16px minmax(0, 1.2fr) minmax(0, 1fr) auto; gap: 10px; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--rule); }
+.db-messages li.error { background: var(--red-soft); border-radius: 8px; padding: 8px; border-bottom: none; margin-top: 4px; }
+.db-message-sql { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text-dim); }
+.db-hint { color: var(--text-dim); font-size: 13px; display: flex; flex-direction: column; gap: 8px; padding: 6px 2px; }
+
+/* grids */
+.db-grid-wrap { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.db-grid-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.db-grid-bar h3 { margin: 0; }
+.db-grid { box-shadow: none; }
+.db-grid table { font-size: 12.5px; }
+.db-grid th { padding: 0; vertical-align: bottom; }
+.db-grid td { font-variant-numeric: tabular-nums; max-width: 420px; overflow: hidden; text-overflow: ellipsis; padding: 6px 12px; }
+.db-grid td.num, .db-grid th.num { text-align: right; }
+.db-grid .row-no { width: 1%; text-align: right; color: var(--text-faint); background: var(--sheet-2); font-weight: 400; padding: 0 8px; }
+.db-grid .row-no .icon-only.small { min-width: 22px; min-height: 22px; }
+.db-sort { background: none; border: none; border-radius: 0; padding: 8px 12px 0; min-height: 0; font-weight: 600; font-size: 12.5px; color: var(--text); gap: 5px; justify-content: flex-start; width: 100%; }
+.db-sort:hover:not(:disabled) { background: none; color: var(--link); }
+.db-sort:active:not(:disabled) { transform: none; }
+.db-grid th .sql-type { display: block; padding: 0 12px 7px; font-weight: 400; font-size: 11px; color: var(--text-faint); font-family: var(--mono); }
+.db-grid th.num .db-sort { justify-content: flex-end; }
+.db-grid th.num .sql-type { text-align: right; }
+.db-data { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 14px 22px 14px; }
+.db-data .db-grid { flex: 1; min-height: 0; }
+.db-why { margin: -2px 0 8px; }
+.db-pager { margin: 8px 0 0; }
+.db-pending { display: inline-flex; align-items: center; gap: 8px; background: var(--orange-soft); border-radius: 999px; padding: 3px 4px 3px 12px; }
+.db-row-new td { background: var(--green-soft); }
+.db-row-deleted td { text-decoration: line-through; color: var(--text-faint); background: var(--red-soft); }
+.db-row-deleted td.row-no { text-decoration: none; }
+.db-grid td.changed { background: var(--orange-soft); }
+.db-cell-edit { display: flex; align-items: center; gap: 4px; margin: -4px -8px; }
+.db-cell-edit input { min-height: 26px; padding: 0 6px; font-size: 12.5px; flex: 1; min-width: 80px; }
+.db-cell-edit button { min-height: 24px; padding: 0 6px; font-size: 11px; }
+
+/* plans */
+.plan-tree, .plan-tree ul { list-style: none; margin: 0; padding: 0; }
+.plan-node { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 6px; align-items: start; padding: 6px 8px; border-bottom: 1px solid var(--rule); }
+.plan-node.hot { background: var(--orange-soft); }
+.plan-leaf { width: 24px; }
+.plan-label { font-weight: 600; font-size: 13px; }
+.plan-detail { font-size: 11.5px; color: var(--text-dim); overflow-wrap: anywhere; }
+.plan-hint { font-size: 12px; color: var(--orange); display: flex; gap: 6px; align-items: center; margin-top: 3px; }
+.plan-numbers { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+.plan-bar { width: 90px; height: 6px; border-radius: 3px; background: var(--sheet-3); overflow: hidden; display: inline-block; }
+.plan-bar > span { display: block; height: 100%; background: var(--signal); border-radius: 3px; }
+.plan-raw { max-height: 60vh; }
+
+/* objects */
+.db-object { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.db-object-head { display: flex; align-items: center; gap: 10px; padding: 14px 22px; border-bottom: 1px solid var(--rule); background: var(--sheet); flex-wrap: wrap; flex: none; }
+.db-object-head h2 { font-size: 19px; letter-spacing: -0.02em; display: flex; align-items: baseline; gap: 4px; }
+.db-keys h3 { margin: 18px 0 6px; font-size: 14px; }
+.db-keys h3:first-child { margin-top: 0; }
+.db-keys ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.db-activity-query { max-width: 520px; max-height: 3.2em; overflow: hidden; }
+.db-admin .stat-row { margin-bottom: 20px; }
+.db-users { flex: 1; min-height: 0; display: grid; grid-template-columns: 260px minmax(0, 1fr); }
+.db-users-list { border-right: 1px solid var(--rule); padding: 14px 10px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.db-user { overflow: auto; }
+.db-user h3 { margin: 4px 0 8px; font-size: 14px; }
+.db-chip { cursor: pointer; padding: 3px 10px 3px 8px; }
+.db-chip input { width: 13px; height: 13px; }
+.conn-indent { padding-left: 14px; border-left: 2px solid var(--rule); }
+
+@media (max-width: 1100px) {
+  .db-layout { grid-template-columns: 240px minmax(0, 1fr); }
+  .db-users { grid-template-columns: 1fr; }
+  .db-users-list { border-right: none; border-bottom: 1px solid var(--rule); max-height: 30vh; }
+}
+@media (max-width: 760px) {
+  .db-layout, .db-layout.side-closed { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .db-side { border-right: none; border-bottom: 1px solid var(--rule); max-height: 38dvh; }
+  .db-layout.side-closed .db-side { display: none; }
+  .db-toolbar { padding: 8px 10px; }
+  .db-editor { padding: 8px 10px 0; }
+  .db-pad, .db-data { padding: 12px; }
+  .db-messages li { grid-template-columns: 16px minmax(0, 1fr) auto; }
+  .db-messages li .db-message-sql { display: none; }
+  .db-search.wide { flex: 1 1 100%; max-width: none; }
+  .db-editor { max-height: 32dvh; }
+  .db-toolbar .db-divider { display: none; }
+  /* three sections and the bar's buttons fit a phone: no icons in the switch, Guide is in it already */
+  .top-nav button { padding: 0 8px; }
+  .top-nav button .icon { display: none; }
+  .topbar .help-button { display: none; }
+  /* on a phone the tab scrolls as a whole instead of squeezing the grid */
+  .db-object, .db-data, .db-query { flex: none; }
+  .db-data .db-grid { flex: none; max-height: 60dvh; }
+  .db-output { min-height: 55dvh; }
+}

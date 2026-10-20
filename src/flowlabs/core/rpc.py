@@ -14,7 +14,21 @@ from typing import Any
 
 import flowlabs_runtime as rt
 
-from . import ai, codegen, datasets, env, evaluation, export, plugins, predict, sources, sql, training
+from . import (
+    ai,
+    codegen,
+    databases,
+    datasets,
+    env,
+    evaluation,
+    export,
+    plugins,
+    predict,
+    sources,
+    sql,
+    training,
+    tunnel,
+)
 from . import catalogue as cat
 from . import project as projects
 from .training import Job
@@ -46,7 +60,9 @@ class Engine:
             return {"result": self.call(method, params)}
         except (UserError, rt.CodeError) as error:  # a code step's own mistake is the user's to fix
             line = getattr(error, "line", None)  # where a SQL query failed, when the database says
-            return {"error": {"message": str(error), "user": True, **({"line": line} if line else {})}}
+            code = getattr(error, "code", None)  # e.g. session_gone: the app reconnects by itself
+            return {"error": {"message": str(error), "user": True, **({"line": line} if line else {}),
+                              **({"code": code} if code else {})}}  # fmt: skip
         except Exception as error:  # noqa: BLE001 - every failure goes back to the UI
             return {"error": {"message": f"{type(error).__name__}: {error}", "user": False,
                               "traceback": traceback.format_exc(limit=8)}}  # fmt: skip
@@ -107,22 +123,22 @@ def _install_driver(engine: Engine, p: dict[str, Any]) -> Any:
     from .util import new_id
 
     source = sources.get(_p(p, "kind"))
-    if not source.packages:
+    ssh = p.get("extra") == "ssh"  # paramiko, for connecting through SSH
+    packages, modules = (list(tunnel.PACKAGES), list(tunnel.MODULES)) if ssh else (list(source.packages), list(source.modules))
+    if not packages:
         raise UserError(f"{source.label} needs nothing installed")
     job_id = new_id("i")
 
     def work() -> None:
-        code = plugins.install(
-            list(source.packages), lambda line: engine.emit({"type": "install", "line": line, "job_id": job_id})
-        )
+        code = plugins.install(packages, lambda line: engine.emit({"type": "install", "line": line, "job_id": job_id}))
         engine.emit({"type": "install", "done": True, "code": code, "job_id": job_id, "kind": source.id,
-                     "needs": plugins.missing(list(source.modules))})  # fmt: skip
+                     "extra": "ssh" if ssh else None, "needs": plugins.missing(modules)})  # fmt: skip
 
     if engine.spawn is None:
         work()
     else:
         engine.spawn(work)
-    return {"job_id": job_id, "packages": list(source.packages)}
+    return {"job_id": job_id, "packages": packages}
 
 
 def _cancel(engine: Engine, p: dict[str, Any]) -> Any:
@@ -130,6 +146,22 @@ def _cancel(engine: Engine, p: dict[str, Any]) -> Any:
     if job is not None:
         job.cancelled = True
     return {"cancelled": job is not None}
+
+
+def _cursor(p: dict[str, Any]) -> int | None:
+    value = p.get("cursor")
+    return None if value is None else int(value)
+
+
+def _save_connection(engine: Engine, p: dict[str, Any]) -> Any:
+    saved = sql.save_connection(engine.ws, _p(p, "connection"))
+    databases.forget(saved["id"])  # open sessions used the old settings
+    return saved
+
+
+def _delete_connection(engine: Engine, p: dict[str, Any]) -> Any:
+    databases.forget(_p(p, "connection_id"))
+    return sql.delete_connection(engine.ws, _p(p, "connection_id"))
 
 
 METHODS: dict[str, Callable[[Engine, dict[str, Any]], Any]] = {
@@ -177,10 +209,51 @@ METHODS: dict[str, Callable[[Engine, dict[str, Any]], Any]] = {
     "sql.kinds": lambda e, p: sql.kinds(),
     "sources.install": _install_driver,
     "sql.connections": lambda e, p: sql.list_connections(e.ws),
-    "sql.connection_save": lambda e, p: sql.save_connection(e.ws, _p(p, "connection")),
-    "sql.connection_delete": lambda e, p: sql.delete_connection(e.ws, _p(p, "connection_id")),
+    "sql.connection_save": _save_connection,
+    "sql.connection_delete": _delete_connection,
     "sql.connection_test": lambda e, p: sql.test_connection(e.ws, _p(p, "connection")),
     "sql.connection_tables": lambda e, p: sql.connection_tables(e.ws, _p(p, "connection_id")),
+    # Databases: browse, query, edit and administer PostgreSQL, MySQL and MariaDB (databases.py)
+    "db.overview": lambda e, p: databases.overview(e.ws, _p(p, "connection_id")),
+    "db.schemas": lambda e, p: databases.schemas(e.ws, _p(p, "connection_id"), _p(p, "database")),
+    "db.objects": lambda e, p: databases.objects(e.ws, _p(p, "connection_id"), _p(p, "database"), p.get("schema")),
+    "db.columns": lambda e, p: databases.columns(e.ws, _p(p, "connection_id"), _p(p, "database"), p.get("schema")),
+    "db.table": lambda e, p: databases.table(e.ws, _p(p, "connection_id"), _p(p, "database"), p.get("schema"),
+                                             _p(p, "name")),
+    "db.ddl": lambda e, p: databases.ddl(e.ws, _p(p, "connection_id"), _p(p, "database"), p.get("schema"),
+                                         _p(p, "name"), _p(p, "kind"), p.get("signature"), p.get("table")),
+    "db.session_open": lambda e, p: databases.open_session(e.ws, _p(p, "connection_id"), p.get("database")),
+    "db.session_close": lambda e, p: databases.close_session(_p(p, "session_id")),
+    "db.execute": lambda e, p: databases.execute(e.ws, _p(p, "session_id"), str(p.get("sql") or ""),
+                                                 int(p.get("limit", databases.PAGE_ROWS)), _cursor(p)),
+    "db.cancel": lambda e, p: databases.cancel(e.ws, _p(p, "session_id")),
+    "db.commit": lambda e, p: databases.finish_transaction(e.ws, _p(p, "session_id"), True),
+    "db.rollback": lambda e, p: databases.finish_transaction(e.ws, _p(p, "session_id"), False),
+    "db.autocommit": lambda e, p: databases.set_autocommit(e.ws, _p(p, "session_id"), bool(p.get("on"))),
+    "db.explain": lambda e, p: databases.explain(e.ws, _p(p, "session_id"), str(p.get("sql") or ""),
+                                                 bool(p.get("analyze")), _cursor(p)),
+    "db.export": lambda e, p: databases.export_query(e.ws, _p(p, "connection_id"), p.get("database"),
+                                                     str(p.get("sql") or ""), _p(p, "format"), p.get("name"),
+                                                     _cursor(p)),
+    "db.save_dataset": lambda e, p: databases.save_dataset(e.ws, _p(p, "connection_id"), p.get("database"),
+                                                           str(p.get("sql") or ""), str(p.get("name") or ""),
+                                                           _cursor(p)),
+    "db.rows": lambda e, p: databases.rows(e.ws, _p(p, "connection_id"), _p(p, "database"), p.get("schema"),
+                                           _p(p, "name"), int(p.get("offset", 0)), int(p.get("limit", 200)),
+                                           p.get("order"), p.get("where")),
+    "db.apply": lambda e, p: databases.apply_changes(e.ws, _p(p, "connection_id"), _p(p, "database"), p.get("schema"),
+                                                     _p(p, "name"), _p(p, "changes"), bool(p.get("preview"))),
+    "db.import": lambda e, p: databases.import_dataset(e.ws, _p(p, "connection_id"), _p(p, "database"),
+                                                       p.get("schema"), _p(p, "name"), _p(p, "dataset_id"),
+                                                       str(p.get("mode") or "create")),
+    "db.activity": lambda e, p: databases.activity(e.ws, _p(p, "connection_id")),
+    "db.stop": lambda e, p: databases.stop_session(e.ws, _p(p, "connection_id"), int(_p(p, "backend_id")),
+                                                   bool(p.get("terminate"))),
+    "db.users": lambda e, p: databases.users(e.ws, _p(p, "connection_id")),
+    "db.grants": lambda e, p: databases.grants(e.ws, _p(p, "connection_id"), _p(p, "user"), p.get("host")),
+    "db.privileges": lambda e, p: databases.privileges(e.ws, _p(p, "connection_id")),
+    "db.user_change": lambda e, p: databases.user_change(e.ws, _p(p, "connection_id"), _p(p, "action"),
+                                                         p.get("params") or {}, bool(p.get("preview"))),
     "predict.rows": lambda e, p: predict.predict_rows(e.ws, _p(p, "project_id"), _p(p, "run_id"), _p(p, "model_id"),
                                                       _p(p, "rows")),
     "predict.dataset": lambda e, p: predict.predict_dataset(e.ws, _p(p, "project_id"), _p(p, "run_id"),

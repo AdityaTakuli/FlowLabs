@@ -42,6 +42,9 @@ hiddenimports = [
     "sqlalchemy.dialects.sqlite.pysqlite",
     *collect_submodules("psycopg"),
     *collect_submodules("pymysql"),
+    # connection passwords in the system keychain (macOS Keychain, Windows Credential Manager,
+    # the Secret Service on Linux); its backends are found by import
+    *collect_submodules("keyring"),
 ]
 try:  # psycopg's compiled build (libpq inside); without it psycopg needs libpq on the system
     import psycopg_binary  # noqa: F401

@@ -83,7 +83,7 @@ function ThemeButton() {
 function HelpButton({ topic }: { topic: string }) {
   const { openGuide } = useApp();
   return (
-    <button className="ghost icon-only" onClick={() => openGuide(topic)} title="Guide for this page" aria-label="Guide for this page">
+    <button className="ghost icon-only help-button" onClick={() => openGuide(topic)} title="Guide for this page" aria-label="Guide for this page">
       <Icon name="help" />
     </button>
   );
@@ -107,10 +107,16 @@ export function TopBar({ children, actions, onHome, help }: { children?: ReactNo
   );
 }
 
-/** Projects | Guide, as a pill switch whose thumb slides between the two pages. */
-export function SectionNav({ current, onProjects, onGuide }: { current: "projects" | "guide"; onProjects: () => void; onGuide?: () => void }) {
+/** Projects | Databases | Guide, as a pill switch whose thumb slides between the pages. */
+type Section = "projects" | "databases" | "guide";
+
+export function SectionNav({ current, onProjects, onDatabases, onGuide }: { current: Section; onProjects: () => void; onDatabases?: () => void; onGuide?: () => void }) {
   const { openGuide } = useApp();
-  const item = (id: "projects" | "guide", label: ReactNode, go: () => void) => (
+  const goDatabases = onDatabases ?? (() => {
+    window.history.pushState(null, "", "?page=databases");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  const item = (id: Section, label: ReactNode, go: () => void) => (
     <button className={`ghost small ${current === id ? "active" : ""}`} aria-current={current === id ? "page" : undefined} onClick={current === id ? undefined : go}>
       {current === id && <motion.span layoutId="section-thumb" className="nav-thumb" transition={{ type: "spring", stiffness: 480, damping: 38 }} />}
       {label}
@@ -119,6 +125,7 @@ export function SectionNav({ current, onProjects, onGuide }: { current: "project
   return (
     <nav className="top-nav" aria-label="Sections">
       {item("projects", "Projects", onProjects)}
+      {item("databases", <><Icon name="server" size={13} /> Databases</>, goDatabases)}
       {item("guide", <><Icon name="book" size={13} /> Guide</>, onGuide ?? (() => openGuide("getting-started")))}
     </nav>
   );

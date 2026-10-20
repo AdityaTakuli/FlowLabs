@@ -36,7 +36,7 @@ class Field:
     options: tuple[tuple[str, str], ...] = ()
     secret: bool = False
     #: show only when another field has one of these values: ("auth", ("keys",))
-    when: tuple[str, tuple[str, ...]] | None = None
+    when: tuple[str, tuple[Any, ...]] | None = None
 
 
 @dataclass(frozen=True)
@@ -58,6 +58,27 @@ class Source:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+_SSH_ON = ("ssh", (True,))
+
+
+def _ssh() -> tuple[Field, ...]:
+    """Connect through an SSH server (see tunnel.py)."""
+    return (
+        Field("ssh", "Connect through SSH", "bool", default=False,
+              help="For a database that only accepts connections from inside its own network."),
+        Field("ssh_host", "SSH server", required=True, placeholder="bastion.example.com", when=_SSH_ON),
+        Field("ssh_port", "SSH port", "number", default=22, when=_SSH_ON),
+        Field("ssh_user", "SSH user", required=True, when=_SSH_ON),
+        Field("ssh_auth", "Sign in to SSH with", "select", default="key", when=_SSH_ON,
+              options=(("key", "A key file"), ("password", "A password"), ("agent", "My SSH agent or default keys"))),
+        Field("ssh_key", "Key file", "path", placeholder="~/.ssh/id_ed25519", when=("ssh_auth", ("key",))),
+        Field("ssh_passphrase", "Key passphrase (if it has one)", "password", secret=True, when=("ssh_auth", ("key",))),
+        Field("ssh_password", "SSH password", "password", secret=True, when=("ssh_auth", ("password",))),
+        Field("ssh_fingerprint", "Trusted server key", when=_SSH_ON, placeholder="SHA256:…",
+              help="Filled in when you trust the server the first time. Servers in ~/.ssh/known_hosts need nothing."),
+    )  # fmt: skip
+
+
 def _host(port: int, *, database: str = "Database name", required_db: bool = False) -> tuple[Field, ...]:
     return (
         Field("host", "Host", required=True, placeholder="db.example.com"),
@@ -73,14 +94,28 @@ SOURCES: dict[str, Source] = {
     for s in [
         # -------------------------------------------------------------------------- databases
         Source("postgresql", "PostgreSQL", "Databases", "sqlalchemy",
-               (*_host(5432), Field("sslmode", "Encryption (SSL)", "select", default="prefer",
-                                    options=(("prefer", "Use when available"), ("require", "Require"), ("disable", "Off")))),
+               (*_host(5432),
+                Field("sslmode", "Encryption (SSL)", "select", default="prefer",
+                      options=(("prefer", "Use when available"), ("require", "Require"),
+                               ("verify-ca", "Require and check the certificate"),
+                               ("verify-full", "Require and check the certificate and host name"), ("disable", "Off"))),
+                Field("sslrootcert", "CA certificate file", "path", when=("sslmode", ("verify-ca", "verify-full")),
+                      help="Leave empty to use the certificates trusted by this computer."),
+                *_ssh()),
                packages=("psycopg[binary]",), modules=("psycopg",), editor="postgresql", dialect="PostgreSQL",
                about="Also Supabase, Neon, Amazon RDS and Aurora, Azure Database for PostgreSQL, Cloud SQL."),
-        Source("mysql", "MySQL or MariaDB", "Databases", "sqlalchemy", _host(3306),
+        Source("mysql", "MySQL or MariaDB", "Databases", "sqlalchemy",
+               (*_host(3306),
+                Field("ssl_mode", "Encryption (SSL)", "select", default="off",
+                      options=(("off", "Off"), ("require", "Require"),
+                               ("verify_ca", "Require and check the certificate"),
+                               ("verify_identity", "Require and check the certificate and host name"))),
+                Field("ssl_ca", "CA certificate file", "path", when=("ssl_mode", ("verify_ca", "verify_identity")),
+                      help="Leave empty to use the certificates trusted by this computer."),
+                *_ssh()),
                packages=("pymysql",), modules=("pymysql",), editor="mysql", dialect="MySQL",
                about="Also Amazon RDS and Aurora MySQL, Azure Database for MySQL, PlanetScale."),
-        Source("sqlserver", "Microsoft SQL Server", "Databases", "sqlalchemy", _host(1433),
+        Source("sqlserver", "Microsoft SQL Server", "Databases", "sqlalchemy", (*_host(1433), *_ssh()),
                packages=("pymssql",), modules=("pymssql",), editor="mssql", dialect="SQL Server (T-SQL)", size_mb=5,
                about="Also Azure SQL Database and Azure Synapse dedicated pools."),
         Source("oracle", "Oracle", "Databases", "sqlalchemy",
@@ -115,7 +150,7 @@ SOURCES: dict[str, Source] = {
                 Field("keyfile", "Service account key (JSON file)", "path", when=("auth", ("keyfile",)))),
                packages=("sqlalchemy-bigquery",), modules=("sqlalchemy_bigquery", "google.cloud.bigquery"),
                editor="standard", dialect="BigQuery Standard SQL", size_mb=40),
-        Source("redshift", "Amazon Redshift", "Warehouses", "sqlalchemy", _host(5439, required_db=True),
+        Source("redshift", "Amazon Redshift", "Warehouses", "sqlalchemy", (*_host(5439, required_db=True), *_ssh()),
                packages=("psycopg[binary]",), modules=("psycopg",), editor="postgresql", dialect="Amazon Redshift (like PostgreSQL)",
                about="Use the cluster or workgroup endpoint, without the port and database."),
         Source("databricks", "Databricks", "Warehouses", "sqlalchemy",
@@ -188,28 +223,36 @@ def get(kind: str) -> Source:
 
 def describe() -> list[dict[str, Any]]:
     """Every source for the Connect form, with the drivers it still lacks here."""
+    from . import tunnel
+
     out = []
+    ssh_needs = plugins.missing(list(tunnel.MODULES))
     for source in SOURCES.values():
         needs = plugins.missing(list(source.modules)) if source.modules else []
         out.append({**{k: v for k, v in asdict(source).items() if k != "extra"}, "kind_label": source.label,
                     "needs": needs, "installable": bool(needs) and sys.platform != "emscripten",
-                    "browser": source.engine == "duckdb" or source.id == "sqlite"})  # fmt: skip
+                    "browser": source.engine == "duckdb" or source.id == "sqlite",
+                    "ssh_needs": ssh_needs if any(f.name == "ssh" for f in source.fields) else []})  # fmt: skip
     return out
 
 
 def visible(source: Source, values: dict[str, Any]) -> list[Field]:
-    """The fields that apply, given the choices made in select fields."""
-    shown = []
+    """The fields that apply, given the choices made in select and on/off fields. A field that
+    depends on a hidden one is hidden too (the SSH key file, when SSH is off)."""
+    shown: list[Field] = []
+    names: set[str] = set()
     for item in source.fields:
-        if item.when is None:
-            shown.append(item)
-            continue
-        other, allowed = item.when
-        current = values.get(other)
-        if current in (None, ""):
-            current = next((f.default for f in source.fields if f.name == other), None)
-        if current in allowed:
-            shown.append(item)
+        if item.when is not None:
+            other, allowed = item.when
+            if other not in names:
+                continue
+            current = values.get(other)
+            if current in (None, ""):
+                current = next((f.default for f in source.fields if f.name == other), None)
+            if current not in allowed:
+                continue
+        shown.append(item)
+        names.add(item.name)
     return shown
 
 
@@ -263,6 +306,7 @@ def default_name(source: Source, values: dict[str, Any]) -> str:
 
 
 def sqlalchemy_url(source: Source, values: dict[str, Any], secrets: dict[str, str]) -> Any:
+    """The database's URL. Call it with ``connect_values`` (an SSH tunnel's local port)."""
     from sqlalchemy.engine import URL, make_url
 
     v, password = values, secrets.get("password") or None
@@ -272,8 +316,11 @@ def sqlalchemy_url(source: Source, values: dict[str, Any], secrets: dict[str, st
         return URL.create("sqlite", database=v["database"])
     if source.id in ("postgresql", "redshift"):
         mode = v.get("sslmode") or ("require" if source.id == "redshift" else None)
+        query = {"sslmode": mode} if mode else {}
+        if mode in ("verify-ca", "verify-full"):
+            query["sslrootcert"] = v.get("sslrootcert") or "system"
         return URL.create("postgresql+psycopg", username=v.get("user"), password=password, host=v["host"], port=v.get("port"),
-                          database=v.get("database"), query={"sslmode": mode} if mode else {})  # fmt: skip
+                          database=v.get("database"), query=query)  # fmt: skip
     if source.id == "mysql":
         return URL.create("mysql+pymysql", username=v.get("user"), password=password, host=v["host"], port=v.get("port"),
                           database=v.get("database"))  # fmt: skip
@@ -298,9 +345,44 @@ def sqlalchemy_url(source: Source, values: dict[str, Any], secrets: dict[str, st
     raise UserError(f"{source.label} is not a SQL database connection")
 
 
+DEFAULT_PORTS = {"postgresql": 5432, "redshift": 5439, "mysql": 3306, "sqlserver": 1433, "oracle": 1521}
+
+
+def connect_values(source: Source, values: dict[str, Any], secrets: dict[str, str]) -> dict[str, Any]:
+    """The values to connect with: through an SSH tunnel when the connection asks for one."""
+    from . import tunnel
+
+    if not tunnel.wanted(values):
+        return values
+    return tunnel.through(values, secrets, DEFAULT_PORTS.get(source.id, 0))
+
+
+def _mysql_tls(values: dict[str, Any]) -> Any:
+    import ssl
+
+    mode = values.get("ssl_mode") or "off"
+    if mode == "off":
+        return None
+    if mode == "require":  # encrypted, certificate not checked (like the mysql client's REQUIRED)
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        return context
+    ca = values.get("ssl_ca")
+    if ca and not Path(ca).is_file():
+        raise UserError(f"there is no CA certificate file at {ca}")
+    context = ssl.create_default_context(cafile=ca or None)
+    context.check_hostname = mode == "verify_identity"
+    return context
+
+
 def engine_options(source: Source, values: dict[str, Any], timeout_s: int) -> dict[str, Any]:
     connect_args: dict[str, Any] = {}
     options: dict[str, Any] = {}
+    if source.id == "mysql":
+        tls = _mysql_tls(values)
+        if tls is not None:
+            connect_args["ssl"] = tls
     if source.id in ("postgresql", "redshift", "mysql"):
         connect_args["connect_timeout"] = timeout_s
     if source.id == "sqlserver":

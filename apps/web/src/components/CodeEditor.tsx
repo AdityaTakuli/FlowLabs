@@ -54,7 +54,7 @@ function languageOf(language: "python" | "sql", dialect: SqlDialect, schema?: Re
   return language === "sql" ? sql({ dialect: DIALECTS[dialect], schema, upperCaseKeywords: false }) : python();
 }
 
-export function CodeEditor({ value, onChange, readOnly = false, minLines = 8, errorAt = null, label, language = "python", dialect = "postgresql", schema, onRun, insert }: {
+export function CodeEditor({ value, onChange, readOnly = false, minLines = 8, errorAt = null, label, language = "python", dialect = "postgresql", schema, onRun, insert, onPlace }: {
   value: string;
   onChange?: (code: string) => void;
   readOnly?: boolean;
@@ -65,10 +65,13 @@ export function CodeEditor({ value, onChange, readOnly = false, minLines = 8, er
   dialect?: SqlDialect;
   /** SQL: table name -> column names, for completion. */
   schema?: Record<string, string[]>;
-  /** Ctrl+Enter (Cmd+Enter on a Mac), with the editor's text as it is now. */
-  onRun?: (code: string) => void;
+  /** Ctrl+Enter (Cmd+Enter on a Mac) with the editor's text, the selection and where the cursor is;
+      Shift+Ctrl+Enter sets ``all`` (run the whole script). */
+  onRun?: (code: string, place: { from: number; to: number; head: number }, all: boolean) => void;
   /** Text to put at the cursor; a new `n` inserts it again. */
   insert?: { text: string; n: number };
+  /** The selection and cursor whenever they move, for Run buttons outside the editor. */
+  onPlace?: (place: { from: number; to: number; head: number }) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -76,6 +79,8 @@ export function CodeEditor({ value, onChange, readOnly = false, minLines = 8, er
   changed.current = onChange;
   const run = useRef(onRun);
   run.current = onRun;
+  const placed = useRef(onPlace);
+  placed.current = onPlace;
   const lang = useRef(new Compartment());
 
   useEffect(() => {
@@ -92,7 +97,18 @@ export function CodeEditor({ value, onChange, readOnly = false, minLines = 8, er
                 run: (target) => {
                   if (!run.current) return false;
                   closeCompletion(target);
-                  run.current(target.state.doc.toString());
+                  const { from, to, head } = target.state.selection.main;
+                  run.current(target.state.doc.toString(), { from, to, head }, false);
+                  return true;
+                },
+              },
+              {
+                key: "Shift-Mod-Enter",
+                run: (target) => {
+                  if (!run.current) return false;
+                  closeCompletion(target);
+                  const { from, to, head } = target.state.selection.main;
+                  run.current(target.state.doc.toString(), { from, to, head }, true);
                   return true;
                 },
               },
@@ -110,6 +126,10 @@ export function CodeEditor({ value, onChange, readOnly = false, minLines = 8, er
           EditorView.theme({ ".cm-content, .cm-gutter": { minHeight: `${minLines * 1.6 * 12.5 + 20}px` } }),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) changed.current?.(update.state.doc.toString());
+            if (update.selectionSet || update.docChanged) {
+              const { from, to, head } = update.state.selection.main;
+              placed.current?.({ from, to, head });
+            }
           }),
         ],
       }),
