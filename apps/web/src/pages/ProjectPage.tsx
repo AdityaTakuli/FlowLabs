@@ -284,9 +284,6 @@ export function ProjectPage({ projectId, tab, setTab, goHome }: { projectId: str
       </TopBar>
       <div className="workspace">
         <nav className="rail" aria-label="Steps">
-          <div className="rail-title" aria-hidden>
-            <span>{project.name}</span>
-          </div>
           <div className="rail-list">
             {TABS.map((t, i) => (
               <Fragment key={t.id}>
@@ -320,9 +317,9 @@ export function ProjectPage({ projectId, tab, setTab, goHome }: { projectId: str
           ref={contentRef}
           className="content"
           style={tab === "pipeline" ? { overflow: "hidden" } : undefined}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.16, ease: "easeOut" }}
         >
           {tab === "data" && <DataTab api={api} />}
           {tab === "pipeline" && <PipelineTab api={api} training={training} />}

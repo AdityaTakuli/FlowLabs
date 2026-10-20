@@ -91,11 +91,11 @@ Your projects in the `FlowLabs` folder stay. Delete the folder yourself if you n
 <summary>Installer options: a particular version, or download only</summary>
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.sh | FLOWLABS_VERSION=0.5.1 sh
+curl -fsSL https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.sh | FLOWLABS_VERSION=0.5.2 sh
 curl -fsSL https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.sh | FLOWLABS_DRY_RUN=1 sh
 ```
 
-On Windows, set `$env:FLOWLABS_VERSION = "0.5.1"` or `$env:FLOWLABS_DRY_RUN = "1"` before the
+On Windows, set `$env:FLOWLABS_VERSION = "0.5.2"` or `$env:FLOWLABS_DRY_RUN = "1"` before the
 command. The scripts are short: [install.sh](install.sh), [install.ps1](install.ps1).
 
 </details>
@@ -245,7 +245,7 @@ browser.
 FlowLabs is not on PyPI yet. Each release has the package attached; install it with pip:
 
 ```bash
-VERSION=0.5.1   # the latest release
+VERSION=0.5.2   # the latest release
 pip install "flowlabs[deep,sql] @ https://github.com/AdityaTakuli/FlowLabs/releases/download/v$VERSION/flowlabs-$VERSION-py3-none-any.whl"
 flowlabs app    # opens FlowLabs in your browser
 ```

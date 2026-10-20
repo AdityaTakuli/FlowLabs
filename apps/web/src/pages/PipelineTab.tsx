@@ -38,7 +38,7 @@ function PipelineNode({ data }: NodeProps<Node<FlowData>>) {
     return <div className="stage-band" style={{ width: Number(data.bandWidth), height: Number(data.bandHeight) }} />;
   }
   if (data.id.startsWith("label-")) {
-    return <div className="stage-label" style={{ color: colour }}><i />{data.title}</div>;
+    return <div className="stage-label" style={{ "--stage": colour } as React.CSSProperties}><i />{data.title}</div>;
   }
   const icon = data.kind === "step" ? STAGE_ICON[data.stage] ?? "dot" : KIND_ICON[data.kind] ?? "dot";
   const classes = ["node", data.selected ? "selected" : "", data.disabled ? "disabled" : "", data.level === "error" ? "has-error" : data.level === "warning" ? "has-warning" : ""];
@@ -246,16 +246,16 @@ function Inspector({ api, selected, setSelected, preview, previewError, training
     return (
       <>
         <div className="inspector-head">
-          <span className="stage-kicker" style={{ color: STAGE_COLOURS[stage] }}>{STAGE_TITLES[stage]} step {index + 1} of {steps.length}</span>
+          <span className="stage-kicker" style={{ "--stage": STAGE_COLOURS[stage] } as React.CSSProperties}>{STAGE_TITLES[stage]} step {index + 1} of {steps.length}</span>
           <h2>{op?.label ?? step.op}</h2>
           <p className="dim small">{op?.description}</p>
           {step.note && <p className="small accent-text">Added because: {step.note}</p>}
           <div className="row">
             <Switch on={step.enabled} onChange={(on) => setSteps(steps.map((s) => (s.id === step.id ? { ...s, enabled: on } : s)))} label={step.enabled ? "On" : "Off"} />
             <span className="spacer" />
-            <button className="ghost icon-only" disabled={index === 0} title="Run earlier" onClick={() => setSteps(move(steps, index, -1))}><Icon name="arrowUp" /></button>
-            <button className="ghost icon-only" disabled={index === steps.length - 1} title="Run later" onClick={() => setSteps(move(steps, index, 1))}><Icon name="arrowDown" /></button>
-            <button className="ghost icon-only danger" title="Remove step" onClick={() => { setSteps(steps.filter((s) => s.id !== step.id)); setSelected(stage === "transform" ? "auto_prep" : "dataset"); }}><Icon name="trash" /></button>
+            <button className="ghost icon-only" disabled={index === 0} title="Run earlier" aria-label="Run earlier" onClick={() => setSteps(move(steps, index, -1))}><Icon name="arrowUp" /></button>
+            <button className="ghost icon-only" disabled={index === steps.length - 1} title="Run later" aria-label="Run later" onClick={() => setSteps(move(steps, index, 1))}><Icon name="arrowDown" /></button>
+            <button className="ghost icon-only danger" title="Remove step" aria-label="Remove step" onClick={() => { setSteps(steps.filter((s) => s.id !== step.id)); setSelected(stage === "transform" ? "auto_prep" : "dataset"); }}><Icon name="trash" /></button>
           </div>
         </div>
         <div className="inspector-body">
@@ -291,7 +291,7 @@ function Inspector({ api, selected, setSelected, preview, previewError, training
     return (
       <>
         <div className="inspector-head">
-          <span className="stage-kicker" style={{ color: STAGE_COLOURS.models }}>{algo?.family ?? "Model"}</span>
+          <span className="stage-kicker" style={{ "--stage": STAGE_COLOURS.models } as React.CSSProperties}>{algo?.family ?? "Model"}</span>
           <CommitInput value={model.label} onCommit={(label) => setModel({ label: label || algo?.label || model.label })} style={{ fontSize: 16, fontWeight: 600 }} />
           <p className="dim small">{algo?.description}</p>
           <div className="row">
@@ -303,7 +303,7 @@ function Inspector({ api, selected, setSelected, preview, previewError, training
                 setSelected(copy.id);
               }).catch(fail);
             }}><Icon name="copy" size={12} /> Duplicate</button>
-            <button className="ghost icon-only danger" title="Remove model" onClick={() => { update((p) => ({ ...p, models: p.models.filter((m) => m.id !== model.id) })); setSelected("dataset"); }}><Icon name="trash" /></button>
+            <button className="ghost icon-only danger" title="Remove model" aria-label="Remove model" onClick={() => { update((p) => ({ ...p, models: p.models.filter((m) => m.id !== model.id) })); setSelected("dataset"); }}><Icon name="trash" /></button>
           </div>
         </div>
         <div className="inspector-body">
@@ -351,7 +351,7 @@ function Inspector({ api, selected, setSelected, preview, previewError, training
     return (
       <>
         <div className="inspector-head">
-          <span className="stage-kicker" style={{ color: STAGE_COLOURS.split }}>Split</span>
+          <span className="stage-kicker" style={{ "--stage": STAGE_COLOURS.split } as React.CSSProperties}>Split</span>
           <h2>Train / test split</h2>
           <p className="dim small">Models learn from training rows and are scored on test rows they never saw, like an exam with new questions.</p>
         </div>
@@ -398,7 +398,7 @@ function Inspector({ api, selected, setSelected, preview, previewError, training
     return (
       <>
         <div className="inspector-head">
-          <span className="stage-kicker" style={{ color: STAGE_COLOURS.transform }}>Transform, final step</span>
+          <span className="stage-kicker" style={{ "--stage": STAGE_COLOURS.transform } as React.CSSProperties}>Transform, final step</span>
           <h2>Auto-prep</h2>
           <p className="dim small">Makes the table model-ready after your transforms: numbers only, no gaps. Categories become one column per value (or frequencies when there are many), yes/no becomes 1/0, dates become year, month and weekday, and IDs are dropped. Models that need scaled inputs (linear, SVM, k-NN, neural networks) are also standardized when you have not added a Scale step.</p>
           <Switch on={project.auto_prep} onChange={(on) => update((p) => ({ ...p, auto_prep: on }))} label={project.auto_prep ? "On (recommended)" : "Off"} />
@@ -420,7 +420,7 @@ function Inspector({ api, selected, setSelected, preview, previewError, training
     return (
       <>
         <div className="inspector-head">
-          <span className="stage-kicker" style={{ color: STAGE_COLOURS.prep }}>Image prep</span>
+          <span className="stage-kicker" style={{ "--stage": STAGE_COLOURS.prep } as React.CSSProperties}>Image prep</span>
           <h2>Resize & augment</h2>
           <p className="dim small">Every image is resized to a square. Augmentations show the network slightly changed copies while training, so it learns what matters rather than memorising pictures. Test images are never augmented.</p>
         </div>
@@ -446,7 +446,7 @@ function Inspector({ api, selected, setSelected, preview, previewError, training
   return (
     <>
       <div className="inspector-head">
-        <span className="stage-kicker" style={{ color: STAGE_COLOURS.data }}>Data</span>
+        <span className="stage-kicker" style={{ "--stage": STAGE_COLOURS.data } as React.CSSProperties}>Data</span>
         <h2>{profile?.dataset.name ?? "Dataset"}</h2>
         <p className="dim small">{profile ? `${profile.rows.toLocaleString()} ${project.kind === "image" ? "images" : "rows"}` : ""}</p>
       </div>

@@ -32,10 +32,12 @@ export function EngineChip() {
   );
 }
 
-type Theme = "light" | "dark";
+type Theme = "system" | "light" | "dark";
 const THEME_KEY = "flowlabs-theme";
+const NEXT_THEME: Record<Theme, Theme> = { system: "light", light: "dark", dark: "system" };
+const THEME_NAMES: Record<Theme, string> = { system: "Match system", light: "Light", dark: "Dark" };
 
-/** The chosen theme, or none to follow the system. Applied before the first paint (see main.tsx). */
+/** The chosen appearance, or none to follow the system. Applied before the first paint (see main.tsx). */
 export function applyStoredTheme() {
   try {
     const stored = localStorage.getItem(THEME_KEY);
@@ -45,31 +47,34 @@ export function applyStoredTheme() {
   }
 }
 
-function currentTheme(): Theme {
+function storedTheme(): Theme {
   const set = document.documentElement.dataset.theme;
-  if (set === "light" || set === "dark") return set;
-  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  return set === "light" || set === "dark" ? set : "system";
 }
 
+/** Follows the system by default. Some Linux desktops don't pass their dark setting to the app window,
+    so people can still pick Light or Dark, and come back to Match system. */
 function ThemeButton() {
-  const [theme, setTheme] = useState<Theme>(currentTheme);
-  const next: Theme = theme === "dark" ? "light" : "dark";
+  const [theme, setTheme] = useState<Theme>(storedTheme);
+  const next = NEXT_THEME[theme];
   return (
     <button
       className="ghost icon-only"
       onClick={() => {
-        document.documentElement.dataset.theme = next;
+        if (next === "system") delete document.documentElement.dataset.theme;
+        else document.documentElement.dataset.theme = next;
         try {
-          localStorage.setItem(THEME_KEY, next);
+          if (next === "system") localStorage.removeItem(THEME_KEY);
+          else localStorage.setItem(THEME_KEY, next);
         } catch {
           /* not remembered, still switched */
         }
         setTheme(next);
       }}
-      title={`Switch to the ${next} theme`}
-      aria-label={`Switch to the ${next} theme`}
+      title={`Appearance: ${THEME_NAMES[theme]}. Click for ${THEME_NAMES[next]}.`}
+      aria-label={`Appearance: ${THEME_NAMES[theme]}. Switch to ${THEME_NAMES[next]}`}
     >
-      <Icon name={theme === "dark" ? "sun" : "moon"} />
+      <Icon name={theme === "system" ? "appearance" : theme === "dark" ? "moon" : "sun"} />
     </button>
   );
 }

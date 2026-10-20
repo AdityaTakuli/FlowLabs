@@ -6,7 +6,7 @@
 # SHA-256 checksum, installs FlowLabs for your user (no administrator rights needed) and opens it.
 #
 # Options (environment variables, set before running):
-#   $env:FLOWLABS_VERSION = "0.5.1"   install that version instead of the latest
+#   $env:FLOWLABS_VERSION = "0.5.2"   install that version instead of the latest
 #   $env:FLOWLABS_DRY_RUN = "1"       download and check, but do not install
 
 # Downloads are retried: GitHub's file servers sometimes drop a connection mid-way.
