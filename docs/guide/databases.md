@@ -117,6 +117,60 @@ The upload button next to a database (MySQL) or schema (PostgreSQL), or **Import
 copies one of your FlowLabs datasets into the database. Choose to stop if the table exists, add the
 rows, or replace the table.
 
+## Design a table
+
+**New table…** in a schema's menu (PostgreSQL) or a database's menu (MySQL), or **Design** on an
+open table, opens the table designer:
+
+- **Columns:** name, type (common types are suggested; any type the database knows works), whether
+  it is part of the primary key, numbers itself (identity or AUTO_INCREMENT), may be empty, its
+  default (an SQL expression: `0`, `'text'`, `now()`) and comment. Renaming a column renames it in
+  the indexes and foreign keys that use it.
+- **Indexes:** click the columns in order; tick **Unique** to refuse duplicates.
+- **Foreign keys:** the columns here, the table they refer to and its columns, and what happens on
+  delete and update (cascade, set null...).
+- **Checks:** a condition every row must meet, such as `total >= 0`.
+
+**Review changes** shows the statements that turn the table into your design, and only those: a
+renamed column is renamed, not dropped and added. Nothing runs until you confirm. PostgreSQL runs
+them in one transaction, so a failure changes nothing; MySQL saves each statement as it runs.
+SQLite can only rename, add and drop columns and change indexes in place.
+
+## Diagram
+
+**Diagram** in a schema's or database's menu draws its tables with their columns, and a line for
+each foreign key, pointing at the table it refers to. Tables that others refer to sit on the left.
+
+- Drag tables to arrange them; the layout is remembered. **Arrange** lays them out again.
+- **Keys only** shows just the key and foreign key columns of each table.
+- **Find** highlights the tables whose name, or one of whose columns, matches.
+- Double-click a table to open it.
+
+## Back up and restore
+
+**Back up…** in a schema's (PostgreSQL) or database's (MySQL) menu saves it as a `.sql` file in
+your downloads:
+
+- **What to save:** structure and rows, structure only, or rows only; everything, or some tables.
+- **Drop each object first** adds `DROP ... IF EXISTS`, so restoring replaces what is there.
+- **Made by FlowLabs** works anywhere with nothing to install: types, sequences, functions,
+  tables, rows, keys, indexes, views and triggers. The backup is one consistent snapshot, and every
+  value (arrays, JSON, binary data, dates) comes back exactly. On MySQL, DEFINER is left out unless
+  you keep it, so the backup restores on another server.
+- **Made by pg_dump / mysqldump** uses the database's own tool when it is installed on the
+  engine's computer. Its version must be the server's or newer.
+
+**Restore…** runs a backup file in the database you choose, and shows each statement that failed,
+with its line. It reads files from FlowLabs, plain-text `pg_dump` files (`COPY ... FROM stdin`
+included) and `mysqldump` files, gzipped or not. A pg_dump custom-format file (`-Fc`) is restored
+with `pg_restore` when it is installed.
+
+- **All or nothing** (PostgreSQL) runs the whole file in one transaction: if anything fails,
+  nothing changes.
+- **Stop at the first error**, otherwise errors are listed at the end and the rest runs.
+
+Restoring needs a connection that allows changes.
+
 ## Server activity and users
 
 The menu next to a connection has two admin views.

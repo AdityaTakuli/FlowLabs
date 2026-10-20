@@ -200,6 +200,20 @@ def create_app(
         finally:
             shutil.rmtree(folder, ignore_errors=True)
 
+    @app.post("/api/upload-file")
+    async def upload_file(request: Request, filename: str) -> Any:
+        """Keep a file for the engine to use (a .sql file to restore); its path comes back."""
+        safe = Path(filename).name or "upload"
+        folder = ws.tmp / "uploads" / secrets.token_hex(6)
+        folder.mkdir(parents=True)
+        target = folder / safe
+        size = 0
+        with target.open("wb") as handle:
+            async for chunk in request.stream():
+                handle.write(chunk)
+                size += len(chunk)
+        return {"result": {"path": str(target), "name": safe, "bytes": size}}
+
     @app.get("/api/files/{path:path}")
     def download(path: str) -> FileResponse:
         try:

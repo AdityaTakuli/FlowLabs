@@ -34,6 +34,8 @@ export interface Engine {
   address?: string;
   call<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T>;
   upload(file: File): Promise<DatasetMeta>;
+  /** Hand a file to the engine as it is (a .sql file to restore); its path on the engine comes back. */
+  uploadFile(file: File, onProgress?: (fraction: number) => void): Promise<{ path: string; name: string; bytes: number }>;
   download(path: string, name: string): Promise<void>;
   subscribe(listener: Listener): () => void;
   /** Stop a training job. The browser engine restarts itself to do this. */
@@ -173,6 +175,27 @@ export class RemoteEngine implements Engine {
     return reply.result as DatasetMeta;
   }
 
+  uploadFile(file: File, onProgress?: (fraction: number) => void): Promise<{ path: string; name: string; bytes: number }> {
+    // XMLHttpRequest, not fetch: it reports upload progress for big dumps
+    return new Promise((resolve, reject) => {
+      const request = new XMLHttpRequest();
+      request.open("POST", `${this.base}/api/upload-file?filename=${encodeURIComponent(file.name)}`);
+      request.setRequestHeader("Authorization", `Bearer ${this.token}`);
+      request.upload.onprogress = (event) => event.lengthComputable && onProgress?.(event.loaded / event.total);
+      request.onerror = () => reject(new EngineError("The file did not reach the engine."));
+      request.onload = () => {
+        try {
+          const reply = JSON.parse(request.responseText);
+          if (request.status !== 200 || reply.error) reject(new EngineError(reply.error?.message ?? reply.detail ?? `HTTP ${request.status}`));
+          else resolve(reply.result);
+        } catch {
+          reject(new EngineError(`HTTP ${request.status}`));
+        }
+      };
+      request.send(file);
+    });
+  }
+
   async download(path: string, name: string): Promise<void> {
     const url = `${this.base}/api/files/${path.split("/").map(encodeURIComponent).join("/")}?token=${encodeURIComponent(this.token)}`;
     if (this.kind === "local" && !androidBridge()) {
@@ -307,6 +330,10 @@ export class BrowserEngine implements Engine {
   async upload(file: File): Promise<DatasetMeta> {
     const buffer = await file.arrayBuffer();
     return this.send<DatasetMeta>({ type: "upload", name: file.name, buffer }, [buffer]);
+  }
+
+  async uploadFile(): Promise<{ path: string; name: string; bytes: number }> {
+    throw new EngineError("The browser cannot reach a database server. Use the desktop app, or run `flowlabs engine`.");
   }
 
   async download(path: string, name: string): Promise<void> {

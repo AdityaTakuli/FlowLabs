@@ -59,7 +59,8 @@ _DIALECT_NAMES = {
 
 
 def _strip_comments(sql: str) -> str:
-    return re.sub(r"--[^\n]*|/\*.*?\*/", " ", sql, flags=re.S)
+    # /*!50001 ... */ and /*+ ... */ are not comments to MySQL: mysqldump writes views and triggers in them
+    return re.sub(r"--[^\n]*|/\*(?![!+]).*?\*/", " ", sql, flags=re.S)
 
 
 # The statements whose body can hold semicolons, between BEGIN and its END
@@ -74,12 +75,12 @@ _NEXT_WORD = re.compile(r"\s+([A-Za-z]+)")
 _ENDS_WITHOUT_BLOCK = {"if", "loop", "while", "repeat"}  # END IF and the like close no BEGIN or CASE
 
 
-def split_statements(sql: str) -> list[str]:
+def split_statements(sql: str, backslash: bool = False) -> list[str]:
     """Split a script into statements, the way database clients do (see ``statement_spans``)."""
-    return [text for _, _, text in statement_spans(sql)]
+    return [text for _, _, text in statement_spans(sql, backslash)]
 
 
-def statement_spans(sql: str) -> list[tuple[int, int, str]]:
+def statement_spans(sql: str, backslash: bool = False) -> list[tuple[int, int, str]]:
     """Each statement of a script with where it starts and ends in it: ``(start, end, text)``.
 
     Statements end at semicolons outside quotes and comments. Also:
@@ -88,11 +89,14 @@ def statement_spans(sql: str) -> list[tuple[int, int, str]]:
       statements instead, until the next DELIMITER line;
     * the body of CREATE TRIGGER, PROCEDURE, FUNCTION or EVENT stays whole from BEGIN to its END,
       semicolons included, with no DELIMITER needed;
-    * PostgreSQL's dollar quotes (``$$ ... $$``, ``$body$ ... $body$``) are quotes.
+    * PostgreSQL's dollar quotes (``$$ ... $$``, ``$body$ ... $body$``) are quotes;
+    * with ``backslash`` (MySQL and MariaDB), a backslash escapes the next character in a string, so
+      ``'it\'s'`` is one string. PostgreSQL's ``E'...'`` strings escape the same way.
     """
     statements: list[tuple[int, str]] = []
     current: list[str] = []
     delimiter, quote, depth, i, start = ";", "", 0, 0, 0
+    escapes = False  # backslashes escape inside the open quote
 
     def finish() -> None:
         nonlocal current, depth
@@ -102,6 +106,10 @@ def statement_spans(sql: str) -> list[tuple[int, int, str]]:
     while i < len(sql):
         char = sql[i]
         if quote:
+            if escapes and char == "\\" and i + 1 < len(sql):
+                current.append(sql[i : i + 2])
+                i += 2
+                continue
             if sql.startswith(quote, i):
                 current.append(quote)
                 i += len(quote)
@@ -126,6 +134,8 @@ def statement_spans(sql: str) -> list[tuple[int, int, str]]:
             continue
         if char in "'\"`":
             quote = char
+            e_string = char == "'" and i > 0 and sql[i - 1] in "eE" and (i < 2 or not (sql[i - 2].isalnum() or sql[i - 2] == "_"))
+            escapes = char != "`" and (backslash or e_string)
             current.append(char)
         elif char == "$" and (dollar := _DOLLAR_QUOTE.match(sql, i)):
             quote = dollar.group(0)
@@ -631,7 +641,7 @@ def _run_connection(
     offset: int = 0,
     dataset_id: str | None = None,
 ) -> tuple[pd.DataFrame | None, int | None, str | None]:
-    statements = split_statements(sql)
+    statements = split_statements(sql, backslash=connection.get("kind") == "mysql")
     allowed = bool(connection.get("allow_changes"))
     if not allowed:
         for statement in statements:

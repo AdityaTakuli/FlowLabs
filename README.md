@@ -91,11 +91,11 @@ Your projects in the `FlowLabs` folder stay. Delete the folder yourself if you n
 <summary>Installer options: a particular version, or download only</summary>
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.sh | FLOWLABS_VERSION=0.5.3 sh
+curl -fsSL https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.sh | FLOWLABS_VERSION=0.5.4 sh
 curl -fsSL https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.sh | FLOWLABS_DRY_RUN=1 sh
 ```
 
-On Windows, set `$env:FLOWLABS_VERSION = "0.5.3"` or `$env:FLOWLABS_DRY_RUN = "1"` before the
+On Windows, set `$env:FLOWLABS_VERSION = "0.5.4"` or `$env:FLOWLABS_DRY_RUN = "1"` before the
 command. The scripts are short: [install.sh](install.sh), [install.ps1](install.ps1).
 
 </details>
@@ -180,6 +180,10 @@ MySQL Workbench do:
   (EXPLAIN and EXPLAIN ANALYZE), keep a history, export to CSV, Excel, JSON or Parquet, or keep a
   result as a dataset to train on.
 - **Edit** rows in place (reviewed as SQL, saved in one transaction), and import a dataset as a table.
+- **Design tables** in a form (columns, keys, indexes, foreign keys, checks), reviewed as the exact
+  ALTER statements before anything runs; see the schema as an **ER diagram**.
+- **Back up and restore** to and from `.sql` files, built in or with pg_dump and mysqldump; restore
+  reads pg_dump and mysqldump files too.
 - **Administer:** server activity with Stop query and End session, users and roles with grants.
 
 **Evaluate.** A leaderboard against a baseline, a score-and-training-time chart, and box plots of
@@ -224,6 +228,8 @@ src/flowlabs/
     sql.py           SQL on datasets (DuckDB) and on connected databases
     sources.py       every kind of connection: its form fields, drivers and URL
     databases.py     the Databases page: browse, sessions, edit, export, plans, admin
+    backup.py        database backups and restores (.sql, pg_dump and mysqldump files)
+    design.py        the table designer: a form's design as CREATE and ALTER statements
     tunnel.py        SSH tunnels to databases behind a firewall
     vault.py         passwords and keys in the system keychain
     ai.py            Ask AI: plain English to SQL with Groq
@@ -261,7 +267,7 @@ browser.
 FlowLabs is not on PyPI yet. Each release has the package attached; install it with pip:
 
 ```bash
-VERSION=0.5.3   # the latest release
+VERSION=0.5.4   # the latest release
 pip install "flowlabs[deep,sql] @ https://github.com/AdityaTakuli/FlowLabs/releases/download/v$VERSION/flowlabs-$VERSION-py3-none-any.whl"
 flowlabs app    # opens FlowLabs in your browser
 ```

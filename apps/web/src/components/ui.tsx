@@ -1,14 +1,17 @@
 import { motion } from "motion/react";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Icon, type IconName } from "./Icon";
 
+/** A dialog. It is drawn at the top of the page (a portal): opened from inside the top bar, whose
+    blur makes it the box that "fixed" elements fill, it would otherwise be squeezed into the bar. */
 export function Modal({ title, onClose, children, footer, wide }: { title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
-  return (
+  return createPortal(
     <motion.div className="overlay" onMouseDown={(event) => event.target === event.currentTarget && onClose()} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
       <motion.div
         className={`modal ${wide ? "wide" : ""}`}
@@ -28,7 +31,8 @@ export function Modal({ title, onClose, children, footer, wide }: { title: React
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-foot">{footer}</div>}
       </motion.div>
-    </motion.div>
+    </motion.div>,
+    document.body,
   );
 }
 

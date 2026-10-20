@@ -116,7 +116,8 @@ def link(ws: Workspace, connection_id: str, database: str | None = None) -> Link
     reached = sources.connect_values(source, values, secrets)
     url = sources.sqlalchemy_url(source, reached, secrets)
     options = sources.engine_options(source, reached, sql.CONNECT_TIMEOUT_S)
-    pool = {} if source.id == "sqlite" else {"pool_size": 2, "max_overflow": 8, "pool_timeout": 20}
+    # a few pooled connections for browsing; query tabs and restores take their own and discard them
+    pool = {} if source.id == "sqlite" else {"pool_size": 2, "max_overflow": 40, "pool_timeout": 20}
     try:
         # no_parameters: SQL without parameters goes to the driver as written, so a % in it (a LIKE
         # pattern, MySQL's 'user'@'%') is text, not a placeholder
@@ -403,6 +404,46 @@ def columns(ws: Workspace, connection_id: str, database: str, schema: str | None
     return out
 
 
+def diagram(ws: Workspace, connection_id: str, database: str, schema: str | None = None) -> dict[str, Any]:
+    """Every table in a schema with its columns and keys, and the foreign keys between them: an ER
+    diagram's content, read in a few bulk queries."""
+    from sqlalchemy import inspect
+
+    item = link(ws, connection_id, database)
+    schema = _schema_for(item, database, schema)
+    if item.flavor == "postgresql":
+        schema = schema or "public"
+    with _reading(item) as live:
+        inspector = inspect(live)
+        names = inspector.get_table_names(schema=schema)
+        if len(names) > 400:
+            raise UserError(f"{len(names)} tables are too many to draw; choose a smaller schema.")
+        try:
+            columns = inspector.get_multi_columns(schema=schema)
+            keys = inspector.get_multi_pk_constraint(schema=schema)
+            foreign = inspector.get_multi_foreign_keys(schema=schema)
+        except NotImplementedError:
+            columns = {(schema, n): inspector.get_columns(n, schema=schema) for n in names}
+            keys = {(schema, n): inspector.get_pk_constraint(n, schema=schema) for n in names}
+            foreign = {(schema, n): inspector.get_foreign_keys(n, schema=schema) for n in names}
+    tables = []
+    links = []
+    for name in sorted(names):
+        key = (schema, name)
+        primary = set((keys.get(key) or {}).get("constrained_columns") or [])
+        fks = foreign.get(key) or []
+        referencing = {c for fk in fks for c in fk.get("constrained_columns") or []}
+        tables.append({"name": name, "columns": [{"name": c["name"], "type": str(c["type"]).lower(),
+                                                  "key": c["name"] in primary, "foreign": c["name"] in referencing,
+                                                  "nullable": bool(c.get("nullable", True))}
+                                                 for c in columns.get(key) or []]})  # fmt: skip
+        for fk in fks:
+            links.append({"name": fk.get("name"), "from": name, "columns": fk.get("constrained_columns") or [],
+                          "to": fk.get("referred_table"), "to_schema": fk.get("referred_schema"),
+                          "referred_columns": fk.get("referred_columns") or []})  # fmt: skip
+    return {"schema": schema, "database": database, "tables": tables, "links": links}
+
+
 def _reflect(item: Link, live: Any, schema: str | None, name: str) -> Any:
     from sqlalchemy import MetaData, Table
     from sqlalchemy.exc import NoSuchTableError
@@ -489,64 +530,70 @@ def ddl(ws: Workspace, connection_id: str, database: str, schema: str | None, na
     """The CREATE statement of a table, view, function, procedure, trigger or sequence."""
     item = link(ws, connection_id, database)
     schema = _schema_for(item, database, schema)
+    with _reading(item) as live:
+        return ddl_on(item, live, schema, name, kind, signature, table_name)
+
+
+def ddl_on(item: Link, live: Any, schema: str | None, name: str, kind: str, signature: str | None = None,
+           table_name: str | None = None) -> str:  # fmt: skip
+    """``ddl`` on a connection that is already open (a backup reads everything in one snapshot)."""
     kind = kind.replace("materialized view", "view").replace("partitioned table", "table").replace(
         "foreign table", "table")
-    with _reading(item) as live:
-        if item.flavor == "mysql":
-            what = {"table": "TABLE", "view": "VIEW", "function": "FUNCTION", "procedure": "PROCEDURE",
-                    "trigger": "TRIGGER"}.get(kind)  # fmt: skip
-            if what is None:
-                raise UserError(f"MySQL has no {kind}s")
-            row = live.exec_driver_sql(f"SHOW CREATE {what} {_qualified(item, schema, name)}").fetchone()
-            text = row[1] if what in ("TABLE", "VIEW") else row[2]
-            return (text or "-- you are not allowed to see this definition") + ";"
-        if item.flavor == "sqlite":
-            rows = _rows(live, "select sql from sqlite_master where name = :name", {"name": name})
+    if item.flavor == "mysql":
+        what = {"table": "TABLE", "view": "VIEW", "function": "FUNCTION", "procedure": "PROCEDURE",
+                "trigger": "TRIGGER"}.get(kind)  # fmt: skip
+        if what is None:
+            raise UserError(f"MySQL has no {kind}s")
+        row = live.exec_driver_sql(f"SHOW CREATE {what} {_qualified(item, schema, name)}").fetchone()
+        text = row[1] if what in ("TABLE", "VIEW") else row[2]
+        return (text or "-- you are not allowed to see this definition") + ";"
+    if item.flavor == "sqlite":
+        rows = _rows(live, "select sql from sqlite_master where name = :name", {"name": name})
+        if not rows:
+            raise UserError(f"there is no {kind} {name}")
+        return f"{rows[0][0]};"
+    if item.flavor == "postgresql":
+        schema = schema or "public"
+        where = {"schema": schema, "name": name}
+        if kind == "view":
+            rows = _rows(live, """select c.relkind::text, pg_get_viewdef(c.oid, true) from pg_class c
+                                  join pg_namespace n on n.oid = c.relnamespace
+                                  where n.nspname = :schema and c.relname = :name""", where)  # fmt: skip
             if not rows:
-                raise UserError(f"there is no {kind} {name}")
-            return f"{rows[0][0]};"
-        if item.flavor == "postgresql":
-            schema = schema or "public"
-            where = {"schema": schema, "name": name}
-            if kind == "view":
-                rows = _rows(live, """select c.relkind::text, pg_get_viewdef(c.oid, true) from pg_class c
-                                      join pg_namespace n on n.oid = c.relnamespace
-                                      where n.nspname = :schema and c.relname = :name""", where)  # fmt: skip
-                if not rows:
-                    raise UserError(f"there is no view {name}")
-                head = "CREATE MATERIALIZED VIEW" if rows[0][0] == "m" else "CREATE OR REPLACE VIEW"
-                return f"{head} {_qualified(item, schema, name)} AS\n{rows[0][1].rstrip().rstrip(';')};"
-            if kind in ("function", "procedure"):
-                rows = _rows(live, """select pg_get_functiondef(p.oid) from pg_proc p
-                                      join pg_namespace n on n.oid = p.pronamespace
-                                      where n.nspname = :schema and p.proname = :name
-                                        and pg_get_function_identity_arguments(p.oid) = :signature""",
-                             {**where, "signature": signature or ""})  # fmt: skip
-                if not rows:
-                    raise UserError(f"there is no {kind} {name}({signature or ''})")
-                return rows[0][0].rstrip() + ";"
-            if kind == "trigger":
-                rows = _rows(live, """select pg_get_triggerdef(t.oid, true) from pg_trigger t
-                                      join pg_class c on c.oid = t.tgrelid join pg_namespace n on n.oid = c.relnamespace
-                                      where n.nspname = :schema and t.tgname = :name
-                                        and (:table = '' or c.relname = :table)""",
-                             {**where, "table": table_name or ""})  # fmt: skip
-                if not rows:
-                    raise UserError(f"there is no trigger {name}")
-                return rows[0][0] + ";"
-            if kind == "sequence":
-                rows = _rows(live, """select data_type::text, start_value, min_value, max_value, increment_by, cycle,
-                                             cache_size from pg_sequences
-                                      where schemaname = :schema and sequencename = :name""", where)  # fmt: skip
-                if not rows:
-                    raise UserError(f"there is no sequence {name}")
-                kind_, start, low, high, step, cycle, cache = rows[0]
-                return (f"CREATE SEQUENCE {_qualified(item, schema, name)}\n    AS {kind_}\n    INCREMENT BY {step}\n"
-                        f"    MINVALUE {low}\n    MAXVALUE {high}\n    START WITH {start}\n    CACHE {cache}"
-                        f"{'' if cycle else chr(10) + '    NO CYCLE'};")  # fmt: skip
-        if kind != "table":
-            raise UserError(f"showing a {kind}'s definition is not supported for this database")
-        return _table_ddl(item, live, schema, name)
+                raise UserError(f"there is no view {name}")
+            head = "CREATE MATERIALIZED VIEW" if rows[0][0] == "m" else "CREATE OR REPLACE VIEW"
+            return f"{head} {_qualified(item, schema, name)} AS\n{rows[0][1].rstrip().rstrip(';')};"
+        if kind in ("function", "procedure"):
+            rows = _rows(live, """select pg_get_functiondef(p.oid) from pg_proc p
+                                  join pg_namespace n on n.oid = p.pronamespace
+                                  where n.nspname = :schema and p.proname = :name
+                                    and pg_get_function_identity_arguments(p.oid) = :signature""",
+                         {**where, "signature": signature or ""})  # fmt: skip
+            if not rows:
+                raise UserError(f"there is no {kind} {name}({signature or ''})")
+            return rows[0][0].rstrip() + ";"
+        if kind == "trigger":
+            rows = _rows(live, """select pg_get_triggerdef(t.oid, true) from pg_trigger t
+                                  join pg_class c on c.oid = t.tgrelid join pg_namespace n on n.oid = c.relnamespace
+                                  where n.nspname = :schema and t.tgname = :name
+                                    and (:table = '' or c.relname = :table)""",
+                         {**where, "table": table_name or ""})  # fmt: skip
+            if not rows:
+                raise UserError(f"there is no trigger {name}")
+            return rows[0][0] + ";"
+        if kind == "sequence":
+            rows = _rows(live, """select data_type::text, start_value, min_value, max_value, increment_by, cycle,
+                                         cache_size from pg_sequences
+                                  where schemaname = :schema and sequencename = :name""", where)  # fmt: skip
+            if not rows:
+                raise UserError(f"there is no sequence {name}")
+            kind_, start, low, high, step, cycle, cache = rows[0]
+            return (f"CREATE SEQUENCE {_qualified(item, schema, name)}\n    AS {kind_}\n    INCREMENT BY {step}\n"
+                    f"    MINVALUE {low}\n    MAXVALUE {high}\n    START WITH {start}\n    CACHE {cache}"
+                    f"{'' if cycle else chr(10) + '    NO CYCLE'};")  # fmt: skip
+    if kind != "table":
+        raise UserError(f"showing a {kind}'s definition is not supported for this database")
+    return _table_ddl(item, live, schema, name)
 
 
 def _table_ddl(item: Link, live: Any, schema: str | None, name: str) -> str:
@@ -665,6 +712,10 @@ def close_session(session_id: str) -> None:
             session.live.exec_driver_sql("ROLLBACK")
     except Exception:  # noqa: BLE001
         pass
+    # discarded, not pooled: SET, USE, temporary tables and locks from the tab must not leak into
+    # the connections used for browsing and editing
+    with contextlib.suppress(Exception):
+        session.live.invalidate()
     with contextlib.suppress(Exception):
         session.live.close()
 
@@ -757,10 +808,10 @@ def _is_cancel(error: Exception) -> bool:
     return bool(arguments) and arguments[0] in (1317, 3024)  # MySQL: interrupted / timeout
 
 
-def pick(script: str, cursor: int | None) -> list[tuple[int, int, str]]:
+def pick(script: str, cursor: int | None, backslash: bool = False) -> list[tuple[int, int, str]]:
     """The statements to run: all of them, or (with ``cursor``) the one the cursor is in or just
-    after, as database editors do with Ctrl+Enter."""
-    spans = sql.statement_spans(script or "")
+    after, as database editors do with Ctrl+Enter. ``backslash``: MySQL's string escapes."""
+    spans = sql.statement_spans(script or "", backslash)
     if cursor is None or not spans:
         return spans
     before = [span for span in spans if span[0] <= cursor]
@@ -781,7 +832,7 @@ def execute(ws: Workspace, session_id: str, script: str, limit: int = PAGE_ROWS,
     statement gets a result or a message; the first error stops the script and says which statement
     and line."""
     session = _session(session_id)
-    spans = pick(script, cursor)
+    spans = pick(script, cursor, session.link.flavor == "mysql")
     if not spans:
         raise UserError("write a query first")
     _guard(session.link, [s[2] for s in spans])
@@ -923,7 +974,7 @@ def export_query(ws: Workspace, connection_id: str, database: str | None, script
     if fmt not in EXPORT_FORMATS:
         raise UserError("export as CSV, Excel, JSON or Parquet")
     item = link(ws, connection_id, database or None)
-    statements = [span[2] for span in pick(script, cursor)]
+    statements = [span[2] for span in pick(script, cursor, item.flavor == "mysql")]
     if not statements:
         raise UserError("write a query first")
     statement = statements[-1]
@@ -1211,7 +1262,7 @@ def explain(ws: Workspace, session_id: str, script: str, analyze: bool = False,
     rolled back."""
     session = _session(session_id)
     item = session.link
-    statements = [span[2] for span in pick(script, cursor)]
+    statements = [span[2] for span in pick(script, cursor, item.flavor == "mysql")]
     if not statements:
         raise UserError("write a query first")
     statement = statements[-1]

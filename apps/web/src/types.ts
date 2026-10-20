@@ -390,6 +390,7 @@ export type EngineEvent =
   | { type: "install"; line?: string; done?: boolean; code?: number; job_id?: string; kind?: string; extra?: string | null; needs?: string[] }
   | { type: "update"; stage: "download" | "installing" | "restarting" | "error"; progress?: number | null; message?: string }
   | { type: "log"; text: string }
+  | { type: "db_task"; task_id: string; stage: "progress" | "done" | "error" | "cancelled"; done?: number; total?: number; message?: string; result?: Record<string, unknown> }
   | { type: "connection"; status: "online" | "offline" }
   | { type: "boot"; stage: string; message: string; progress?: number };
 

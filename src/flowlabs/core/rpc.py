@@ -16,9 +16,11 @@ import flowlabs_runtime as rt
 
 from . import (
     ai,
+    backup,
     codegen,
     databases,
     datasets,
+    design,
     env,
     evaluation,
     export,
@@ -148,6 +150,12 @@ def _cancel(engine: Engine, p: dict[str, Any]) -> Any:
     return {"cancelled": job is not None}
 
 
+def _restore(engine: Engine, p: dict[str, Any]) -> Any:
+    path = str(backup.stored_upload(engine.ws, _p(p, "path")))  # checked before the task starts
+    return backup.start(lambda task: backup.restore(engine.ws, task, _p(p, "connection_id"), _p(p, "database"), path,
+                                                    p.get("options") or {}), engine.emit, engine.spawn)
+
+
 def _cursor(p: dict[str, Any]) -> int | None:
     value = p.get("cursor")
     return None if value is None else int(value)
@@ -254,6 +262,19 @@ METHODS: dict[str, Callable[[Engine, dict[str, Any]], Any]] = {
     "db.privileges": lambda e, p: databases.privileges(e.ws, _p(p, "connection_id")),
     "db.user_change": lambda e, p: databases.user_change(e.ws, _p(p, "connection_id"), _p(p, "action"),
                                                          p.get("params") or {}, bool(p.get("preview"))),
+    "db.diagram": lambda e, p: databases.diagram(e.ws, _p(p, "connection_id"), _p(p, "database"), p.get("schema")),
+    "db.design": lambda e, p: design.design_of(e.ws, _p(p, "connection_id"), _p(p, "database"), p.get("schema"),
+                                               _p(p, "name")),
+    "db.design_sql": lambda e, p: design.design_sql(e.ws, _p(p, "connection_id"), _p(p, "database"), p.get("schema"),
+                                                    p.get("original"), _p(p, "design")),
+    "db.design_apply": lambda e, p: design.design_apply(e.ws, _p(p, "connection_id"), _p(p, "database"),
+                                                        p.get("schema"), p.get("original"), _p(p, "design")),
+    "db.backup_tools": lambda e, p: backup.tools(),
+    "db.backup": lambda e, p: backup.start(
+        lambda task: backup.backup(e.ws, task, _p(p, "connection_id"), _p(p, "database"), p.get("schema"),
+                                   p.get("options") or {}), e.emit, e.spawn),
+    "db.restore": _restore,
+    "db.task_cancel": lambda e, p: backup.cancel(_p(p, "task_id")),
     "predict.rows": lambda e, p: predict.predict_rows(e.ws, _p(p, "project_id"), _p(p, "run_id"), _p(p, "model_id"),
                                                       _p(p, "rows")),
     "predict.dataset": lambda e, p: predict.predict_dataset(e.ws, _p(p, "project_id"), _p(p, "run_id"),

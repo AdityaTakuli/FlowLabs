@@ -50,7 +50,7 @@ On the computer to use, with Python 3.11 or newer, install FlowLabs's Python pac
 latest release, then start the engine:
 
 ```bash
-VERSION=0.5.3   # the latest release
+VERSION=0.5.4   # the latest release
 pip install "flowlabs[deep,sql] @ https://github.com/AdityaTakuli/FlowLabs/releases/download/v$VERSION/flowlabs-$VERSION-py3-none-any.whl"
 flowlabs engine                      # prints a link
 ```

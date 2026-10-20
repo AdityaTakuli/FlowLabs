@@ -12,8 +12,12 @@ import { ActivityTab, UsersTab, type AdminTabState } from "./db/AdminTabs";
 import { useRemembered } from "./db/common";
 import { QueryTab, type QueryTabState } from "./db/QueryTab";
 import { DefinitionTab, ImportDialog, TableTab, type DefinitionTabState, type TableTabState } from "./db/TableTab";
+import { BackupDialog, RestoreDialog } from "./db/BackupDialogs";
+import { DesignTab, type DesignTabState } from "./db/DesignTab";
+import { DiagramTab, type DiagramTabState } from "./db/DiagramTab";
 
-type Tab = QueryTabState | TableTabState | DefinitionTabState | AdminTabState;
+type Tab = QueryTabState | TableTabState | DefinitionTabState | AdminTabState | DesignTabState | DiagramTabState;
+type Place = { connection_id: string; database: string; schema: string | null };
 type Loaded<T> = T | { error: string } | undefined;
 
 const GROUPS: { key: keyof Omit<DbObjects, "database" | "schema">; label: string; icon: IconName }[] = [
@@ -83,7 +87,10 @@ export function Databases({ goHome, openProjects }: { goHome: () => void; openPr
   const [tabs, setTabs] = useRemembered<Tab[]>("flowlabs-db-tabs", []);
   const [activeId, setActiveId] = useRemembered<string | null>("flowlabs-db-active", null);
   const [dialog, setDialog] = useState<{ edit: DbConnection | null } | null>(null);
-  const [importing, setImporting] = useState<{ connection_id: string; database: string; schema: string | null } | null>(null);
+  const [importing, setImporting] = useState<Place | null>(null);
+  // the dialogs keep the overview they opened with: reloading it (after a restore) must not close them
+  const [backingUp, setBackingUp] = useState<(Place & { overview: DbOverview }) | null>(null);
+  const [restoring, setRestoring] = useState<(Place & { overview: DbOverview }) | null>(null);
   const [menu, setMenu] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [sideOpen, setSideOpen] = useState(true);
@@ -259,6 +266,43 @@ export function Databases({ goHome, openProjects }: { goHome: () => void; openPr
     });
   };
 
+  /** The menu of a database (MySQL) or schema (PostgreSQL): what to do there. On PostgreSQL a
+      database's own menu only restores; its schemas hold the tables. */
+  const placeMenu = (connection: DbConnection, overview: DbOverview, database: string, schema: string | null) => {
+    const key = `${connection.id}/${database}/${schema ?? ""}`;
+    const where: Place = { connection_id: connection.id, database, schema };
+    const holdsTables = !overview.schemas || schema !== null;
+    const writes = connection.allow_changes;
+    const run = (action: () => void) => () => {
+      setMenu(null);
+      action();
+    };
+    const label = schema ?? database;
+    return (
+      <span className="db-menu-anchor">
+        <button className="ghost icon-only small" onClick={() => setMenu(menu === key ? null : key)} aria-label={`More for ${label}`} aria-expanded={menu === key}>
+          <Icon name="sliders" size={12} />
+        </button>
+        {menu === key && (
+          <div className="db-menu" role="menu">
+            <button role="menuitem" onClick={run(() => newQuery(connection.id, database))}>New query</button>
+            {holdsTables && writes && (
+              <button role="menuitem" onClick={run(() => openTab({ kind: "design", id: uid("n"), connection_id: connection.id, database, schema, name: null, title: "New table" }))}>New table…</button>
+            )}
+            {holdsTables && (
+              <button role="menuitem" onClick={run(() => openTab({ kind: "diagram", id: uid("e"), connection_id: connection.id, database, schema, title: `${label}: diagram` }))}>Diagram</button>
+            )}
+            <div className="db-menu-sep" />
+            {holdsTables && <button role="menuitem" onClick={run(() => setBackingUp({ ...where, overview }))}>Back up…</button>}
+            {writes && <button role="menuitem" onClick={run(() => setRestoring({ ...where, overview }))}>Restore…</button>}
+            {holdsTables && writes && <button role="menuitem" onClick={run(() => setImporting(where))}>Import a dataset as a table…</button>}
+          </div>
+        )}
+      </span>
+    );
+  };
+  const refreshPlace = (where: Place) => loadObjects(where.connection_id, where.database, where.schema);
+
   const tree = (connection: DbConnection) => {
     const overview = overviews[connection.id];
     const open = isOpen(connection.id);
@@ -324,11 +368,7 @@ export function Databases({ goHome, openProjects }: { goHome: () => void; openPr
                       <button className="ghost icon-only small" onClick={() => newQuery(connection.id, d.name)} aria-label={`New query in ${d.name}`} title="New query in this database">
                         <Icon name="plus" size={12} />
                       </button>
-                      {connection.allow_changes && !overview.schemas && (
-                        <button className="ghost icon-only small" onClick={() => setImporting({ connection_id: connection.id, database: d.name, schema: null })} aria-label={`Import a dataset into ${d.name}`} title="Import a dataset as a table">
-                          <Icon name="upload" size={12} />
-                        </button>
-                      )}
+                      {placeMenu(connection, overview, d.name, null)}
                     </>
                   }
                 >
@@ -349,13 +389,7 @@ export function Databases({ goHome, openProjects }: { goHome: () => void; openPr
                                 label={s.name}
                                 open={isOpen(schemaKey)}
                                 onToggle={() => toggle(schemaKey, () => loadObjects(connection.id, d.name, s.name))}
-                                actions={
-                                  connection.allow_changes ? (
-                                    <button className="ghost icon-only small" onClick={() => setImporting({ connection_id: connection.id, database: d.name, schema: s.name })} aria-label={`Import a dataset into ${s.name}`} title="Import a dataset as a table">
-                                      <Icon name="upload" size={12} />
-                                    </button>
-                                  ) : undefined
-                                }
+                                actions={placeMenu(connection, overview, d.name, s.name)}
                               >
                                 {objectNodes(connection, d.name, s.name, 3)}
                               </Node>
@@ -433,7 +467,7 @@ export function Databases({ goHome, openProjects }: { goHome: () => void; openPr
                 <div key={t.id} className={`tab db-tab ${t.id === activeId ? "active" : ""}`} role="tab" aria-selected={t.id === activeId}>
                   {t.id === activeId && <span className="tab-surface" />}
                   <button className="db-tab-main" onClick={() => setActiveId(t.id)} title={t.title}>
-                    <Icon name={t.kind === "query" ? "code" : t.kind === "table" ? "table" : t.kind === "activity" ? "pulse" : t.kind === "users" ? "users" : "function"} size={12} />
+                    <Icon name={t.kind === "query" ? "code" : t.kind === "table" ? "table" : t.kind === "activity" ? "pulse" : t.kind === "users" ? "users" : t.kind === "design" ? "edit" : t.kind === "diagram" ? "tree" : "function"} size={12} />
                     <span className="ellipsis">{t.title}</span>
                   </button>
                   <button className="ghost icon-only small db-tab-close" onClick={() => closeTab(t.id)} aria-label={`Close ${t.title}`}>
@@ -498,7 +532,35 @@ export function Databases({ goHome, openProjects }: { goHome: () => void; openPr
             ) : isError(activeOverview) ? (
               <div className="db-pad error-text">{activeOverview.error}</div>
             ) : active.kind === "table" ? (
-              <TableTab key={active.id} tab={active} flavor={activeOverview.flavor} onQuery={(text) => newQuery(active.connection_id, active.database, text)} />
+              <TableTab
+                key={active.id}
+                tab={active}
+                flavor={activeOverview.flavor}
+                onQuery={(text) => newQuery(active.connection_id, active.database, text)}
+                onDesign={() => openTab({ kind: "design", id: uid("n"), connection_id: active.connection_id, database: active.database, schema: active.schema, name: active.name, title: `${active.name}: design` })}
+              />
+            ) : active.kind === "design" ? (
+              <DesignTab
+                key={active.id}
+                tab={active}
+                flavor={activeOverview.flavor}
+                readOnly={activeOverview.read_only}
+                onSaved={(name, created) => {
+                  refreshPlace(active);
+                  if (created) {
+                    closeTab(active.id);
+                    openTab({ kind: "table", id: uid("t"), connection_id: active.connection_id, database: active.database, schema: active.schema, name, title: name });
+                  } else if (name !== active.name) {
+                    setTabs((all) => all.map((t) => (t.id === active.id ? { ...active, name, title: `${name}: design` } : t)));
+                  }
+                }}
+              />
+            ) : active.kind === "diagram" ? (
+              <DiagramTab
+                key={active.id}
+                tab={active}
+                onOpen={(name) => openTab({ kind: "table", id: uid("t"), connection_id: active.connection_id, database: active.database, schema: active.schema, name, title: name })}
+              />
             ) : active.kind === "definition" ? (
               <DefinitionTab key={active.id} tab={active} flavor={activeOverview.flavor} onQuery={(text) => newQuery(active.connection_id, active.database, text)} />
             ) : active.kind === "activity" ? (
@@ -524,6 +586,22 @@ export function Databases({ goHome, openProjects }: { goHome: () => void; openPr
             setOverviews((o) => ({ ...o, [saved.id]: undefined }));
             setExpanded((all) => (all.includes(saved.id) ? all : [...all, saved.id]));
             loadOverview(saved.id, true);
+          }}
+        />
+      )}
+      {backingUp && (
+        <BackupDialog connectionId={backingUp.connection_id} overview={backingUp.overview} database={backingUp.database} schema={backingUp.schema} onClose={() => setBackingUp(null)} />
+      )}
+      {restoring && (
+        <RestoreDialog
+          connectionId={restoring.connection_id}
+          overview={restoring.overview}
+          database={restoring.database}
+          onClose={() => setRestoring(null)}
+          onDone={() => {
+            setObjects({});
+            setSchemas({});
+            loadOverview(restoring.connection_id, true);
           }}
         />
       )}

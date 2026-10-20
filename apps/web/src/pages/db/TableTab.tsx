@@ -410,7 +410,7 @@ function Data({ tab, flavor, onQuery }: { tab: TableTabState; flavor: DbFlavor; 
   );
 }
 
-export function TableTab({ tab, flavor, onQuery }: { tab: TableTabState; flavor: DbFlavor; onQuery: (sql: string) => void }) {
+export function TableTab({ tab, flavor, onQuery, onDesign }: { tab: TableTabState; flavor: DbFlavor; onQuery: (sql: string) => void; onDesign?: () => void }) {
   const { engine, fail } = useApp();
   const [part, setPart] = useState<Part>("data");
   const [info, setInfo] = useState<DbTableInfo | null>(null);
@@ -428,6 +428,11 @@ export function TableTab({ tab, flavor, onQuery }: { tab: TableTabState; flavor:
         {info && <span className="badge">{info.view ? "view" : "table"}</span>}
         {info?.comment && <span className="dim small">{info.comment}</span>}
         <span className="spacer" />
+        {onDesign && info && !info.view && (
+          <button className="ghost small" onClick={onDesign} title="Change the columns, keys and indexes in a form">
+            <Icon name="edit" size={12} /> Design
+          </button>
+        )}
         <Segmented<Part>
           value={part}
           onChange={setPart}
