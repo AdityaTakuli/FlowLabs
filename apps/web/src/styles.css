@@ -587,6 +587,8 @@ details > summary { cursor: pointer; min-height: 24px; }
 .sql-source:hover:not(:disabled) { background: var(--sheet-2); }
 .sql-source.active { background: var(--sheet); border-color: var(--rule); box-shadow: var(--shadow-sm); }
 .sql-source-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+.sql-source-text > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sql-connection > .sql-source { min-width: 0; overflow: hidden; }
 .sql-connection { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 2px; }
 .sql-connection-tables { grid-column: 1 / -1; }
 .sql-connect { margin: 6px 8px 0; align-self: flex-start; }
@@ -605,6 +607,9 @@ details > summary { cursor: pointer; min-height: 24px; }
 .sql-name:hover:not(:disabled) { background: var(--focus-soft); }
 .sql-main { overflow: auto; padding: 22px 28px 40px; display: flex; flex-direction: column; gap: 14px; min-width: 0; background: var(--paper); }
 .sql-main .code-editor .cm-editor { background: var(--code-bg); border-radius: 14px; box-shadow: var(--shadow-sm); }
+.sql-main.with-tab { padding-bottom: 22px; }
+.sql-tab { flex: 1; min-height: 480px; display: flex; flex-direction: column; border: 1px solid var(--rule); border-radius: 14px; overflow: hidden; background: var(--sheet); box-shadow: var(--shadow-sm); }
+.sql-tab .db-editor .code-editor .cm-editor { border-radius: 10px; box-shadow: none; }
 .sql-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .sql-where { display: flex; align-items: center; gap: 8px; color: var(--text-dim); min-width: 0; }
 .sql-ro { margin-left: 8px; }

@@ -18,8 +18,20 @@ included) as a SQL query you can build on.
 
 ## SQL
 
-Write a query and press **Run** (or <kbd>Ctrl</kbd>+<kbd>Enter</kbd>; <kbd>⌘</kbd>+<kbd>Enter</kbd>
-on a Mac). The first 500 rows of the result are shown, with the total row count and the time taken.
+The SQL view is the same query editor as the [Databases](guide:databases#query) page:
+
+- **Run** (<kbd>Ctrl</kbd>+<kbd>Enter</kbd>; <kbd>⌘</kbd>+<kbd>Enter</kbd> on a Mac) runs the
+  selection, or the statement under the cursor.
+- **Run all** (<kbd>Shift</kbd>+<kbd>Ctrl</kbd>+<kbd>Enter</kbd>) runs every statement, in order.
+  Each result gets its own tab, and **Messages** lists every statement with its row count and time.
+  An error marks its line in the editor.
+- **Stop** ends a query that takes too long.
+- **Explain** shows how the query will run. **Explain and run** runs it and shows the real times.
+- **Rows** sets how many rows each result shows (500 at first). **Export** saves the whole result as
+  CSV, Excel, JSON or Parquet.
+- The clock button lists the queries you ran. Click one to put it back in the editor.
+
+The editor keeps your query when you switch views or close the app.
 
 Inside a project, **`data` is this project's table**. Your other datasets are tables too: each
 one's name is the dataset's name in lower case with spaces as underscores, so **Iris flowers** is
@@ -46,8 +58,15 @@ there:
 - date functions;
 - `pivot`.
 
-Several statements separated by `;` run in order, and the last one's result is shown. The editor
-completes table names, column names and SQL keywords.
+The editor completes table names, column names and SQL keywords.
+
+Runs share one session until you leave the SQL view, so a temporary table made in one run is there
+in the next:
+
+```sql
+create temp table big_spenders as select * from data where total_spend > 1000;
+select contract, count(*) from big_spenders group by contract;
+```
 
 > **Your files never change.** Queries run on copies of your data, in memory. To keep a result,
 > save it as a dataset.
@@ -79,8 +98,8 @@ Ask AI needs the desktop app or an engine. The browser version cannot reach Groq
 
 ## Keep a result as a dataset
 
-After a query, click **Save as dataset** and give it a name. The query runs again in full, so every
-row is saved, not only the 500 shown. Then:
+After a query, open **Export**, choose **Save as a dataset for a project…** and give it a name. The
+query under the cursor runs again in full, so every row is saved, not only the ones shown. Then:
 
 - **Use as this project's data** makes the project train on the result. The old dataset is kept.
   Steps that use columns the result lacks are marked on the Pipeline page.
@@ -110,6 +129,12 @@ missing, the dialog installs it.
 **Test** checks the connection and shows the server's version. **Save connection** adds it to the
 list on the left, in every project. Select it to see its tables and query it the same way, with Ask
 AI too. Save a result as a dataset to bring that data into the project.
+
+A database server's query keeps its own connection while you work, like a query tab on the
+Databases page. `SET`, `USE`, temporary tables and transactions last from one run to the next. Turn
+off **Auto-commit** to make changes wait for **Commit** (or **Roll back**). The database list in
+the toolbar switches databases. Cloud storage and DuckDB files use a simpler editor: **Run** shows
+the last statement's result.
 
 To browse a server's schemas, edit rows, read query plans or manage users, use the
 [Databases](guide:databases) page; it shares these connections.

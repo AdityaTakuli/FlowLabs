@@ -9,8 +9,9 @@ import { Icon } from "../components/Icon";
 import { Modal, Notice, Spinner } from "../components/ui";
 import { EngineError } from "../engine/engine";
 import { ConnectionDialog } from "../components/ConnectionDialog";
-import type { AiStatus, DatasetMeta, DbConnection, SourceKind, SqlResult, SqlTable } from "../types";
+import type { AiStatus, DatasetMeta, DbConnection, DbOverview, SourceKind, SqlResult, SqlTable } from "../types";
 import type { ProjectApi } from "./ProjectPage";
+import { QueryTab, type QueryTabState } from "./db/QueryTab";
 
 const LOCAL = "local";
 const DRAFT_KEY = "flowlabs-sql-draft:";
@@ -224,6 +225,26 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
   const [saved, setSaved] = useState<DatasetMeta | null>(null);
   const inBrowser = engine.kind === "browser";
   const connection = connections.find((c) => c.id === source) ?? null;
+  // The project's data and SQLAlchemy databases get the full query tab (its own session, Stop,
+  // several results, plans, export, history); storage and DuckDB files keep the simple editor.
+  const full = !inBrowser && (source === LOCAL || kinds.find((k) => k.id === connection?.kind)?.engine === "sqlalchemy");
+  const [overviews, setOverviews] = useState<Record<string, DbOverview | { error: string }>>({});
+  const [databaseOf, setDatabaseOf] = useState<Record<string, string | null>>({});
+  const [replace, setReplace] = useState<{ text: string; n: number; run?: boolean } | undefined>(() => (seed ? { text: seed, n: 1 } : undefined));
+  const [outcome, setOutcome] = useState<{ error: string | null; sql: string } | null>(null);
+  const tabId = `p-${api.project.id}-${source}`;
+  const tab: QueryTabState = {
+    kind: "query",
+    id: tabId,
+    connection_id: source,
+    database: source === LOCAL ? datasetId : (databaseOf[source] ?? null),
+    title: source === LOCAL ? `${api.project.name} query` : `${connection?.name ?? "Database"} query`,
+  };
+  const localOverview = useMemo<DbOverview>(
+    () => ({ connection_id: LOCAL, name: "This project", kind: "duckdb", flavor: "duckdb", mariadb: false, server: "DuckDB", read_only: false, default: datasetId, schemas: false, databases: [] }),
+    [datasetId],
+  );
+  const overview = source === LOCAL ? localOverview : overviews[source];
 
   const loadTables = useCallback(async () => {
     try {
@@ -256,6 +277,29 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
     });
   }, [engine, source]);
 
+  useEffect(() => {
+    if (!full || source === LOCAL || overviews[source]) return;
+    engine.call<DbOverview>("db.overview", { connection_id: source }).then(
+      (found) => setOverviews((all) => ({ ...all, [source]: found })),
+      (error: Error) => setOverviews((all) => ({ ...all, [source]: { error: error.message } })),
+    );
+  }, [engine, full, source, overviews]);
+
+  // The query tab keeps its own text; it starts from this source's old draft or a first query.
+  const seeded = useRef(new Set<string>());
+  if (full && !seeded.current.has(tabId)) {
+    seeded.current.add(tabId);
+    try {
+      const key = `flowlabs-db-sql:${tabId}`;
+      if (!localStorage.getItem(key)) {
+        const draft = readDraft(draftKey(source)) ?? (source === LOCAL ? (tables ? starter(tables) : "select *\nfrom data\nlimit 100") : "select 1");
+        localStorage.setItem(key, JSON.stringify(draft));
+      }
+    } catch {
+      /* storage blocked: the tab starts empty */
+    }
+  }
+
   const choose = (next: string) => {
     if (next === source) return;
     writeDraft(draftKey(source), query);
@@ -264,6 +308,8 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
     setError(null);
     setSaved(null);
     setExplanation(null);
+    setOutcome(null);
+    setReplace(undefined);
     setQuery(readDraft(draftKey(next)) ?? (next === LOCAL ? starter(tables ?? []) : "select 1"));
   };
 
@@ -299,11 +345,13 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
         question: fix ? "" : question,
         connection_id: source === LOCAL ? null : source,
         dataset_id: datasetId,
-        sql: fix ? latest.current : "",
-        error: fix ? error?.message : null,
+        sql: fix ? (full ? (outcome?.sql ?? "") : latest.current) : "",
+        error: fix ? (full ? outcome?.error : error?.message) : null,
       });
       setExplanation(answer.explanation || null);
-      if (answer.sql) {
+      if (answer.sql && full) {
+        setReplace({ text: answer.sql, n: Date.now(), run: true });
+      } else if (answer.sql) {
         setQuery(answer.sql);
         latest.current = answer.sql;
         await run(answer.sql);
@@ -406,7 +454,7 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
           </section>
         </aside>
 
-        <main className="sql-main">
+        <main className={`sql-main ${full ? "with-tab" : ""}`}>
           <div className="sql-bar">
             <div className="sql-where">
               <Icon name={connection ? "database" : "table"} size={14} className="faint" />
@@ -428,10 +476,14 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
               </span>
             </div>
             <span className="spacer" />
-            <span className="faint tiny sql-keys">Ctrl+Enter runs</span>
-            <button className="primary" onClick={() => void run()} disabled={running}>
-              {running ? <Spinner /> : <Icon name="play" size={13} />} Run
-            </button>
+            {!full && (
+              <>
+                <span className="faint tiny sql-keys">Ctrl+Enter runs</span>
+                <button className="primary" onClick={() => void run()} disabled={running}>
+                  {running ? <Spinner /> : <Icon name="play" size={13} />} Run
+                </button>
+              </>
+            )}
           </div>
           {!inBrowser && (
             <form
@@ -456,6 +508,63 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
               <Icon name="sparkles" size={12} /> {explanation}
             </p>
           )}
+          {full && saved && (
+            <Notice level="ok">
+              <div className="row wrap" style={{ justifyContent: "space-between" }}>
+                <span>
+                  Saved {saved.rows.toLocaleString()} rows as the dataset <b>{saved.name}</b>.
+                </span>
+                <span className="row">
+                  {saved.id !== datasetId && (
+                    <button className="small" onClick={() => useAsProjectData(saved)}>
+                      Use as this project's data
+                    </button>
+                  )}
+                  <button className="ghost icon-only small" onClick={() => setSaved(null)} aria-label="Dismiss">
+                    <Icon name="close" size={12} />
+                  </button>
+                </span>
+              </div>
+            </Notice>
+          )}
+          {full &&
+            (overview === undefined ? (
+              <Spinner />
+            ) : "error" in overview ? (
+              <Notice level="error">
+                <div className="row wrap" style={{ justifyContent: "space-between" }}>
+                  <span>{overview.error}</span>
+                  <button className="small" onClick={() => setOverviews(({ [source]: _gone, ...rest }) => rest)}>
+                    Try again
+                  </button>
+                </div>
+              </Notice>
+            ) : (
+              <div className="sql-tab">
+                <QueryTab
+                  key={tabId}
+                  tab={tab}
+                  overview={overview}
+                  onChange={(next) => setDatabaseOf((all) => ({ ...all, [source]: next.database }))}
+                  insert={insert}
+                  replace={replace}
+                  onOutcome={setOutcome}
+                  onDatasetSaved={(meta) => {
+                    setSaved(meta);
+                    void loadTables();
+                  }}
+                  toolbarExtra={
+                    ai?.configured && outcome?.error ? (
+                      <button className="small" onClick={() => void ask(true)} disabled={asking} title="Ask AI to fix the query that failed">
+                        {asking ? <Spinner /> : <Icon name="sparkles" size={12} />} Fix with AI
+                      </button>
+                    ) : null
+                  }
+                />
+              </div>
+            ))}
+          {!full && (
+          <>
           <CodeEditor
             value={query}
             onChange={(code) => {
@@ -522,6 +631,8 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
             <p className="faint small sql-hint">
               Write a query, or ask AI, and press Run. Click a table or column on the left to insert its name. To train on a result, save it as a dataset and use it as this project's data.
             </p>
+          )}
+          </>
           )}
         </main>
       </div>

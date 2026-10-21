@@ -34,11 +34,19 @@ function lineAt(text: string, offset: number): number {
   return text.slice(0, offset).split("\n").length;
 }
 
-export function QueryTab({ tab, overview, onChange, onDatasetSaved }: {
+export function QueryTab({ tab, overview, onChange, onDatasetSaved, insert, replace, onOutcome, toolbarExtra }: {
   tab: QueryTabState;
   overview: DbOverview | null;
   onChange: (tab: QueryTabState) => void;
   onDatasetSaved?: (dataset: DatasetMeta) => void;
+  /** Text to put at the cursor (a table or column clicked in a list). */
+  insert?: { text: string; n: number };
+  /** New text for the editor (from Ask AI), run at once when ``run``. */
+  replace?: { text: string; n: number; run?: boolean };
+  /** After each run: the error, if any, and the SQL that ran (for "Fix with AI"). */
+  onOutcome?: (outcome: { error: string | null; sql: string }) => void;
+  /** More buttons for the toolbar's right end. */
+  toolbarExtra?: React.ReactNode;
 }) {
   const { engine, fail, notify } = useApp();
   const [sql, setSql] = useRemembered<string>(`flowlabs-db-sql:${tab.id}`, "");
@@ -70,7 +78,7 @@ export function QueryTab({ tab, overview, onChange, onDatasetSaved }: {
 
   const schemaName = session?.schema ?? (flavor === "postgresql" ? "public" : database);
   useEffect(() => {
-    if (!database) return;
+    if (!database && flavor !== "duckdb") return;
     let stale = false;
     engine
       .call<Record<string, string[]>>("db.columns", { connection_id: tab.connection_id, database, schema: schemaName })
@@ -135,6 +143,7 @@ export function QueryTab({ tab, overview, onChange, onDatasetSaved }: {
       const ran = (spans.length ? script.slice(Math.min(...spans.map((s) => s[0])), Math.max(...spans.map((s) => s[1]))) : script).trim().slice(0, 4000);
       const item: HistoryItem = { sql: ran, at: new Date().toISOString(), database: outcome.session.database, ok: !outcome.error, ms: Date.now() - started };
       setHistory((old) => [item, ...old.filter((h) => h.sql !== ran)].slice(0, 200));
+      onOutcome?.({ error: outcome.error && !outcome.error.cancelled ? outcome.error.message : null, sql: ran });
     } catch (error) {
       setRun(null);
       fail(error);
@@ -212,8 +221,8 @@ export function QueryTab({ tab, overview, onChange, onDatasetSaved }: {
     setRunning("export");
     try {
       const meta = await engine.call<DatasetMeta>("db.save_dataset", { connection_id: tab.connection_id, database: session?.database ?? database, sql: script, name, cursor });
-      notify(`Saved ${meta.rows?.toLocaleString() ?? ""} rows as the dataset ${meta.name}. Start a project from it on the Projects page.`, "ok");
-      onDatasetSaved?.(meta);
+      if (onDatasetSaved) onDatasetSaved(meta);
+      else notify(`Saved ${meta.rows?.toLocaleString() ?? ""} rows as the dataset ${meta.name}. Start a project from it on the Projects page.`, "ok");
     } catch (error) {
       fail(error);
     } finally {
@@ -232,6 +241,17 @@ export function QueryTab({ tab, overview, onChange, onDatasetSaved }: {
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   };
+
+  // Ask AI's query replaces the text, and runs
+  const replaced = useRef(0);
+  useEffect(() => {
+    if (!replace || replace.n === replaced.current) return;
+    replaced.current = replace.n;
+    setSql(replace.text);
+    place.current = { from: 0, to: 0, head: 0 };
+    if (replace.run) void execute(true, replace.text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replace]);
 
   const results = useMemo(() => run?.results.filter((r) => r.columns) ?? [], [run]);
   const shown = view.kind === "result" ? results[view.index] : undefined;
@@ -295,7 +315,7 @@ export function QueryTab({ tab, overview, onChange, onDatasetSaved }: {
             </button>
           </span>
         )}
-        {!overview?.read_only && (
+        {!overview?.read_only && flavor !== "duckdb" && (
           <span title="On: each statement is saved as it runs. Off: changes wait for Commit.">
             <Switch on={session ? session.autocommit : true} onChange={(on) => void setAutocommit(on)} label="Auto-commit" disabled={busy || (Boolean(session?.in_transaction) && !session?.autocommit)} />
           </span>
@@ -310,6 +330,7 @@ export function QueryTab({ tab, overview, onChange, onDatasetSaved }: {
             ))}
           </select>
         </label>
+        {toolbarExtra}
         <div className="db-menu-anchor">
           <button className="ghost icon-only" onClick={() => setMenu(menu === "history" ? null : "history")} aria-label="History" title="Queries run on this connection" aria-expanded={menu === "history"}>
             <Icon name="clock" />
@@ -359,6 +380,7 @@ export function QueryTab({ tab, overview, onChange, onDatasetSaved }: {
         <CodeEditor
           value={sql}
           onChange={setSql}
+          insert={insert}
           label="SQL query"
           language="sql"
           dialect={dialectOf(flavor)}
@@ -431,7 +453,9 @@ export function QueryTab({ tab, overview, onChange, onDatasetSaved }: {
                 <kbd>Ctrl</kbd> <kbd>Enter</kbd> runs the statement under the cursor (or the selection). <kbd>Shift</kbd> <kbd>Ctrl</kbd> <kbd>Enter</kbd> runs them all.
               </p>
               <p className="faint">
-                This tab keeps its own connection, so SET, USE, temporary tables and transactions last from one run to the next.
+                {flavor === "duckdb"
+                  ? "data is this project's table, and your other datasets are tables too. Temporary tables you create last until you leave this view. Your files never change."
+                  : "This tab keeps its own connection, so SET, USE, temporary tables and transactions last from one run to the next."}
                 {overview?.read_only ? " The connection is read-only." : ""}
               </p>
             </div>

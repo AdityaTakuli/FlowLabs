@@ -10,7 +10,7 @@
 #   macOS                                  FlowLabs.app into /Applications (or ~/Applications)
 #
 # Options (environment variables):
-#   FLOWLABS_VERSION=0.5.4   install that version instead of the latest
+#   FLOWLABS_VERSION=0.5.5   install that version instead of the latest
 #   FLOWLABS_DRY_RUN=1       download and check, but do not install
 set -eu
 

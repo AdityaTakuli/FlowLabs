@@ -24,6 +24,7 @@ from . import (
     env,
     evaluation,
     export,
+    localdb,
     plugins,
     predict,
     sources,
@@ -225,27 +226,39 @@ METHODS: dict[str, Callable[[Engine, dict[str, Any]], Any]] = {
     "db.overview": lambda e, p: databases.overview(e.ws, _p(p, "connection_id")),
     "db.schemas": lambda e, p: databases.schemas(e.ws, _p(p, "connection_id"), _p(p, "database")),
     "db.objects": lambda e, p: databases.objects(e.ws, _p(p, "connection_id"), _p(p, "database"), p.get("schema")),
-    "db.columns": lambda e, p: databases.columns(e.ws, _p(p, "connection_id"), _p(p, "database"), p.get("schema")),
+    "db.columns": lambda e, p: (localdb.columns(e.ws, p.get("database")) if p.get("connection_id") == localdb.LOCAL
+                                else databases.columns(e.ws, _p(p, "connection_id"), _p(p, "database"), p.get("schema"))),
     "db.table": lambda e, p: databases.table(e.ws, _p(p, "connection_id"), _p(p, "database"), p.get("schema"),
                                              _p(p, "name")),
     "db.ddl": lambda e, p: databases.ddl(e.ws, _p(p, "connection_id"), _p(p, "database"), p.get("schema"),
                                          _p(p, "name"), _p(p, "kind"), p.get("signature"), p.get("table")),
-    "db.session_open": lambda e, p: databases.open_session(e.ws, _p(p, "connection_id"), p.get("database")),
-    "db.session_close": lambda e, p: databases.close_session(_p(p, "session_id")),
-    "db.execute": lambda e, p: databases.execute(e.ws, _p(p, "session_id"), str(p.get("sql") or ""),
-                                                 int(p.get("limit", databases.PAGE_ROWS)), _cursor(p)),
-    "db.cancel": lambda e, p: databases.cancel(e.ws, _p(p, "session_id")),
-    "db.commit": lambda e, p: databases.finish_transaction(e.ws, _p(p, "session_id"), True),
-    "db.rollback": lambda e, p: databases.finish_transaction(e.ws, _p(p, "session_id"), False),
-    "db.autocommit": lambda e, p: databases.set_autocommit(e.ws, _p(p, "session_id"), bool(p.get("on"))),
-    "db.explain": lambda e, p: databases.explain(e.ws, _p(p, "session_id"), str(p.get("sql") or ""),
-                                                 bool(p.get("analyze")), _cursor(p)),
-    "db.export": lambda e, p: databases.export_query(e.ws, _p(p, "connection_id"), p.get("database"),
-                                                     str(p.get("sql") or ""), _p(p, "format"), p.get("name"),
-                                                     _cursor(p)),
-    "db.save_dataset": lambda e, p: databases.save_dataset(e.ws, _p(p, "connection_id"), p.get("database"),
-                                                           str(p.get("sql") or ""), str(p.get("name") or ""),
-                                                           _cursor(p)),
+    # a query tab on your datasets (connection "local") gets a DuckDB session (localdb.py)
+    "db.session_open": lambda e, p: (localdb.open_session(e.ws, p.get("database")) if p.get("connection_id") == localdb.LOCAL
+                                     else databases.open_session(e.ws, _p(p, "connection_id"), p.get("database"))),
+    "db.session_close": lambda e, p: (localdb.close_session if localdb.owns(_p(p, "session_id"))
+                                      else databases.close_session)(_p(p, "session_id")),
+    "db.execute": lambda e, p: (localdb.execute if localdb.owns(_p(p, "session_id")) else databases.execute)(
+        e.ws, _p(p, "session_id"), str(p.get("sql") or ""), int(p.get("limit", databases.PAGE_ROWS)), _cursor(p)),
+    "db.cancel": lambda e, p: (localdb.cancel(_p(p, "session_id")) if localdb.owns(_p(p, "session_id"))
+                               else databases.cancel(e.ws, _p(p, "session_id"))),
+    "db.commit": lambda e, p: (localdb.finish_transaction(_p(p, "session_id"), True) if localdb.owns(_p(p, "session_id"))
+                               else databases.finish_transaction(e.ws, _p(p, "session_id"), True)),
+    "db.rollback": lambda e, p: (localdb.finish_transaction(_p(p, "session_id"), False) if localdb.owns(_p(p, "session_id"))
+                                 else databases.finish_transaction(e.ws, _p(p, "session_id"), False)),
+    "db.autocommit": lambda e, p: (localdb.describe(localdb.sessions[_p(p, "session_id")]) if localdb.owns(_p(p, "session_id"))
+                                   else databases.set_autocommit(e.ws, _p(p, "session_id"), bool(p.get("on")))),
+    "db.explain": lambda e, p: (localdb.explain if localdb.owns(_p(p, "session_id")) else databases.explain)(
+        e.ws, _p(p, "session_id"), str(p.get("sql") or ""), bool(p.get("analyze")), _cursor(p)),
+    "db.export": lambda e, p: (
+        localdb.export(e.ws, p.get("database"), str(p.get("sql") or ""), _p(p, "format"), p.get("name"), _cursor(p))
+        if p.get("connection_id") == localdb.LOCAL
+        else databases.export_query(e.ws, _p(p, "connection_id"), p.get("database"), str(p.get("sql") or ""),
+                                    _p(p, "format"), p.get("name"), _cursor(p))),
+    "db.save_dataset": lambda e, p: (
+        localdb.save_dataset(e.ws, p.get("database"), str(p.get("sql") or ""), str(p.get("name") or ""), _cursor(p))
+        if p.get("connection_id") == localdb.LOCAL
+        else databases.save_dataset(e.ws, _p(p, "connection_id"), p.get("database"), str(p.get("sql") or ""),
+                                    str(p.get("name") or ""), _cursor(p))),
     "db.rows": lambda e, p: databases.rows(e.ws, _p(p, "connection_id"), _p(p, "database"), p.get("schema"),
                                            _p(p, "name"), int(p.get("offset", 0)), int(p.get("limit", 200)),
                                            p.get("order"), p.get("where")),

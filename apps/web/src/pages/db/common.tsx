@@ -5,7 +5,7 @@ import { Icon } from "../../components/Icon";
 import type { DbFlavor, DbPlan, PlanNode } from "../../types";
 
 export function dialectOf(flavor: DbFlavor | undefined): SqlDialect {
-  return flavor === "postgresql" ? "postgresql" : flavor === "mysql" ? "mysql" : flavor === "sqlite" ? "sqlite" : "standard";
+  return flavor === "postgresql" || flavor === "duckdb" ? "postgresql" : flavor === "mysql" ? "mysql" : flavor === "sqlite" ? "sqlite" : "standard";
 }
 
 /** A name quoted the way the database wants it, when it needs quoting. */
@@ -203,7 +203,7 @@ function Plan({ node, top, depth }: { node: PlanNode; top: number; depth: number
 }
 
 export function PlanView({ plan }: { plan: DbPlan }) {
-  const [raw, setRaw] = useState(false);
+  const [raw, setRaw] = useState(plan.flavor === "duckdb"); // DuckDB draws its own plan
   const top = plan.tree.time_ms ?? plan.tree.cost ?? 0;
   return (
     <div className="plan">
@@ -212,9 +212,11 @@ export function PlanView({ plan }: { plan: DbPlan }) {
         {plan.totals.planning_ms !== undefined && <span className="dim small">Planning {ms(plan.totals.planning_ms)}</span>}
         {plan.totals.execution_ms !== undefined && <span className="dim small">Running {ms(plan.totals.execution_ms)}</span>}
         <span className="spacer" />
-        <button className="ghost small" onClick={() => setRaw(!raw)}>
-          {raw ? "Show as a tree" : "Show the database's output"}
-        </button>
+        {plan.flavor !== "duckdb" && (
+          <button className="ghost small" onClick={() => setRaw(!raw)}>
+            {raw ? "Show as a tree" : "Show the database's output"}
+          </button>
+        )}
       </div>
       {raw ? (
         <pre className="code plan-raw">{plan.raw}</pre>
@@ -224,7 +226,7 @@ export function PlanView({ plan }: { plan: DbPlan }) {
         </ul>
       )}
       <p className="faint small">
-        Bars compare {plan.tree.time_ms !== undefined ? "time" : "estimated cost"}; each step includes the steps inside it. {plan.analyze ? "" : "Explain and run shows real times and row counts."}
+        {plan.flavor === "duckdb" ? (plan.analyze ? "Each box is a step, with its real time and rows." : "Each box is a step; read from the bottom up. Explain and run shows real times and row counts.") : <>Bars compare {plan.tree.time_ms !== undefined ? "time" : "estimated cost"}; each step includes the steps inside it. {plan.analyze ? "" : "Explain and run shows real times and row counts."}</>}
       </p>
     </div>
   );
