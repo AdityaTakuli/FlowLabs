@@ -107,8 +107,8 @@ export function TopBar({ children, actions, onHome, help }: { children?: ReactNo
   );
 }
 
-/** Projects | Databases | Guide, as a pill switch whose thumb slides between the pages. */
-type Section = "projects" | "databases" | "guide";
+/** Projects | Sheets | Databases | Guide, as a pill switch whose thumb slides between the pages. */
+type Section = "projects" | "sheets" | "databases" | "guide";
 
 export function SectionNav({ current, onProjects, onDatabases, onGuide }: { current: Section; onProjects: () => void; onDatabases?: () => void; onGuide?: () => void }) {
   const { openGuide } = useApp();
@@ -125,6 +125,10 @@ export function SectionNav({ current, onProjects, onDatabases, onGuide }: { curr
   return (
     <nav className="top-nav" aria-label="Sections">
       {item("projects", "Projects", onProjects)}
+      {item("sheets", <><Icon name="table" size={13} /> Sheets</>, () => {
+        window.history.pushState(null, "", "?page=sheets");
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      })}
       {item("databases", <><Icon name="server" size={13} /> Databases</>, goDatabases)}
       {item("guide", <><Icon name="book" size={13} /> Guide</>, onGuide ?? (() => openGuide("getting-started")))}
     </nav>

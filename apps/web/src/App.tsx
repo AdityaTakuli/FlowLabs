@@ -11,12 +11,14 @@ import { ProjectPage, type Tab } from "./pages/ProjectPage";
 import { ChartWindow } from "./pages/ChartWindow";
 import { GuidePage } from "./pages/GuidePage";
 import { Databases } from "./pages/Databases";
+import { Sheets } from "./pages/Sheets";
 import type { Catalogue, EngineEvent, EngineInfo } from "./types";
 
 type Route =
   | { page: "home" }
   | { page: "sql" }
   | { page: "databases" }
+  | { page: "sheets"; workbook: string | null }
   | { page: "guide"; topic: string }
   | { page: "chart"; project: string; chart: string; run?: string; model?: string }
   | { page: "project"; id: string; tab: Tab };
@@ -26,6 +28,7 @@ function readRoute(): Route {
   const id = query.get("project");
   if (query.get("page") === "sql") return { page: "sql" };
   if (query.get("page") === "databases") return { page: "databases" };
+  if (query.get("page") === "sheets") return { page: "sheets", workbook: query.get("workbook") };
   if (query.get("page") === "guide") return { page: "guide", topic: query.get("topic") || "getting-started" };
   if (query.get("page") === "chart" && query.get("project") && query.get("chart"))
     return { page: "chart", project: query.get("project")!, chart: query.get("chart")!, run: query.get("run") ?? undefined, model: query.get("model") ?? undefined };
@@ -36,6 +39,10 @@ function writeRoute(route: Route, replace = false) {
   const query = new URLSearchParams();
   if (route.page === "sql") query.set("page", "sql");
   if (route.page === "databases") query.set("page", "databases");
+  if (route.page === "sheets") {
+    query.set("page", "sheets");
+    if (route.workbook) query.set("workbook", route.workbook);
+  }
   if (route.page === "chart") {
     query.set("page", "chart");
     query.set("project", route.project);
@@ -201,6 +208,8 @@ export function App() {
               goHome={() => navigate({ page: "home" })}
               openTopic={(topic) => navigate({ page: "guide", topic })}
             />
+          ) : route.page === "sheets" ? (
+            <Sheets key={route.workbook ?? "library"} goHome={() => navigate({ page: "home" })} workbookId={route.workbook} />
           ) : route.page === "databases" ? (
             <Databases goHome={() => navigate({ page: "home" })} openProjects={() => navigate({ page: "home" })} />
           ) : route.page === "sql" ? (

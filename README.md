@@ -91,11 +91,11 @@ Your projects in the `FlowLabs` folder stay. Delete the folder yourself if you n
 <summary>Installer options: a particular version, or download only</summary>
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.sh | FLOWLABS_VERSION=0.5.5 sh
+curl -fsSL https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.sh | FLOWLABS_VERSION=0.5.6 sh
 curl -fsSL https://raw.githubusercontent.com/AdityaTakuli/FlowLabs/main/install.sh | FLOWLABS_DRY_RUN=1 sh
 ```
 
-On Windows, set `$env:FLOWLABS_VERSION = "0.5.5"` or `$env:FLOWLABS_DRY_RUN = "1"` before the
+On Windows, set `$env:FLOWLABS_VERSION = "0.5.6"` or `$env:FLOWLABS_DRY_RUN = "1"` before the
 command. The scripts are short: [install.sh](install.sh), [install.ps1](install.ps1).
 
 </details>
@@ -159,11 +159,27 @@ progress.
 - **SQL:** queries in [DuckDB](https://duckdb.org). `data` is the project's table, your other
   datasets are tables too, and queries never change your files.
 - **Your databases:** query a connected database from the project too (see **Databases** below).
+- **Sheet:** the project's data as a spreadsheet (see **Sheets** below); save a table back as the
+  project's data.
 - **Results:** keep any result as a dataset, or as the project's own data, and train on it.
 - **Ask AI:** a question in plain English becomes SQL, written by a model on
   [Groq](https://console.groq.com/keys) with your own key (`GROQ_API_KEY`, or saved in the app).
   It sends table and column names, and a few common category values, never rows. **Fix with AI**
   corrects a failed query.
+
+**Sheets.** Spreadsheets like Excel's, built from scratch inside FlowLabs:
+
+- **Formulas:** about 400 of Excel's functions (XLOOKUP, SUMIFS, INDEX/MATCH, LET, LAMBDA, dynamic
+  arrays that spill, dates, text, statistics, finance), absolute and relative references, names,
+  references to other sheets, and recalculation in dependency order.
+- **Editing as in Excel:** the same keyboard shortcuts, fill handle series, copy and paste with other
+  apps, Paste Special, Flash Fill, find and replace, undo, notes and links.
+- **Formats:** Excel number format codes, fonts, colours, borders, alignment, merged cells, frozen
+  panes, conditional formatting (rules, data bars, colour scales, icon sets).
+- **Data:** multi-level sort, AutoFilter, tables with structured references (`Table1[Sales]`),
+  data validation with drop-down lists, Text to Columns, Remove Duplicates, PivotTables and charts.
+- **Files:** opens and saves `.xlsx` (read and written by FlowLabs's own code) and CSV.
+- **Into models:** open a dataset as a sheet, and save a table from a sheet as a dataset to train on.
 
 **Databases.** A page for working in PostgreSQL, MySQL and MariaDB (and SQLite) the way pgAdmin and
 MySQL Workbench do:
@@ -216,6 +232,7 @@ classify uploaded images.
 apps/android/        an experimental Android shell (not released yet)
 apps/web/            React + TypeScript app (Vite, React Flow, hand-made SVG charts)
   src/engine/        one Engine interface: BrowserEngine (Pyodide worker) and RemoteEngine (HTTP)
+  src/sheets/        the spreadsheet: formula parser, calculation, functions, formats, .xlsx, canvas grid
 src/flowlabs_runtime.py   what exported models need: transformers, auto-prep, NumPy networks
 src/flowlabs/
   core/              the engine (pure Python: pandas, scikit-learn, PyTorch when present)
@@ -232,6 +249,7 @@ src/flowlabs/
     design.py        the table designer: a form's design as CREATE and ALTER statements
     tunnel.py        SSH tunnels to databases behind a firewall
     vault.py         passwords and keys in the system keychain
+    sheets.py        workbooks kept in the workspace; datasets as sheets and sheets as datasets
     ai.py            Ask AI: plain English to SQL with Groq
     rpc.py           Engine.call(method, params): the single API every frontend uses
   worker.py          the kernel process (JSON lines over stdin/stdout)
@@ -267,7 +285,7 @@ browser.
 FlowLabs is not on PyPI yet. Each release has the package attached; install it with pip:
 
 ```bash
-VERSION=0.5.5   # the latest release
+VERSION=0.5.6   # the latest release
 pip install "flowlabs[deep,sql] @ https://github.com/AdityaTakuli/FlowLabs/releases/download/v$VERSION/flowlabs-$VERSION-py3-none-any.whl"
 flowlabs app    # opens FlowLabs in your browser
 ```
@@ -333,6 +351,7 @@ transformer or estimator). The app shows it with no frontend change. Add a test 
   on another machine, open the page that engine serves itself.
 - Database connections and Ask AI need the desktop app or an engine: browsers cannot reach database
   servers or Groq.
+- Sheets do not run VBA macros, and do not bring in pictures, sparklines or charts drawn in Excel.
 - Not yet: clustering and other tasks without a target, text and sequence models, ONNX export of
   table pipelines, code-signed desktop builds.
 

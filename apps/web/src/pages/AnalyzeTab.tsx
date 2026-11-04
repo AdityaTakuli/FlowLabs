@@ -1,5 +1,6 @@
 // Analyze: work with the project's data directly. Table is the whole dataset as a grid (sort, search,
-// page through every row); SQL queries it, other datasets or a database, with Ask AI.
+// page through every row); SQL queries it, other datasets or a database, with Ask AI; Sheet is a
+// spreadsheet copy of it.
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useState } from "react";
 import { useApp } from "../context";
@@ -9,11 +10,13 @@ import { cell } from "../format";
 import type { SqlResult } from "../types";
 import type { ProjectApi } from "./ProjectPage";
 import { SqlWorkspace } from "./SqlWorkspace";
+import { ProjectSheet } from "./ProjectSheet";
 
-type View = "table" | "sql";
+type View = "table" | "sql" | "sheet";
 const VIEWS: { id: View; label: string; icon: IconName }[] = [
   { id: "table", label: "Table", icon: "table" },
   { id: "sql", label: "SQL", icon: "database" },
+  { id: "sheet", label: "Sheet", icon: "edit" },
 ];
 const PAGE = 100;
 
@@ -162,8 +165,10 @@ export function AnalyzeTab({ api }: { api: ProjectApi }) {
                 setView("sql");
               }}
             />
-          ) : (
+          ) : view === "sql" ? (
             <SqlWorkspace api={api} seed={sqlSeed} />
+          ) : (
+            <ProjectSheet api={api} />
           )}
         </motion.div>
       </AnimatePresence>

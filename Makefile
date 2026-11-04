@@ -1,7 +1,7 @@
 VENV ?= ../AIEnv
 BIN := $(VENV)/bin
 
-.PHONY: install test lint typecheck web-install web-build web-dev web-test bundle-web engine app apk build-app smoke-app
+.PHONY: install test lint typecheck web-install web-build web-dev web-test bundle-web engine app apk build-app smoke-app local-app
 
 install:
 	$(BIN)/pip install -e ".[dev]"
@@ -45,3 +45,10 @@ build-app:
 
 smoke-app:
 	$(BIN)/python scripts/smoke_app.py
+
+local-app:   # build this checkout into the desktop app and install it here (Debian/Ubuntu; asks for your password)
+	cd apps/web && npm run build
+	$(BIN)/python scripts/bundle_web.py
+	$(BIN)/python scripts/build_app.py --no-web
+	$(BIN)/python scripts/smoke_app.py
+	sudo apt install -y ./dist/FlowLabs-$$($(BIN)/python -c "import sys; sys.path.insert(0, 'src'); from flowlabs import __version__; print(__version__)")-linux-amd64.deb

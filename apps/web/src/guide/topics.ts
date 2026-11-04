@@ -8,6 +8,7 @@ import gettingStarted from "../../../../docs/guide/getting-started.md?raw";
 import pipeline from "../../../../docs/guide/pipeline.md?raw";
 import predictExport from "../../../../docs/guide/predict-export.md?raw";
 import results from "../../../../docs/guide/results.md?raw";
+import sheets from "../../../../docs/guide/sheets.md?raw";
 import sql from "../../../../docs/guide/sql.md?raw";
 import troubleshooting from "../../../../docs/guide/troubleshooting.md?raw";
 import updates from "../../../../docs/guide/updates.md?raw";
@@ -32,6 +33,7 @@ export const TOPICS: Topic[] = [
   topic("getting-started", "Start", gettingStarted),
   topic("data", "Build a model", data),
   topic("sql", "Build a model", sql),
+  topic("sheets", "Sheets", sheets),
   topic("databases", "Databases", databases),
   topic("pipeline", "Build a model", pipeline),
   topic("code", "Build a model", code),
