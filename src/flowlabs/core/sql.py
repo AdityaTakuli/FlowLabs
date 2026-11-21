@@ -288,12 +288,17 @@ def _run_local(
     connection = _local_connection(ws, sql, dataset_id, prepare)
     try:
         relation = connection.sql(sql)
-        if relation is None:
+        last = (split_statements(sql) or [""])[-1]
+        # DuckDB 2 answers CREATE, INSERT and SET with a Count or Success column; 1.x with nothing
+        status = (
+            relation is not None and relation.columns in (["Count"], ["Success"]) and first_word(last) not in READ_WORDS
+        )
+        if relation is None or status:
             return None, None, "Done. Queries on your datasets do not change them: save a result to keep it."
         if limit is None:
             return relation.df(), None, None
         relation.to_table("__flowlabs_result")
-        total = connection.sql("select count(*) from __flowlabs_result").fetchone()[0]
+        total = connection.sql("select count(*) from __flowlabs_result").fetchall()[0][0]
         page = f"select * from __flowlabs_result limit {int(limit)} offset {max(0, int(offset))}"
         return connection.sql(page).df(), int(total), None
     except duckdb.Error as error:

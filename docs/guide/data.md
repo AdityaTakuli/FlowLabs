@@ -5,7 +5,7 @@ in and reading the Data page.
 
 ## Bring a table
 
-Drop a file onto the spreadsheet on the home page, or click **Choose a file**. FlowLabs reads:
+Drop a file anywhere on the home page, or click **Open a file** (Ctrl+O). FlowLabs reads:
 
 - **CSV, TSV and text files** (it detects the separator);
 - **Excel** (`.xlsx`, `.xls`; see [Excel files](guide:data#excel-files) for other sheets);
@@ -47,12 +47,13 @@ JPEG, PNG, BMP, GIF, WebP and TIFF all work. You need at least two classes. The 
 
 ## Samples and stored datasets
 
-The home page lists eight **samples**: small datasets that open as a project ready to train.
+Click **Samples** at the bottom of the home page for eight small datasets that open as a project
+ready to train.
 **Messy orders** is useful for practising cleaning, and **Card fraud** for practising class
 balancing.
 
-Every file you import is kept under **Stored datasets**, so you can start more projects from it
-without importing it again. Deleting a dataset breaks the projects that use it.
+Every file you import is kept under **Datasets** (at the bottom of the home page), so you can start
+more projects from it without importing it again. Deleting a dataset breaks the projects that use it.
 
 To take a dataset somewhere else, click its download button and choose **CSV**, **Excel**,
 **Parquet** or **JSON**. You get the table as FlowLabs reads it: the chosen sheet, tidied column

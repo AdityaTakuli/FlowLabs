@@ -124,7 +124,7 @@ query under the cursor runs again in full, so every row is saved, not only the o
 
 - **Use as this project's data** makes the project train on the result. The old dataset is kept.
   Steps that use columns the result lacks are marked on the Pipeline page.
-- The dataset is also listed on the home page, under **Stored datasets**, for other projects.
+- The dataset is also listed under **Datasets** on the home page, for other projects.
 
 This is the quickest way to prepare training data that needs joins or aggregation. Examples:
 

@@ -43,7 +43,7 @@ FlowLabs out and small to medium tables. See [Engines and GPUs](guide:engines).
 
 ## Your first model in five minutes
 
-1. **Open a sample.** On the home page, click **Customer churn** under Samples. It is 2,000
+1. **Open a sample.** On the home page, click **Samples**, then **Customer churn**. It is 2,000
    telecom customers, and the question is: will they leave?
 2. **Create the project.** FlowLabs guesses what to predict (`churned`) and whether it is a
    category or a number. Click **Create project**.

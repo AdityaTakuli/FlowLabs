@@ -148,10 +148,10 @@ def test_browse_a_folder(tmp_path):
     inner = sources.browse_at(connection, f"{root.as_posix()}/sales/")
     assert [f["name"] for f in inner["folders"]] == ["2026"]
     assert [f["name"] for f in inner["files"]] == ["feb.parquet", "jan.parquet"]
-    together = connection.sql(f"select sum(amount), count(note) from {inner['all_files_sql']}").fetchone()
+    together = connection.sql(f"select sum(amount), count(note) from {inner['all_files_sql']}").fetchall()[0]
     assert together == (35.0, 1)  # columns matched by name across the files
     one = inner["files"][1]["sql"]
-    assert connection.sql(f"select count(*) from {one}").fetchone() == (2,)
+    assert connection.sql(f"select count(*) from {one}").fetchall() == [(2,)]
 
 
 def test_browse_cleans_the_folder_path(tmp_path):

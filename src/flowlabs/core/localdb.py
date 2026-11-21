@@ -96,11 +96,21 @@ def _attach(ws: Workspace, session: LocalSession, script: str) -> None:
             continue
         exists = session.con.execute(
             "select count(*) from duckdb_tables() where table_name = ? and temporary", [name]
-        ).fetchone()[0]
+        ).fetchall()[0][0]
         if exists:  # a temporary table of that name, made in this tab, comes first
             continue
         session.con.register(name, datasets.load_frame(ws, dataset_id))
         session.attached[name] = dataset_id
+
+
+def _finish(con: Any) -> None:
+    """Let go of a result read only in part. DuckDB 2 keeps it open until then (1.x has no abort())."""
+    abort = getattr(con, "abort", None)
+    if abort is not None:
+        try:
+            abort()
+        except Exception:  # noqa: BLE001 - nothing left to let go of
+            pass
 
 
 def _kind(type_name: str) -> str:
@@ -154,12 +164,14 @@ def execute(ws: Workspace, session_id: str, script: str, limit: int = databases.
                           and word not in sql.READ_WORDS)  # fmt: skip
                 if description and not status:
                     rows = cursor_.fetchmany(limit + 1)
+                    _finish(session.con)
                     names = [str(d[0]) for d in description]
                     kinds = [_kind(str(d[1])) for d in description]
                     entry |= {"columns": names, "types": kinds, "rows": [[databases.cell(v) for v in r] for r in rows[:limit]],
                               "truncated": len(rows) > limit}  # fmt: skip
                 else:
-                    row = cursor_.fetchone() if description else None
+                    found = cursor_.fetchall() if description else []
+                    row = found[0] if found else None
                     count = row[0] if row else None
                     count = count if description and description[0][0] == "Count" else None
                     entry |= {"message": databases._message(statement, {"rowcount": count}), "rowcount": count}
