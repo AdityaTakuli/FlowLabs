@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import csv
 import io
+import re
 import shutil
 import warnings
 import zipfile
@@ -48,7 +49,10 @@ SAMPLES: list[dict[str, Any]] = [
      "task": "classification", "description": "1,797 small images of the digits 0 to 9, one folder per digit."},
 ]  # fmt: skip
 
-_CACHE: OrderedDict[tuple[str, float], pd.DataFrame] = OrderedDict()
+_CACHE: OrderedDict[tuple[str, float, str | None, int], pd.DataFrame] = OrderedDict()
+EXCEL = (".xlsx", ".xls")
+EXPORT_FORMATS = {"csv": "CSV", "xlsx": "Excel", "parquet": "Parquet", "json": "JSON"}
+EXCEL_MAX_ROWS = 1_048_575  # one row is the header
 
 
 # ------------------------------------------------------------------------------------- reading
@@ -61,7 +65,8 @@ def _sniff_separator(sample: str) -> str:
         return ","
 
 
-def read_table(path: Path) -> pd.DataFrame:
+def read_table(path: Path, sheet: str | None = None, header_row: int = 1) -> pd.DataFrame:
+    """One table from a file. Excel: ``sheet`` (the first when None), headers on ``header_row`` (1 = top)."""
     suffix = path.suffix.lower()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -78,11 +83,15 @@ def read_table(path: Path) -> pd.DataFrame:
                 return pd.read_csv(path, sep=separator, encoding="utf-8-sig", low_memory=False)
             except UnicodeDecodeError:
                 return pd.read_csv(path, sep=separator, encoding="latin-1", low_memory=False)
-        if suffix in (".xlsx", ".xls"):
+        if suffix in EXCEL:
             try:
-                return pd.read_excel(path)
+                return pd.read_excel(path, sheet_name=sheet if sheet is not None else 0, header=max(0, header_row - 1))
             except ImportError as error:
                 raise UserError("reading Excel files needs the openpyxl package in this engine") from error
+            except ValueError as error:
+                if sheet is not None and "not found" in str(error):
+                    raise UserError(f"the file has no sheet called {sheet}") from error
+                raise
         if suffix in (".parquet", ".pq"):
             try:
                 return pd.read_parquet(path)
@@ -96,6 +105,37 @@ def read_table(path: Path) -> pd.DataFrame:
             except ValueError:
                 return pd.read_json(path, lines=True)
     raise UserError(f"{path.suffix or 'this'} files are not supported; use CSV, Excel, Parquet or JSON")
+
+
+def excel_sheets(path: Path) -> list[dict[str, Any]]:
+    """The sheets of an Excel file with their used size, in workbook order (hidden ones marked)."""
+    if path.suffix.lower() == ".xlsx":
+        try:
+            import openpyxl
+        except ImportError as error:
+            raise UserError("reading Excel files needs the openpyxl package in this engine") from error
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            book = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        try:
+            listed = []
+            for sheet in book.worksheets:
+                try:
+                    rows, columns = int(sheet.max_row or 0), int(sheet.max_column or 0)
+                except Exception:  # noqa: BLE001 - a sheet without a stored size
+                    rows = columns = 0
+                if rows == 1 and columns == 1 and sheet.cell(1, 1).value is None:
+                    rows = columns = 0  # an empty sheet reports A1
+                listed.append({"name": sheet.title, "rows": rows, "columns": columns,
+                               "hidden": sheet.sheet_state != "visible"})  # fmt: skip
+            return listed
+        finally:
+            book.close()
+    try:
+        names = pd.ExcelFile(path).sheet_names
+    except ImportError as error:
+        raise UserError("reading .xls files needs the xlrd package in this engine") from error
+    return [{"name": str(n), "rows": None, "columns": None, "hidden": False} for n in names]
 
 
 def _tidy(frame: pd.DataFrame) -> pd.DataFrame:
@@ -132,11 +172,12 @@ def load_frame(ws: Workspace, dataset_id: str) -> pd.DataFrame:
     if meta["kind"] != "tabular":
         raise UserError("this dataset is a folder of images, not a table")
     path = ws.datasets / dataset_id / meta["file"]
-    key = (str(path), path.stat().st_mtime)
+    sheet, header_row = meta.get("sheet"), int(meta.get("header_row") or 1)
+    key = (str(path), path.stat().st_mtime, sheet, header_row)
     if key in _CACHE:
         _CACHE.move_to_end(key)
         return _CACHE[key]
-    frame = _tidy(read_table(path))
+    frame = _tidy(read_table(path, sheet, header_row))
     _CACHE[key] = frame
     while len(_CACHE) > MAX_CACHED:
         _CACHE.popitem(last=False)
@@ -176,14 +217,100 @@ def _write_meta(ws: Workspace, dataset_id: str, meta: dict[str, Any]) -> dict[st
     return meta
 
 
-def _table_meta(ws: Workspace, dataset_id: str, name: str, file: str, source: str) -> dict[str, Any]:
+def _usable(frame: pd.DataFrame) -> bool:
+    return not frame.empty and len(frame.columns) >= 2
+
+
+def _table_meta(
+    ws: Workspace, dataset_id: str, name: str, file: str, source: str, sheet: str | None = None, header_row: int = 1
+) -> dict[str, Any]:
     folder = ws.datasets / dataset_id
     path = folder / file
-    frame = _tidy(read_table(path))
-    if frame.empty or len(frame.columns) < 2:
-        raise UserError("the table needs at least two columns and one row")
+    extra: dict[str, Any] = {}
+    if path.suffix.lower() in EXCEL:
+        sheets = excel_sheets(path)
+        if sheet is None:  # the first visible sheet that holds a table
+            frame = None
+            for candidate in sorted(sheets, key=lambda s: bool(s["hidden"])):
+                if candidate["rows"] == 0:
+                    continue
+                attempt = _tidy(read_table(path, candidate["name"], header_row))
+                if _usable(attempt):
+                    frame, sheet = attempt, candidate["name"]
+                    break
+            if frame is None:
+                raise UserError("none of the sheets holds a table with at least two columns and one row")
+        else:
+            frame = _tidy(read_table(path, sheet, header_row))
+        extra = {"sheet": sheet, "sheets": sheets, "header_row": header_row}
+    else:
+        frame = _tidy(read_table(path))
+    if not _usable(frame):
+        where = (
+            f"the sheet {sheet}" + (f" with headers on row {header_row}" if header_row > 1 else "")
+            if sheet
+            else "the table"
+        )
+        raise UserError(f"{where} needs at least two columns and one row")
     return {"id": dataset_id, "name": name, "kind": "tabular", "file": file, "rows": int(len(frame)),
-            "columns": int(len(frame.columns)), "size": path.stat().st_size, "created": now(), "source": source}  # fmt: skip
+            "columns": int(len(frame.columns)), "size": path.stat().st_size, "created": now(), "source": source,
+            **extra}  # fmt: skip
+
+
+def choose_sheet(ws: Workspace, dataset_id: str, sheet: str, header_row: int = 1) -> dict[str, Any]:
+    """Read another sheet of an imported Excel file, or take the headers from a lower row."""
+    meta = get_meta(ws, dataset_id)
+    if Path(meta.get("file", "")).suffix.lower() not in EXCEL:
+        raise UserError("only Excel datasets have sheets")
+    header_row = int(header_row)
+    if not 1 <= header_row <= 1000:
+        raise UserError("the header row is a number from 1 to 1000")
+    names = [s["name"] for s in meta.get("sheets") or excel_sheets(ws.datasets / dataset_id / meta["file"])]
+    if sheet not in names:
+        raise UserError(f"the file has no sheet called {sheet}")
+    fresh = _table_meta(ws, dataset_id, meta["name"], meta["file"], meta.get("source", ""), sheet, header_row)
+    return _write_meta(ws, dataset_id, {**fresh, "created": meta.get("created", fresh["created"])})
+
+
+def export(ws: Workspace, dataset_id: str, fmt: str) -> dict[str, Any]:
+    """A dataset as a CSV, Excel, Parquet or JSON file to download."""
+    if fmt not in EXPORT_FORMATS:
+        raise UserError("export as CSV, Excel, Parquet or JSON")
+    meta = get_meta(ws, dataset_id)
+    frame = load_frame(ws, dataset_id)
+    folder = ws.root / "exports" / "datasets"
+    folder.mkdir(parents=True, exist_ok=True)
+    stem = re.sub(r"[^\w.-]+", "_", str(meta.get("name") or "dataset").strip())[:60].strip("_") or "dataset"
+    target = folder / f"{stem}.{fmt}"
+    if fmt == "csv":
+        frame.to_csv(target, index=False)
+    elif fmt == "json":
+        frame.to_json(target, orient="records", date_format="iso", force_ascii=False)
+    elif fmt == "parquet":
+        try:
+            _parquet_ready(frame.copy()).to_parquet(target, index=False)
+        except ImportError as error:
+            raise UserError("writing Parquet files needs the pyarrow package in this engine") from error
+    else:
+        if len(frame) > EXCEL_MAX_ROWS:
+            raise UserError(f"Excel holds at most {EXCEL_MAX_ROWS:,} rows; export it as CSV or Parquet.")
+        try:
+            frame.to_excel(target, index=False, sheet_name=stem[:31] or "Data")
+        except ImportError as error:
+            raise UserError("writing Excel files needs the openpyxl package in this engine") from error
+    return {"path": target.relative_to(ws.root).as_posix(), "name": target.name, "rows": int(len(frame)),
+            "bytes": target.stat().st_size}  # fmt: skip
+
+
+def _parquet_ready(frame: pd.DataFrame) -> pd.DataFrame:
+    """Parquet wants one type per column: mixed text-and-number columns become text."""
+    for column in frame.columns:
+        if frame[column].dtype == object:
+            values = frame[column].dropna()
+            if not values.empty and not values.map(lambda v: isinstance(v, str)).all():
+                frame[column] = frame[column].map(lambda v: v if v is None or isinstance(v, str) or v != v else str(v))
+    frame.columns = [str(c) for c in frame.columns]
+    return frame
 
 
 def _images_meta(ws: Workspace, dataset_id: str, name: str, root: Path, source: str) -> dict[str, Any]:

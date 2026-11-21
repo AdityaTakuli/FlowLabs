@@ -9,9 +9,11 @@ import { Icon } from "../components/Icon";
 import { Modal, Notice, Spinner } from "../components/ui";
 import { EngineError } from "../engine/engine";
 import { ConnectionDialog } from "../components/ConnectionDialog";
+import { AiSettings } from "../components/AiSettings";
 import type { AiStatus, DatasetMeta, DbConnection, DbOverview, SourceKind, SqlResult, SqlTable } from "../types";
 import type { ProjectApi } from "./ProjectPage";
 import { QueryTab, type QueryTabState } from "./db/QueryTab";
+import { StorageBrowser } from "./StorageBrowser";
 
 const LOCAL = "local";
 const DRAFT_KEY = "flowlabs-sql-draft:";
@@ -40,72 +42,6 @@ function writeDraft(source: string, sql: string) {
 function starter(tables: SqlTable[]): string {
   const first = tables[0];
   return first ? `select *\nfrom ${first.name}\nlimit 100` : "select 42 as answer";
-}
-
-function AiSettings({ status, onClose, onSaved }: { status: AiStatus; onClose: () => void; onSaved: (status: AiStatus) => void }) {
-  const { engine, fail } = useApp();
-  const [key, setKey] = useState("");
-  const [model, setModel] = useState(status.model);
-  const [busy, setBusy] = useState(false);
-  const save = async (remove = false) => {
-    setBusy(true);
-    try {
-      onSaved(await engine.call<AiStatus>("ai.configure", { key: remove ? "" : key || null, model }));
-    } catch (error) {
-      fail(error);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <Modal
-      title="Ask AI"
-      onClose={onClose}
-      footer={
-        <>
-          {status.source === "saved" && (
-            <button className="danger" onClick={() => void save(true)} disabled={busy}>
-              Remove the key
-            </button>
-          )}
-          <span className="spacer" />
-          <button onClick={onClose}>Cancel</button>
-          <button className="primary" onClick={() => void save()} disabled={busy || (!key && !status.configured)}>
-            {busy ? <Spinner /> : null} Save
-          </button>
-        </>
-      }
-    >
-      <p className="dim" style={{ marginBottom: 14 }}>
-        Ask AI turns questions in plain English into SQL, using a model on Groq. Get a free key at{" "}
-        <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer">
-          console.groq.com/keys
-        </a>
-        .
-      </p>
-      {status.source === "environment" ? (
-        <Notice level="ok">The key comes from the GROQ_API_KEY environment variable.</Notice>
-      ) : (
-        <div className="field">
-          <label htmlFor="ai-key">Groq API key</label>
-          <input id="ai-key" type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={status.configured ? "Saved. Paste a new one to replace it." : "gsk_…"} autoComplete="off" />
-        </div>
-      )}
-      <div className="field">
-        <label htmlFor="ai-model">Model</label>
-        <input id="ai-model" list="ai-models" value={model} onChange={(e) => setModel(e.target.value)} />
-        <datalist id="ai-models">
-          {status.models.map((m) => (
-            <option key={m} value={m} />
-          ))}
-        </datalist>
-      </div>
-      <p className="faint small">
-        Sent to Groq: your question, table and column names with their types, and a few common values of category columns. Rows of data are never sent. The key is saved on the
-        engine, in a file only you can read.
-      </p>
-    </Modal>
-  );
 }
 
 function cell(value: unknown): string {
@@ -267,15 +203,16 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
     }
   }, [engine, fail, inBrowser, loadTables]);
 
+  const storage = kinds.find((k) => k.id === connection?.kind)?.engine === "storage";
   useEffect(() => {
-    if (source === LOCAL) return;
+    if (source === LOCAL || storage) return;
     setSourceTables(null);
     setSourceError(null);
     engine.call<SqlTable[]>("sql.connection_tables", { connection_id: source }).then(setSourceTables, (error: Error) => {
       setSourceTables([]);
       setSourceError(error.message);
     });
-  }, [engine, source]);
+  }, [engine, source, storage]);
 
   useEffect(() => {
     if (!full || source === LOCAL || overviews[source]) return;
@@ -441,7 +378,25 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
                     </button>
                     {source === c.id && (
                       <div className="sql-connection-tables">
-                        {sourceError ? <p className="error-text small sql-empty">{sourceError}</p> : <Schema tables={sourceTables} onPick={(text) => setInsert({ text, n: Date.now() })} empty="This database has no tables." />}
+                        {storage ? (
+                          <StorageBrowser
+                            connectionId={c.id}
+                            onOpen={(reader) => {
+                              const text = `select *\nfrom ${reader}\nlimit 100`;
+                              setQuery(text);
+                              void run(text);
+                            }}
+                            onInsert={(reader) => setInsert({ text: reader, n: Date.now() })}
+                            onImport={(reader, name) => {
+                              setQuery(`select *\nfrom ${reader}`);
+                              setSaveName(name);
+                            }}
+                          />
+                        ) : sourceError ? (
+                          <p className="error-text small sql-empty">{sourceError}</p>
+                        ) : (
+                          <Schema tables={sourceTables} onPick={(text) => setInsert({ text, n: Date.now() })} empty="This database has no tables." />
+                        )}
                       </div>
                     )}
                   </div>
@@ -646,7 +601,10 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
           onSaved={(saved) => {
             setConnections((list) => [...list.filter((c) => c.id !== saved.id), saved]);
             setEditing(null);
-            if (source === saved.id) {
+            if (source === saved.id && kinds.find((k) => k.id === saved.kind)?.engine === "storage") {
+              choose(LOCAL);
+              setTimeout(() => choose(saved.id), 0);
+            } else if (source === saved.id) {
               setSourceTables(null);
               engine.call<SqlTable[]>("sql.connection_tables", { connection_id: saved.id }).then(setSourceTables, (e: Error) => setSourceError(e.message));
             } else {
@@ -672,7 +630,7 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
           <div className="field">
             <label htmlFor="sql-save-name">Dataset name</label>
             <input id="sql-save-name" value={saveName} onChange={(e) => setSaveName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void saveResult()} autoFocus />
-            <span className="help">The query runs again in full, so every row is saved, not only the {result?.rows.length ?? 500} shown.</span>
+            <span className="help">{result ? `The query runs again in full, so every row is saved, not only the ${result.rows.length.toLocaleString()} shown.` : "Every row of the file is read and kept as a dataset."}</span>
           </div>
         </Modal>
       )}

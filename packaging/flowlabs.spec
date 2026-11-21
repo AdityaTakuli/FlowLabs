@@ -20,7 +20,14 @@ datas = [
     # the kernel copies these sources into ~/.flowlabs/kernel-src for other Python environments
     *collect_data_files("flowlabs", include_py_files=True),
     (str(ROOT / "src" / "flowlabs_runtime.py"), "."),
+    # pip, for `FlowLabs --pip`: installs database drivers on demand (its CA bundle is data)
+    *collect_data_files("pip"),
 ]
+# DuckDB's cloud storage extensions (httpfs, azure, aws), fetched by build_app.py
+EXTENSIONS = ROOT / "build" / "duckdb_extensions"
+if EXTENSIONS.is_dir():
+    datas += [(str(f), str(Path("duckdb_extensions") / f.parent.relative_to(EXTENSIONS)))
+              for f in EXTENSIONS.rglob("*.duckdb_extension")]  # fmt: skip
 
 hiddenimports = [
     "uvicorn.lifespan.on",
@@ -45,6 +52,7 @@ hiddenimports = [
     # connection passwords in the system keychain (macOS Keychain, Windows Credential Manager,
     # the Secret Service on Linux); its backends are found by import
     *collect_submodules("keyring"),
+    *collect_submodules("pip"),
 ]
 try:  # psycopg's compiled build (libpq inside); without it psycopg needs libpq on the system
     import psycopg_binary  # noqa: F401

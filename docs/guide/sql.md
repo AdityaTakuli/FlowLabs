@@ -74,18 +74,39 @@ select contract, count(*) from big_spenders group by contract;
 ## Ask AI
 
 Type a question in plain English above the editor, such as *churn rate by contract type*, and press
-**Write SQL**. A model on [Groq](https://groq.com) writes the query, FlowLabs puts it in the editor
-and runs it, and a sentence explains what it returns. Check the query, and change it as you like.
+**Write SQL**. A model writes the query, FlowLabs puts it in the editor and runs it, and a sentence
+explains what it returns. Check the query, and change it as you like.
 
 When a query fails, **Fix with AI** sends the query and the error message, and gets back a
 corrected query.
 
-**Set up:** the first time, click **Set up Ask AI**, and paste a Groq API key. You can get one free
-at [console.groq.com/keys](https://console.groq.com/keys). Choose the model in the same dialog. The
-key is saved on the engine, in a file only your user account can read. If the `GROQ_API_KEY`
-environment variable is set, FlowLabs uses it instead.
+**Set up:** the first time, click **Set up Ask AI** (later, the gear beside it), pick who writes the
+SQL, and paste that provider's key:
 
-**What is sent to Groq:**
+| Provider | Key | Notes |
+| --- | --- | --- |
+| Groq | [console.groq.com/keys](https://console.groq.com/keys) | Free, fast. Llama and GPT-OSS models. |
+| Google Gemini | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | A free tier with a Google account. Gemini 2.5 Flash and Pro. |
+| OpenAI (GPT) | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | Billed per use. GPT-5 and GPT-4.1 models. |
+| Anthropic (Claude) | [console.anthropic.com](https://console.anthropic.com/settings/keys) | Billed per use. Claude Opus, Sonnet and Haiku. The dialog installs Anthropic's Python package the first time. |
+| GitHub Models | [a fine-grained token](https://github.com/settings/personal-access-tokens/new) with **Models: read** | GPT, Llama, DeepSeek and others with your GitHub account. Free with limits; Copilot plans get more. |
+| FreeLLMAPI (local) | the unified key on its Keys page | [FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi) running on this computer (`http://localhost:3001`): many providers' free keys behind one endpoint. Model `auto` lets it choose. |
+| OmniRoute (local) | if you turned keys on | OmniRoute running on this computer (`http://localhost:20128`): providers you connect in its dashboard, behind one endpoint. |
+| Custom endpoint | if the server needs one | Any server with an OpenAI-style `/v1/chat/completions`: a company or reseller gateway, LM Studio, Ollama, vLLM. Give its address (for example `https://llm.example.com/v1`) and the model's name. |
+
+The dialog shows, for each provider, the steps to get a key, with a link to the right page. For
+FreeLLMAPI and OmniRoute it also says whether they are running on this computer. **Load models**
+asks the endpoint which models it offers.
+
+Each provider keeps its own key, model and address, so you can switch back and forth. Keys are kept in the
+system keychain (macOS Keychain, Windows Credential Manager, the Secret Service on Linux). If the
+provider's environment variable is set (`GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`,
+`ANTHROPIC_API_KEY`, `GITHUB_TOKEN`), FlowLabs uses it instead.
+
+A ChatGPT Plus, Claude Pro or Max, or GitHub Copilot chat plan is not an API key: these services do
+not let other apps use a chat plan. Use an API key, or GitHub Models for a Copilot plan.
+
+**What is sent to the provider:**
 
 - your question;
 - the names of the tables and columns, with their types;
@@ -94,7 +115,7 @@ environment variable is set, FlowLabs uses it instead.
 Columns where almost every value is different (IDs, names, emails) send no examples. Rows of data
 are never sent.
 
-Ask AI needs the desktop app or an engine. The browser version cannot reach Groq.
+Ask AI needs the desktop app or an engine. The browser version cannot reach AI providers.
 
 ## Keep a result as a dataset
 
@@ -135,6 +156,21 @@ Databases page. `SET`, `USE`, temporary tables and transactions last from one ru
 off **Auto-commit** to make changes wait for **Commit** (or **Roll back**). The database list in
 the toolbar switches databases. Cloud storage and DuckDB files use a simpler editor: **Run** shows
 the last statement's result.
+
+### Cloud storage
+
+Select an Amazon S3, Azure or Google Cloud Storage connection to browse its folders on the left:
+click a folder to open it, and the path above the list to go back up. Files show their size.
+
+- Click a **Parquet, CSV or JSON** file to see its first 100 rows: FlowLabs writes the query
+  (`select * from read_parquet('s3://…')`) and runs it. Change it like any query, for example to
+  filter or join with your datasets.
+- The **code** button beside a file puts the SQL that reads it at the cursor.
+- The **download** button imports the whole file as a dataset.
+- When a folder's files share a format, **Query all files together** reads them as one table
+  (`read_parquet('s3://bucket/sales/*.parquet', union_by_name = true)`); columns are matched by name.
+
+Other files are listed but greyed out. Very large folders count their first 5,000 files.
 
 To browse a server's schemas, edit rows, read query plans or manage users, use the
 [Databases](guide:databases) page; it shares these connections.

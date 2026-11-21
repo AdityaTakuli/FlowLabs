@@ -633,6 +633,24 @@ def connection_tables(ws: Workspace, connection_id: str) -> list[dict[str, Any]]
         engine.dispose()
 
 
+def storage_browse(ws: Workspace, connection_id: str, folder: str = "") -> dict[str, Any]:
+    """One folder of a cloud storage connection: sub-folders, and files with the SQL that reads them."""
+    connection = _get_connection(ws, connection_id)
+    source = sources.get(connection["kind"])
+    if source.engine != "storage":
+        raise UserError("only cloud storage connections have folders")
+    values = connection["values"]
+    live = _local_connection(ws, "", None, _storage(source, values, _secrets(ws, connection)))
+    try:
+        return sources.browse(live, source, values, folder)
+    except UserError:
+        raise
+    except Exception as error:  # noqa: BLE001
+        raise UserError(_tidy_message(str(error))[:400]) from error
+    finally:
+        live.close()
+
+
 def _run_connection(
     ws: Workspace,
     connection: dict[str, Any],

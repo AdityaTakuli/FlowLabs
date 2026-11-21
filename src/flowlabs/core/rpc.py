@@ -145,6 +145,24 @@ def _install_driver(engine: Engine, p: dict[str, Any]) -> Any:
     return {"job_id": job_id, "packages": packages}
 
 
+def _install_ai(engine: Engine) -> Any:
+    """Install Anthropic's SDK (for Claude) in the background, like a database driver."""
+    from .util import new_id
+
+    job_id = new_id("i")
+
+    def work() -> None:
+        code = ai.install_sdk(lambda line: engine.emit({"type": "install", "line": line, "job_id": job_id}))
+        engine.emit({"type": "install", "done": True, "code": code, "job_id": job_id, "kind": "anthropic",
+                     "extra": None, "needs": plugins.missing(["anthropic"])})  # fmt: skip
+
+    if engine.spawn is None:
+        work()
+    else:
+        engine.spawn(work)
+    return {"job_id": job_id, "packages": list(ai.ANTHROPIC_PACKAGES)}
+
+
 def _cancel(engine: Engine, p: dict[str, Any]) -> Any:
     job = engine.jobs.get(_p(p, "job_id"))
     if job is not None:
@@ -186,6 +204,10 @@ METHODS: dict[str, Callable[[Engine, dict[str, Any]], Any]] = {
                                                       int(p.get("limit", 100))),
     "datasets.delete": lambda e, p: datasets.delete_dataset(e.ws, _p(p, "dataset_id")),
     "datasets.rename": lambda e, p: datasets.rename_dataset(e.ws, _p(p, "dataset_id"), _p(p, "name")),
+    "datasets.choose_sheet": lambda e, p: datasets.choose_sheet(
+        e.ws, _p(p, "dataset_id"), _p(p, "sheet"), int(p.get("header_row") or 1)
+    ),
+    "datasets.export": lambda e, p: datasets.export(e.ws, _p(p, "dataset_id"), _p(p, "format")),
     # workbooks (spreadsheets); the app calculates them, the engine keeps them (sheets.py)
     "sheets.list": lambda e, p: sheets.list_workbooks(e.ws),
     "sheets.get": lambda e, p: sheets.get(e.ws, _p(p, "workbook_id")),
@@ -224,7 +246,10 @@ METHODS: dict[str, Callable[[Engine, dict[str, Any]], Any]] = {
     "sql.save": lambda e, p: sql.save_result(e.ws, str(p.get("sql") or ""), str(p.get("name") or ""),
                                              p.get("connection_id"), p.get("dataset_id")),
     "ai.status": lambda e, p: ai.status(e.ws),
-    "ai.configure": lambda e, p: ai.configure(e.ws, p.get("key"), p.get("model")),
+    "ai.configure": lambda e, p: ai.configure(e.ws, p.get("key"), p.get("model"), p.get("provider"), p.get("base_url")),
+    "ai.install": lambda e, p: _install_ai(e),
+    "ai.models": lambda e, p: ai.models(e.ws, _p(p, "provider"), p.get("base_url"), p.get("key")),
+    "ai.detect": lambda e, p: ai.detect(),
     "ai.sql": lambda e, p: ai.write_sql(e.ws, str(p.get("question") or ""), p.get("connection_id"), p.get("dataset_id"),
                                         str(p.get("sql") or ""), p.get("error")),
     "sql.kinds": lambda e, p: sql.kinds(),
@@ -234,6 +259,7 @@ METHODS: dict[str, Callable[[Engine, dict[str, Any]], Any]] = {
     "sql.connection_delete": _delete_connection,
     "sql.connection_test": lambda e, p: sql.test_connection(e.ws, _p(p, "connection")),
     "sql.connection_tables": lambda e, p: sql.connection_tables(e.ws, _p(p, "connection_id")),
+    "sql.storage_browse": lambda e, p: sql.storage_browse(e.ws, _p(p, "connection_id"), p.get("folder") or ""),
     # Databases: browse, query, edit and administer PostgreSQL, MySQL and MariaDB (databases.py)
     "db.overview": lambda e, p: databases.overview(e.ws, _p(p, "connection_id")),
     "db.schemas": lambda e, p: databases.schemas(e.ws, _p(p, "connection_id"), _p(p, "database")),

@@ -112,6 +112,18 @@ export function NewProject({ onClose, onCreated, initialDataset, initialFile }: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialFile]);
 
+  /** Excel: read another sheet, or take the column names from a lower row. */
+  const pickSheet = async (sheet: string, headerRow: number) => {
+    if (!dataset) return;
+    setBusy(`Reading ${sheet}…`);
+    try {
+      setDataset(await engine.call<DatasetMeta>("datasets.choose_sheet", { dataset_id: dataset.id, sheet, header_row: headerRow }));
+    } catch (error) {
+      fail(error);
+      setBusy(null);
+    }
+  };
+
   const create = async () => {
     if (!dataset) return;
     setBusy("Creating the project…");
@@ -190,6 +202,43 @@ export function NewProject({ onClose, onCreated, initialDataset, initialFile }: 
       )}
       {dataset && profile && (
         <div className="col" style={{ gap: 16 }}>
+          {dataset.sheet && dataset.sheets && (
+            <div className="sheet-pick">
+              <Icon name="table" size={14} className="faint" />
+              <div className="field">
+                <label htmlFor="np-sheet">Sheet</label>
+                <select id="np-sheet" value={dataset.sheet} disabled={busy !== null} onChange={(e) => void pickSheet(e.target.value, dataset.header_row ?? 1)}>
+                  {dataset.sheets.map((s) => (
+                    <option key={s.name} value={s.name} disabled={s.rows === 0}>
+                      {s.name}
+                      {s.rows === 0 ? " (empty)" : s.rows ? ` (${s.rows.toLocaleString()} × ${s.columns})` : ""}
+                      {s.hidden ? ", hidden" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="np-header">Column names on row</label>
+                <input
+                  id="np-header"
+                  type="number"
+                  min={1}
+                  max={1000}
+                  defaultValue={dataset.header_row ?? 1}
+                  key={`${dataset.sheet}-${dataset.header_row}`}
+                  disabled={busy !== null}
+                  onBlur={(e) => {
+                    const row = Math.round(Number(e.target.value));
+                    if (row >= 1 && row !== (dataset.header_row ?? 1)) void pickSheet(dataset.sheet!, row);
+                  }}
+                  onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                />
+              </div>
+              <span className="faint small">
+                {dataset.sheets.length > 1 ? `${dataset.sheets.length} sheets in this file.` : "One sheet."} Titles above the table? Set the row the column names are on.
+              </span>
+            </div>
+          )}
           <div className="row">
             <div className="field" style={{ flex: 1, marginBottom: 0 }}>
               <label>Project name</label>

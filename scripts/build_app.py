@@ -96,9 +96,29 @@ def archive_name(suffix: str) -> Path:
     return DIST / f"FlowLabs-{VERSION}-{system}-{machine}{suffix}"
 
 
+DUCKDB_EXTENSIONS = ("httpfs", "azure", "aws")
+
+
+def fetch_duckdb_extensions() -> None:
+    """DuckDB's cloud storage extensions for this system, bundled so S3, Azure and Google Cloud
+    Storage work without a download on first use (the spec picks up build/duckdb_extensions)."""
+    import duckdb
+
+    folder = ROOT / "build" / "duckdb_extensions"
+    shutil.rmtree(folder, ignore_errors=True)
+    folder.mkdir(parents=True)
+    connection = duckdb.connect()
+    connection.execute(f"SET extension_directory = '{folder.as_posix()}'")
+    for name in DUCKDB_EXTENSIONS:
+        connection.execute(f"INSTALL {name}")
+    connection.close()
+    print("DuckDB extensions:", ", ".join(sorted(p.name for p in folder.rglob("*.duckdb_extension"))), flush=True)
+
+
 def build_bundle(web: bool) -> None:
     if web:
         run([sys.executable, str(ROOT / "scripts" / "bundle_web.py")])
+    fetch_duckdb_extensions()
     shutil.rmtree(BUNDLE, ignore_errors=True)
     shutil.rmtree(DIST / "FlowLabs.app", ignore_errors=True)
     run(

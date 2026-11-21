@@ -83,6 +83,22 @@ export interface DatasetMeta {
   source: string;
   classes?: Record<string, number>;
   sample?: { target: string; task: Task };
+  /** Excel files: the sheet in use, every sheet with its used size, and the row the headers are on. */
+  sheet?: string;
+  sheets?: { name: string; rows: number | null; columns: number | null; hidden: boolean }[];
+  header_row?: number;
+}
+
+/** One folder of a cloud storage connection. */
+export interface StorageFolder {
+  root: string;
+  folder: string;
+  base: string;
+  folders: { name: string; files: number }[];
+  files: { name: string; path: string; size: number | null; modified: string | null; format: "parquet" | "csv" | "json" | null; sql: string | null }[];
+  truncated: boolean;
+  /** Reads every file of the folder at once, when they share a format. */
+  all_files_sql: string | null;
 }
 
 export interface ColumnProfile {
@@ -443,12 +459,37 @@ export interface UpdateInfo {
   error?: string;
 }
 
+export interface AiProvider {
+  id: string;
+  label: string;
+  models: string[];
+  model: string;
+  key_url: string;
+  key_help: string;
+  env: string | null;
+  source: "environment" | "saved" | null;
+  configured: boolean;
+  needs_url: boolean;
+  key_optional: boolean;
+  /** How to get a key, step by step. */
+  steps: string[];
+  /** Gateways and custom endpoints: the address (before /chat/completions). */
+  base_url: string;
+  /** A gateway that runs on this computer (FreeLLMAPI, OmniRoute). */
+  local: boolean;
+  /** Claude: Anthropic's SDK is installed on first use. */
+  needs_package: boolean;
+}
+
 export interface AiStatus {
   provider: string;
+  provider_label: string;
   configured: boolean;
   source: "environment" | "saved" | null;
   model: string;
   models: string[];
+  base_url: string;
+  providers: AiProvider[];
   available: boolean;
 }
 

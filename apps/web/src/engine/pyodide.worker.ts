@@ -91,16 +91,26 @@ function call(method: string, params: unknown): unknown {
   return reply;
 }
 
+let excel: Promise<void> | null = null;
+/** openpyxl comes from PyPI on first use (Excel files: import, other sheets, export). */
+function loadExcel(): Promise<void> {
+  excel ??= (async () => {
+    report("packages", "Loading the Excel reader…");
+    await py!.loadPackage("micropip");
+    await py!.pyimport("micropip").install("openpyxl");
+  })().catch((error) => {
+    excel = null;
+    throw error;
+  });
+  return excel;
+}
+
 async function upload(name: string, buffer: ArrayBuffer) {
   const folder = `${WORKSPACE}/tmp/${Math.random().toString(36).slice(2)}`;
   py!.FS.mkdirTree(folder);
   const path = `${folder}/${name.replace(/[\\/]/g, "_")}`;
   py!.FS.writeFile(path, new Uint8Array(buffer));
-  if (/\.xlsx?$/i.test(name)) {
-    report("packages", "Loading the Excel reader…");
-    await py!.loadPackage("micropip");
-    await py!.pyimport("micropip").install("openpyxl");
-  }
+  if (/\.xlsx?$/i.test(name)) await loadExcel();
   try {
     return call("datasets.import_path", { path, filename: name });
   } finally {
@@ -126,7 +136,13 @@ scope.onmessage = async (message: MessageEvent) => {
     await ready;
     if (type === "call") {
       if (/^sql\.(run|save)$/.test(message.data.method)) await loadDuckdb();
-      scope.postMessage({ id, ...(call(message.data.method, message.data.params) as object) });
+      let reply = call(message.data.method, message.data.params) as { error?: { message?: string } };
+      if (reply.error?.message?.includes("openpyxl") && !excel) {
+        // an Excel dataset read after a reload: fetch the reader once and try again
+        await loadExcel();
+        reply = call(message.data.method, message.data.params) as typeof reply;
+      }
+      scope.postMessage({ id, ...reply });
     } else if (type === "upload") {
       scope.postMessage({ id, ...((await upload(message.data.name, message.data.buffer)) as object) });
     } else if (type === "read") {

@@ -406,26 +406,27 @@ def storage_root(source: Source, values: dict[str, Any]) -> str:
     return f"{scheme}://{place}/" + (f"{prefix}/" if prefix else "")
 
 
-def extension_directory() -> str | None:
-    """DuckDB extensions shipped inside the desktop app, so cloud storage works offline."""
-    if getattr(sys, "frozen", False):
-        bundled = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "duckdb_extensions"
-        if bundled.is_dir():
-            return str(bundled)
-    return None
+def bundled_extension(name: str) -> str | None:
+    """A DuckDB extension shipped inside the desktop app (so cloud storage works without a download)."""
+    if not getattr(sys, "frozen", False):
+        return None
+    folder = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "duckdb_extensions"
+    found = next(folder.glob(f"**/{name}.duckdb_extension"), None) if folder.is_dir() else None
+    return str(found) if found else None
 
 
 def prepare_storage(connection: Any, source: Source, values: dict[str, Any], secrets: dict[str, str]) -> None:
     """Load the storage extension into a DuckDB connection and give it the credentials."""
-    folder = extension_directory()
-    if folder:
-        connection.execute(f"SET extension_directory = {_quote(folder)}")
     for extension in [
         source.extra["extension"],
         *(["aws"] if source.id == "s3" and values.get("auth") == "chain" else []),
     ]:
-        connection.execute(f"INSTALL {extension}")
-        connection.execute(f"LOAD {extension}")
+        shipped = bundled_extension(extension)
+        if shipped:  # the app's folder may be read-only: load the file where it is
+            connection.execute(f"LOAD {_quote(shipped)}")
+        else:  # downloaded once into DuckDB's own folder (~/.duckdb)
+            connection.execute(f"INSTALL {extension}")
+            connection.execute(f"LOAD {extension}")
     auth = values.get("auth")
     parts: list[str] = []
     if source.id == "s3":
@@ -463,11 +464,82 @@ def list_files(connection: Any, source: Source, values: dict[str, Any], limit: i
     return [{"name": f, "path": f, "label": f[len(root) :] or f, "columns": []} for f in files]
 
 
-def reader(path: str) -> str:
-    """The SQL that reads one file: read_parquet('s3://...') and friends."""
+def file_format(path: str) -> str | None:
+    """parquet, json or csv for a file DuckDB can read as a table; None for anything else."""
     lower = path.lower()
+    if not lower.endswith(STORAGE_FILES):
+        return None
     if ".parquet" in lower or lower.endswith(".pq"):
-        return f"read_parquet({_quote(path)})"
+        return "parquet"
     if ".json" in lower:
-        return f"read_json_auto({_quote(path)})"
-    return f"read_csv_auto({_quote(path)})"
+        return "json"
+    return "csv"
+
+
+def reader(path: str) -> str:
+    """The SQL that reads one file (or a glob of same-format files): read_parquet('s3://...') and friends."""
+    many = "*" in path
+    fmt = file_format(path.replace("*", "x")) or "csv"
+    union = ", union_by_name = true" if many else ""
+    if fmt == "parquet":
+        return f"read_parquet({_quote(path)}{union})"
+    if fmt == "json":
+        return f"read_json_auto({_quote(path)}{union})"
+    return f"read_csv_auto({_quote(path)}{union})"
+
+
+BROWSE_LIMIT = 5000
+SIZED_FILES = 300
+
+
+def browse_at(connection: Any, base: str, limit: int = BROWSE_LIMIT) -> dict[str, Any]:
+    """One folder of a bucket (``base`` ends in /): its sub-folders and files with size and date.
+    One recursive listing finds both; sizes come from DuckDB's read_blob, which does not read contents."""
+    names = [
+        str(r[0])
+        for r in connection.execute(f"select file from glob({_quote(base + '**')}) limit {int(limit) + 1}").fetchall()
+    ]
+    truncated = len(names) > limit
+    names = names[:limit]
+    folders: dict[str, int] = {}
+    direct: list[str] = []
+    for name in names:
+        rest = name[len(base) :] if name.startswith(base) else name.rsplit("/", 1)[-1]
+        if "/" in rest:
+            top = rest.split("/", 1)[0]
+            folders[top] = folders.get(top, 0) + 1
+        elif rest:
+            direct.append(name)
+    direct.sort(key=str.lower)
+    details: dict[str, tuple[Any, Any]] = {}
+    sized = direct[:SIZED_FILES]
+    if sized:
+        listing = "[" + ", ".join(_quote(f) for f in sized) + "]"
+        try:
+            for filename, size, modified in connection.execute(
+                f"select filename, size, last_modified from read_blob({listing})"
+            ).fetchall():
+                details[str(filename)] = (size, modified)
+        except Exception:  # noqa: BLE001 - sizes are a nicety; the listing still stands
+            details = {}
+    files: list[dict[str, Any]] = []
+    for name in direct:
+        size, modified = details.get(name, (None, None))
+        fmt = file_format(name)
+        files.append({"name": name[len(base) :] if name.startswith(base) else name.rsplit("/", 1)[-1], "path": name,
+                      "size": int(size) if size is not None else None,
+                      "modified": modified.isoformat() if hasattr(modified, "isoformat") else None,
+                      "format": fmt, "sql": reader(name) if fmt else None})  # fmt: skip
+    # every readable file has the same ending (.parquet, .csv.gz...): one query reads them all
+    readable = [f["name"].lower() for f in files if f["format"]]
+    endings = {next((e for e in sorted(STORAGE_FILES, key=len, reverse=True) if n.endswith(e)), "") for n in readable}
+    together = reader(base + "*" + endings.pop()) if len(readable) > 1 and len(endings) == 1 else None
+    return {"base": base, "folders": [{"name": n, "files": c} for n, c in sorted(folders.items(), key=lambda kv: kv[0].lower())],
+            "files": files, "truncated": truncated, "all_files_sql": together}  # fmt: skip
+
+
+def browse(connection: Any, source: Source, values: dict[str, Any], folder: str = "") -> dict[str, Any]:
+    root = storage_root(source, values)
+    folder = "/".join(part for part in str(folder or "").split("/") if part and part not in (".", ".."))
+    found = browse_at(connection, root + (folder + "/" if folder else ""))
+    return {**found, "root": root, "folder": folder}

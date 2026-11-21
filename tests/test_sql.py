@@ -382,11 +382,11 @@ def test_ask_ai_sends_the_schema_and_returns_sql(engine, monkeypatch, tmp_path):
     assert "does not look like" in engine.safe_call("ai.configure", {"key": "nope"})["error"]["message"]
     status = engine.call("ai.configure", {"key": "gsk_" + "a" * 40, "model": "llama-3.1-8b-instant"})
     assert status["configured"] and status["source"] == "saved" and status["model"] == "llama-3.1-8b-instant"
-    assert "gsk_" not in json.dumps(status)
+    assert "gsk_" + "a" * 40 not in json.dumps(status)
 
     asked = {}
 
-    def fake(key, model, messages):
+    def fake(provider, key, model, base_url, messages):
         asked.update(key=key, model=model, messages=messages)
         return json.dumps(
             {

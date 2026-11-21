@@ -8,7 +8,7 @@ in and reading the Data page.
 Drop a file onto the spreadsheet on the home page, or click **Choose a file**. FlowLabs reads:
 
 - **CSV, TSV and text files** (it detects the separator);
-- **Excel** (`.xlsx`, `.xls`; the first sheet);
+- **Excel** (`.xlsx`, `.xls`; see [Excel files](guide:data#excel-files) for other sheets);
 - **Parquet**;
 - **JSON** and **JSON Lines**;
 - a **zip** holding one of those.
@@ -16,8 +16,21 @@ Drop a file onto the spreadsheet on the home page, or click **Choose a file**. F
 A table needs at least two columns and one row. Column names are tidied: blanks get names such as
 `column_3`, and repeated names get a number (`price_2`).
 
-You can also make a dataset from a SQL query, on your data or on a database you already have. See
-[Analyze](guide:sql#keep-a-result-as-a-dataset).
+You can also make a dataset from a SQL query, on your data or on a database you already have, or
+from a file in cloud storage. See [Analyze](guide:sql#keep-a-result-as-a-dataset) and
+[Cloud storage](guide:sql#cloud-storage).
+
+## Excel files
+
+FlowLabs reads the first sheet that holds a table: a sheet with one column of notes, or an empty
+one, is skipped. When the file has more than one sheet, **Set up the project** shows a **Sheet**
+list with each sheet's size; pick another and the preview, columns and target follow it.
+
+Reports often put a title or a few notes above the table. Set **Column names on row** to the row
+the column names are on (for example 3), and the rows above it are left out.
+
+Training, SQL, Sheets and exports all use the sheet and row you chose. An exported project gets
+that table as `data.csv`, so its `train.py` reads the same rows.
 
 ## Bring images
 
@@ -40,6 +53,11 @@ balancing.
 
 Every file you import is kept under **Stored datasets**, so you can start more projects from it
 without importing it again. Deleting a dataset breaks the projects that use it.
+
+To take a dataset somewhere else, click its download button and choose **CSV**, **Excel**,
+**Parquet** or **JSON**. You get the table as FlowLabs reads it: the chosen sheet, tidied column
+names. Excel holds up to 1,048,575 rows; use CSV or Parquet for more. (The browser version has no
+Parquet.)
 
 ## What to predict
 

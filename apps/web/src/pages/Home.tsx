@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApp } from "../context";
-import { Icon } from "../components/Icon";
+import { Icon, type IconName } from "../components/Icon";
 import { SectionNav, TopBar } from "../components/TopBar";
 import { Spinner } from "../components/ui";
 import { ago, bytes, metricValue } from "../format";
@@ -8,81 +8,29 @@ import type { DatasetMeta, ProjectSummary } from "../types";
 import { NewProject } from "./NewProject";
 
 const ACCEPT = ".csv,.tsv,.txt,.xlsx,.xls,.parquet,.json,.jsonl,.zip";
+const RECENT = 7;
 
-/** A few real rows of the churn sample: the column to predict is marked, the way FlowLabs sets a project up. */
-const GRID = {
-  columns: ["tenure_months", "monthly_charges", "plan_type", "contract", "support_calls", "churned"],
-  rows: [
-    ["14", "50.13", "plus", "month_to_month", "0", "false"],
-    ["38", "52.69", "plus", "two_year", "2", "false"],
-    ["3", "89.20", "premium", "month_to_month", "5", "true"],
-    ["61", "24.75", "basic", "one_year", "1", "false"],
-    ["", "71.40", "plus", "month_to_month", "3", "true"],
-  ],
-};
+/** Another top-level page (Sheets, Databases), the way the section switch opens it. */
+function goPage(page: string) {
+  window.history.pushState(null, "", `?page=${page}`);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
 
-/** The home page's drop target, drawn as the spreadsheet you are about to bring. */
-function DataGrid({ onFile, onBrowse }: { onFile: (file: File) => void; onBrowse: () => void }) {
-  const [over, setOver] = useState(false);
-  const input = useRef<HTMLInputElement>(null);
-  const target = GRID.columns.length - 1;
+function StartLink({ icon, label, hint, keys, onClick }: { icon: IconName; label: string; hint?: string; keys?: string; onClick: () => void }) {
   return (
-    <div
-      className={`data-grid ${over ? "over" : ""}`}
-      onDragOver={(e) => {
-        e.preventDefault();
-        setOver(true);
-      }}
-      onDragLeave={() => setOver(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setOver(false);
-        const file = e.dataTransfer.files?.[0];
-        if (file) onFile(file);
-      }}
-    >
-      <div className="grid-scroll" aria-hidden>
-        <table>
-          <thead>
-            <tr>
-              <th className="row-no" />
-              {GRID.columns.map((c, i) => (
-                <th key={c} className={i === target ? "target" : ""}>
-                  {c}
-                  {i === target && <span className="target-tag">to predict</span>}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {GRID.rows.map((row, r) => (
-              <tr key={r}>
-                <td className="row-no">{r + 1}</td>
-                {row.map((v, i) => (
-                  <td key={i} className={`${i === target ? "target" : ""} ${v === "" ? "gap" : ""} ${/^[\d.]+$/.test(v) ? "num" : ""}`}>{v === "" ? "empty" : v}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="grid-drop">
-        <Icon name="upload" size={18} />
-        <span>Drop a CSV, Excel, Parquet or JSON file here, or a zip with one image folder per class.</span>
-        <button className="primary" onClick={() => input.current?.click()}>
-          Choose a file
-        </button>
-        <button className="ghost" onClick={onBrowse}>
-          Use a stored dataset
-        </button>
-        <input ref={input} type="file" accept={ACCEPT} hidden onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
-      </div>
-    </div>
+    <li>
+      <button className="w-link" onClick={onClick}>
+        <Icon name={icon} size={15} className="w-link-icon" />
+        <span className="w-link-label">{label}</span>
+        {hint && <span className="w-link-hint">{hint}</span>}
+        {keys && <kbd>{keys}</kbd>}
+      </button>
+    </li>
   );
 }
 
 export function Home({ open }: { open: (id: string) => void }) {
-  const { engine, info, catalogue, fail, openEngine, notify } = useApp();
+  const { engine, info, catalogue, fail, openEngine, notify, openGuide } = useApp();
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
   const [creating, setCreating] = useState<{ dataset?: DatasetMeta; file?: File } | null>(null);
@@ -124,6 +72,21 @@ export function Home({ open }: { open: (id: string) => void }) {
     }
   };
 
+  const [exportMenu, setExportMenu] = useState<string | null>(null);
+  const [exporting, setExporting] = useState<string | null>(null);
+  const exportDataset = async (dataset: DatasetMeta, format: string) => {
+    setExportMenu(null);
+    setExporting(dataset.id);
+    try {
+      const written = await engine.call<{ path: string; name: string }>("datasets.export", { dataset_id: dataset.id, format });
+      await engine.download(written.path, written.name);
+    } catch (error) {
+      fail(error);
+    } finally {
+      setExporting(null);
+    }
+  };
+
   const removeDataset = async (dataset: DatasetMeta) => {
     if (!window.confirm(`Delete the dataset “${dataset.name}”? Projects using it will stop working.`)) return;
     try {
@@ -135,190 +98,273 @@ export function Home({ open }: { open: (id: string) => void }) {
     }
   };
 
+  // a file dropped anywhere on the page starts a project; Ctrl+O picks one
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const depth = useRef(0);
+  useEffect(() => {
+    const keys = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "o" && !creating) {
+        event.preventDefault();
+        fileInput.current?.click();
+      }
+    };
+    window.addEventListener("keydown", keys);
+    return () => window.removeEventListener("keydown", keys);
+  }, [creating]);
+  const [allProjects, setAllProjects] = useState(false);
+
   const gpu = info.gpus?.[0];
-  const where = engine.kind === "browser" ? "Training in this browser. Your data stays on this device." : `Training on ${engine.kind === "local" ? "this computer" : engine.label}, with ${info.cpus} CPU cores${gpu ? ` and ${gpu.name}` : ""}.`;
+  const machine = engine.kind === "browser" ? "This browser" : engine.kind === "local" ? "This computer" : engine.label;
+  const specs = [
+    engine.kind === "browser" ? "Python in the page (Pyodide)" : `${info.cpus} CPU cores`,
+    info.memory ? `${Math.round(info.memory.total_gb)} GB memory` : null,
+    gpu ? `${gpu.name}${gpu.memory_gb ? `, ${Math.round(gpu.memory_gb)} GB` : ""}` : engine.kind === "browser" ? null : "no GPU",
+  ].filter(Boolean);
+  const shown = projects ? (allProjects ? projects : projects.slice(0, RECENT)) : [];
+  const trained = projects?.filter((p) => p.best?.value != null).length ?? 0;
+
   return (
-    <div className="shell">
+    <div className="shell with-status">
       <TopBar help="getting-started">
         <SectionNav current="projects" onProjects={() => undefined} />
       </TopBar>
-      <main className="content">
-        <div className="page home">
-          <section className="intro">
-            <div className="intro-copy">
-              <h1>Train a model from a spreadsheet.</h1>
-              <p className="lead">
-                Bring a table or a folder of images. Clean it, train several models side by side, see which one predicts best on rows it never saw, and export it as Python that runs anywhere.
-              </p>
-              <p className="engine-line">
-                <span className="dot ok" />
-                {where}
-                <button className="link" onClick={openEngine}>
-                  {engine.kind === "browser" ? "Use my computer's GPU" : "Change"}
-                </button>
-              </p>
-            </div>
-            <DataGrid onFile={(file) => setCreating({ file })} onBrowse={() => setCreating({})} />
-          </section>
+      <main
+        className="content"
+        onDragEnter={(e) => {
+          if (!e.dataTransfer.types.includes("Files")) return;
+          depth.current += 1;
+          setDragging(true);
+        }}
+        onDragOver={(e) => e.dataTransfer.types.includes("Files") && e.preventDefault()}
+        onDragLeave={() => {
+          depth.current = Math.max(0, depth.current - 1);
+          if (depth.current === 0) setDragging(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          depth.current = 0;
+          setDragging(false);
+          const file = e.dataTransfer.files?.[0];
+          if (file) setCreating({ file });
+        }}
+      >
+        <div className="welcome">
+          <header className="welcome-head">
+            <h1>FlowLabs</h1>
+            <p>Data, SQL, spreadsheets and machine learning in one place.</p>
+          </header>
 
-          <section className="block">
-            <div className="section-head">
-              <h2>Your projects</h2>
-              {projects && projects.length > 0 && (
-                <button className="small" onClick={() => setCreating({})}>
-                  <Icon name="plus" size={13} /> New project
-                </button>
-              )}
-            </div>
-            {projects === null ? (
-              <Spinner />
-            ) : projects.length === 0 ? (
-              <p className="empty-line">No projects yet. Drop a file above, or start from one of the samples below.</p>
-            ) : (
-              <div className="table-wrap">
-                <table className="list-table">
-                  <thead>
-                    <tr>
-                      <th>Project</th>
-                      <th>Predicts</th>
-                      <th className="score-col">Best score</th>
-                      <th>Updated</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {projects.map((project) => {
+          <div className="welcome-cols">
+            <div className="welcome-col">
+              <section className="w-section" aria-labelledby="w-start">
+                <h2 id="w-start">Start</h2>
+                <ul className="w-links">
+                  <StartLink icon="plus" label="New project…" hint="from a file, a sample or a dataset" onClick={() => setCreating({})} />
+                  <StartLink icon="upload" label="Open a file…" hint="CSV, Excel, Parquet, JSON, zip of images" keys="Ctrl O" onClick={() => fileInput.current?.click()} />
+                  <StartLink icon="table" label="New sheet" hint="spreadsheets with formulas" onClick={() => goPage("sheets")} />
+                  <StartLink icon="server" label="Connect a database" hint="PostgreSQL, MySQL, warehouses, cloud storage" onClick={() => goPage("databases")} />
+                </ul>
+                <input ref={fileInput} type="file" accept={ACCEPT} hidden onChange={(e) => e.target.files?.[0] && setCreating({ file: e.target.files[0] })} />
+                <p className="w-note">Or drop a file anywhere on this page.</p>
+              </section>
+
+              <section className="w-section" aria-labelledby="w-recent">
+                <div className="w-head">
+                  <h2 id="w-recent">Recent</h2>
+                  {projects && projects.length > 0 && (
+                    <span className="w-count">
+                      {projects.length} {projects.length === 1 ? "project" : "projects"}, {trained} trained
+                    </span>
+                  )}
+                </div>
+                {projects === null ? (
+                  <Spinner />
+                ) : projects.length === 0 ? (
+                  <p className="w-empty">No projects yet. Open a file or a sample to start one.</p>
+                ) : (
+                  <ul className="w-list">
+                    {shown.map((project) => {
                       const best = project.best;
-                      const share = best && best.value !== null && best.value >= 0 && best.value <= 1 ? best.value : null;
                       return (
-                        <tr key={project.id} className="clickable" onClick={() => open(project.id)}>
-                          <td>
-                            <span className="row">
-                              <Icon name={project.kind === "image" ? "image" : "table"} size={14} className="faint" />
-                              <b>{project.name}</b>
-                            </span>
-                          </td>
-                          <td className="dim">
-                            {project.target} <span className="faint">({project.task})</span>
-                          </td>
-                          <td className="score-col">
-                            {best && best.value !== null ? (
-                              <span className="score-cell">
-                                <b className="num">{metricValue(best.metric, best.value)}</b>
-                                {share !== null && (
-                                  <span className="score-bar">
-                                    <span style={{ width: `${share * 100}%` }} />
-                                  </span>
-                                )}
-                                <span className="faint tiny ellipsis">
-                                  {best.metric_label}, {best.label}
-                                </span>
+                        <li key={project.id} className="w-row">
+                          <button className="w-row-main" onClick={() => open(project.id)} title={`Open ${project.name}`}>
+                            <Icon name={project.kind === "image" ? "image" : "table"} size={14} className="w-row-icon" />
+                            <span className="w-row-text">
+                              <span className="w-row-name">{project.name}</span>
+                              <span className="w-row-meta">
+                                predicts {project.target}, {project.task}
                               </span>
-                            ) : (
-                              <span className="faint">Not trained, {project.models} models set up</span>
-                            )}
-                          </td>
-                          <td className="dim nowrap">{ago(project.updated)}</td>
-                          <td className="actions">
-                            <button
-                              className="ghost small icon-only"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void remove(project);
-                              }}
-                              aria-label={`Delete ${project.name}`}
-                            >
+                            </span>
+                            <span className="w-row-side">
+                              {best && best.value !== null ? (
+                                <span className="w-score" title={`${best.metric_label}, ${best.label}`}>
+                                  <b className="num">{metricValue(best.metric, best.value)}</b> <span>{best.metric_label}</span>
+                                </span>
+                              ) : (
+                                <span className="w-faint">not trained</span>
+                              )}
+                              <span className="w-faint nowrap">{ago(project.updated)}</span>
+                            </span>
+                          </button>
+                          <span className="w-row-actions">
+                            <button className="ghost small icon-only" onClick={() => void remove(project)} aria-label={`Delete ${project.name}`} title="Delete">
                               <Icon name="trash" size={13} />
                             </button>
-                          </td>
-                        </tr>
+                          </span>
+                        </li>
                       );
                     })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+                  </ul>
+                )}
+                {projects && projects.length > RECENT && (
+                  <button className="link w-more" onClick={() => setAllProjects(!allProjects)}>
+                    {allProjects ? "Show fewer" : `Show all ${projects.length}`}
+                  </button>
+                )}
+              </section>
 
-          <section className="block">
-            <div className="section-head">
-              <h2>Samples</h2>
-              <span className="dim small">Small datasets that open as a project ready to train.</span>
+              <section className="w-section" aria-labelledby="w-learn">
+                <h2 id="w-learn">Learn</h2>
+                <ul className="w-links">
+                  <StartLink icon="book" label="Getting started" hint="your first model in five minutes" onClick={() => openGuide("getting-started")} />
+                  <StartLink icon="database" label="SQL and Ask AI" onClick={() => openGuide("sql")} />
+                  <StartLink icon="package" label="Predict and export" onClick={() => openGuide("predict-export")} />
+                </ul>
+              </section>
             </div>
-            <div className="table-wrap">
-              <table className="list-table">
-                <thead>
-                  <tr>
-                    <th>Dataset</th>
-                    <th>Predicts</th>
-                    <th>What it is</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
+
+            <div className="welcome-col">
+              <section className="w-section" aria-labelledby="w-samples">
+                <div className="w-head">
+                  <h2 id="w-samples">Samples</h2>
+                  <span className="w-count">open as a project ready to train</span>
+                </div>
+                <ul className="w-list">
                   {catalogue.samples.map((sample) => (
-                    <tr key={sample.id} className="clickable" onClick={() => loadingSample === null && void startSample(sample.id)}>
-                      <td>
-                        <span className="row">
-                          <Icon name={sample.kind === "image" ? "image" : "table"} size={14} className="faint" />
-                          <b>{sample.name}</b>
+                    <li key={sample.id} className="w-row">
+                      <button className="w-row-main" onClick={() => loadingSample === null && void startSample(sample.id)} title={sample.description}>
+                        <Icon name={sample.kind === "image" ? "image" : "table"} size={14} className="w-row-icon" />
+                        <span className="w-row-text">
+                          <span className="w-row-name">{sample.name}</span>
+                          <span className="w-row-meta">{sample.description}</span>
                         </span>
-                      </td>
-                      <td className="dim nowrap">
-                        {sample.target} <span className="faint">({sample.task})</span>
-                      </td>
-                      <td className="dim wrap-cell">{sample.description}</td>
-                      <td className="actions">{loadingSample === sample.id ? <Spinner /> : <span className="open-link">Open</span>}</td>
-                    </tr>
+                        <span className="w-row-side">{loadingSample === sample.id ? <Spinner /> : <span className="w-faint nowrap">{sample.task}</span>}</span>
+                      </button>
+                    </li>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
+                </ul>
+              </section>
 
-          {datasets.length > 0 && (
-            <section className="block">
-              <div className="section-head">
-                <h2>Stored datasets</h2>
-                <span className="dim small">Kept {engine.kind === "browser" ? "in this browser" : info.workspace ? `in ${info.workspace}` : "by this engine"}.</span>
-              </div>
-              <div className="table-wrap">
-                <table className="list-table">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Contents</th>
-                      <th>Size</th>
-                      <th>Added</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
+              {datasets.length > 0 && (
+                <section className="w-section" aria-labelledby="w-datasets">
+                  <div className="w-head">
+                    <h2 id="w-datasets">Stored datasets</h2>
+                    <span className="w-count">{bytes(datasets.reduce((total, d) => total + d.size, 0))}</span>
+                  </div>
+                  <ul className="w-list">
                     {datasets.map((d) => (
-                      <tr key={d.id}>
-                        <td>
-                          <b>{d.name}</b>
-                        </td>
-                        <td className="dim">{d.kind === "image" ? `${d.rows.toLocaleString()} images in ${d.columns} classes` : `${d.rows.toLocaleString()} rows, ${d.columns} columns`}</td>
-                        <td className="dim num">{bytes(d.size)}</td>
-                        <td className="dim nowrap">{ago(d.created)}</td>
-                        <td className="actions">
-                          <button className="small" onClick={() => setCreating({ dataset: d })}>
-                            New project
-                          </button>
-                          <button className="ghost small icon-only" onClick={() => void removeDataset(d)} aria-label={`Delete ${d.name}`}>
+                      <li key={d.id} className={`w-row ${exportMenu === d.id ? "menu-open" : ""}`}>
+                        <button className="w-row-main" onClick={() => setCreating({ dataset: d })} title={`New project from ${d.name}`}>
+                          <Icon name={d.kind === "image" ? "image" : "table"} size={14} className="w-row-icon" />
+                          <span className="w-row-text">
+                            <span className="w-row-name">{d.name}</span>
+                            <span className="w-row-meta">
+                              {d.kind === "image" ? `${d.rows.toLocaleString()} images, ${d.columns} classes` : `${d.rows.toLocaleString()} rows, ${d.columns} columns`}
+                              {d.sheet ? `, sheet ${d.sheet}` : ""}
+                            </span>
+                          </span>
+                          <span className="w-row-side">
+                            <span className="w-faint nowrap">{bytes(d.size)}</span>
+                            <span className="w-faint nowrap">{ago(d.created)}</span>
+                          </span>
+                        </button>
+                        <span className="w-row-actions">
+                          {d.kind === "tabular" && (
+                            <span className="db-menu-anchor">
+                              <button className="ghost small icon-only" onClick={() => setExportMenu(exportMenu === d.id ? null : d.id)} aria-expanded={exportMenu === d.id} aria-label={`Download ${d.name}`} title="Download as CSV, Excel, Parquet or JSON" disabled={exporting === d.id}>
+                                {exporting === d.id ? <Spinner /> : <Icon name="download" size={13} />}
+                              </button>
+                              {exportMenu === d.id && (
+                                <div className="db-menu" role="menu" onMouseLeave={() => setExportMenu(null)}>
+                                  {([["csv", "CSV"], ["xlsx", "Excel"], ["parquet", "Parquet"], ["json", "JSON"]] as const)
+                                    .filter(([id]) => id !== "parquet" || engine.kind !== "browser")
+                                    .map(([id, label]) => (
+                                      <button key={id} role="menuitem" onClick={() => void exportDataset(d, id)}>
+                                        {label}
+                                      </button>
+                                    ))}
+                                </div>
+                              )}
+                            </span>
+                          )}
+                          <button className="ghost small icon-only" onClick={() => void removeDataset(d)} aria-label={`Delete ${d.name}`} title="Delete">
                             <Icon name="trash" size={13} />
                           </button>
-                        </td>
-                      </tr>
+                        </span>
+                      </li>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
+                  </ul>
+                </section>
+              )}
+
+              <section className="w-section" aria-labelledby="w-engine">
+                <div className="w-head">
+                  <h2 id="w-engine">Engine</h2>
+                  <button className="link w-head-action" onClick={openEngine}>
+                    {engine.kind === "browser" ? "Use my computer's GPU" : "Change"}
+                  </button>
+                </div>
+                <dl className="w-facts">
+                  <dt>Runs on</dt>
+                  <dd>
+                    <span className="dot ok" /> {machine}
+                  </dd>
+                  <dt>Hardware</dt>
+                  <dd>{specs.join(", ")}</dd>
+                  {info.python && (
+                    <>
+                      <dt>Python</dt>
+                      <dd>
+                        {info.python}
+                        {info.packages?.torch ? `, PyTorch ${info.packages.torch}` : ""}
+                      </dd>
+                    </>
+                  )}
+                  <dt>Workspace</dt>
+                  <dd className="w-path" title={info.workspace}>
+                    {engine.kind === "browser" ? "this browser's storage" : info.workspace ?? "kept by the engine"}
+                  </dd>
+                </dl>
+              </section>
+
+            </div>
+          </div>
         </div>
+        {dragging && (
+          <div className="w-drop" aria-hidden>
+            <Icon name="upload" size={26} />
+            <b>Drop to start a project</b>
+            <span>CSV, Excel, Parquet, JSON, or a zip with one image folder per class</span>
+          </div>
+        )}
       </main>
+      <footer className="statusbar" aria-label="Status">
+        <button className="status-item" onClick={openEngine} title="Change the engine">
+          <span className="dot ok" /> {machine}
+          {engine.kind !== "browser" && <span className="status-dim">{info.cpus} CPU{gpu ? ", GPU" : ""}</span>}
+        </button>
+        {info.workspace && engine.kind !== "browser" && (
+          <span className="status-item status-path" title={info.workspace}>
+            <Icon name="folder" size={11} /> {info.workspace}
+          </span>
+        )}
+        <span className="spacer" />
+        <span className="status-item">
+          {projects?.length ?? 0} projects, {datasets.length} datasets
+        </span>
+        <span className="status-item">FlowLabs {info.flowlabs}</span>
+      </footer>
       {creating && <NewProject initialDataset={creating.dataset} initialFile={creating.file} onClose={() => setCreating(null)} onCreated={(id) => open(id)} />}
     </div>
   );

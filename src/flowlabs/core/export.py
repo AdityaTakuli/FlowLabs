@@ -511,6 +511,13 @@ def build(ws: Workspace, project_id: str, run_id: str, model_id: str, include_da
         (folder / "predict.py").write_text(PREDICT_PY, encoding="utf-8")
         (folder / "serve.py").write_text(SERVE_PY, encoding="utf-8")
         data_name = "data" + Path(dataset["file"]).suffix
+        # another sheet of an Excel file, or headers lower down: train.py gets that table as CSV
+        sheets = dataset.get("sheets") or []
+        picked = dataset.get("sheet") is not None and (
+            int(dataset.get("header_row") or 1) != 1 or (sheets and dataset["sheet"] != sheets[0]["name"])
+        )
+        if picked:
+            data_name = "data.csv"
         (folder / "train.py").write_text(train_script(project, record, data_name), encoding="utf-8")
         schema = {"target": result["target"], "task": result["task"], "classes": result.get("classes"),
                   "model": record["label"], "metric": result["metric"], "metrics": record.get("metrics"),
@@ -518,7 +525,9 @@ def build(ws: Workspace, project_id: str, run_id: str, model_id: str, include_da
         (folder / "schema.json").write_text(json.dumps(schema, indent=1, default=str), encoding="utf-8")
         frame = datasets.load_frame(ws, project["dataset_id"])
         frame.drop(columns=[result["target"]], errors="ignore").head(5).to_csv(folder / "example.csv", index=False)
-        if include_data:
+        if include_data and picked:
+            frame.to_csv(folder / data_name, index=False)
+        elif include_data:
             shutil.copyfile(datasets.data_file(ws, project["dataset_id"]), folder / data_name)
         else:
             notes.append(f"train.py expects the training data as {data_name} (or pass a path).")
