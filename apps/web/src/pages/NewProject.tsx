@@ -113,7 +113,7 @@ export function NewProject({ onClose, onCreated, initialDataset, initialFile }: 
   }, [initialFile]);
 
   /** Excel: read another sheet, or take the column names from a lower row. */
-  const pickSheet = async (sheet: string, headerRow: number) => {
+  const pickSheet = async (sheet: string, headerRow: number | null) => {
     if (!dataset) return;
     setBusy(`Reading ${sheet}…`);
     try {
@@ -207,7 +207,7 @@ export function NewProject({ onClose, onCreated, initialDataset, initialFile }: 
               <Icon name="table" size={14} className="faint" />
               <div className="field">
                 <label htmlFor="np-sheet">Sheet</label>
-                <select id="np-sheet" value={dataset.sheet} disabled={busy !== null} onChange={(e) => void pickSheet(e.target.value, dataset.header_row ?? 1)}>
+                <select id="np-sheet" value={dataset.sheet} disabled={busy !== null} onChange={(e) => void pickSheet(e.target.value, null)}>
                   {dataset.sheets.map((s) => (
                     <option key={s.name} value={s.name} disabled={s.rows === 0}>
                       {s.name}
@@ -235,7 +235,7 @@ export function NewProject({ onClose, onCreated, initialDataset, initialFile }: 
                 />
               </div>
               <span className="faint small">
-                {dataset.sheets.length > 1 ? `${dataset.sheets.length} sheets in this file.` : "One sheet."} Titles above the table? Set the row the column names are on.
+                {dataset.sheets.length > 1 ? `${dataset.sheets.length} sheets in this file.` : "One sheet."} FlowLabs finds the row with the column names; change it if it guessed wrong.
               </span>
             </div>
           )}

@@ -4,9 +4,11 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useApp } from "../context";
 import { Icon } from "../components/Icon";
 import { TopBar } from "../components/TopBar";
+import { useAiTarget } from "../components/AiPanel";
 import { CommitInput, Spinner } from "../components/ui";
 import { metricValue } from "../format";
-import type { Issue, Profile, Project, RunResult, RunSummary } from "../types";
+import type { Issue, ModelEntry, Profile, Project, RunResult, RunSummary, Step } from "../types";
+import { projectChange } from "./projectAi";
 import { AnalyzeTab } from "./AnalyzeTab";
 import { ChartsTab } from "./ChartsTab";
 import { DataTab } from "./DataTab";
@@ -196,6 +198,67 @@ export function ProjectPage({ projectId, tab, setTab, goHome }: { projectId: str
         ? { project, update, issues, profile, reloadProfile: () => loadProfile(project), run, runs, openRun, setTab, markExported: () => setExported(true) }
         : null,
     [project, update, issues, profile, loadProfile, run, runs, openRun, setTab],
+  );
+
+  // The AI panel knows the project: its data's columns (from the engine), target, steps, models and
+  // the last results. It changes the pipeline like the Pipeline tab does: add, change or remove steps
+  // and models, set the target or metric, and train; each change can be undone. (On the Analyze
+  // tab's SQL editor, the editor takes over and the panel writes queries instead.)
+  const trainingRef = useRef(training);
+  trainingRef.current = training;
+  useAiTarget(
+    project
+      ? {
+          label: `${project.name} (${TABS.find((t) => t.id === tab)?.label ?? tab})`,
+          view: `the machine learning project "${project.name}", on its ${tab} page`,
+          can: ["project"],
+          suggestions: ["Which model should I try next?", "Add the models that fit my data best and train them", "Explain my results in plain words"],
+          apply: async (action) => {
+            if (action.type !== "project") throw new Error("This page changes the project only.");
+            const base = latest.current;
+            if (!base) throw new Error("The project is still loading.");
+            if (action.change === "train") {
+              if (trainingRef.current?.running) throw new Error("Training is already running.");
+              if (!base.models.some((m) => m.enabled)) throw new Error("Turn on at least one model first.");
+              void start(base);
+              return { note: "Training started: the results open when it finishes." };
+            }
+            const created =
+              action.change === "add_step"
+                ? await engine.call<Step>("projects.new_step", { op: action.op, params: action.params })
+                : action.change === "add_model"
+                  ? await engine.call<ModelEntry>("projects.new_model", {
+                      algo: action.op,
+                      params: action.params,
+                      image: base.kind === "image",
+                      task: base.task,
+                    })
+                  : null;
+            const change = projectChange(action, base, created);
+            latest.current = change.next(base); // a "train" later in the same answer sees this change
+            update(change.next);
+            return { undo: () => update(change.undo), note: change.note };
+          },
+          context: () => {
+            const steps = [...project.clean, ...project.rows, ...project.transform].filter((s) => s.enabled).map((s) => s.op);
+            const parts = [
+              `Task: ${project.task} of the column "${project.target || "(not chosen)"}"; kind of data: ${project.kind}. Metric: ${project.metric}.`,
+              `Preparation steps: ${steps.length ? steps.join(", ") : "none"}${project.auto_prep ? ", with automatic preparation" : ""}.`,
+              `Models: ${project.models.filter((m) => m.enabled).map((m) => `${m.label}${m.tune !== "off" ? ` (tuning ${m.tune})` : ""}`).join(", ") || "none"}.`,
+              ...issues.map((i) => `${i.level}: ${i.message}`),
+            ];
+            if (run) {
+              parts.push(`Last training: ${run.status}, ${run.data.train_rows} rows to train, ${run.data.test_rows} to test.`);
+              for (const m of run.models) {
+                const scores = m.metrics ? Object.entries(m.metrics).slice(0, 6).map(([k, v]) => `${k} ${Number(v.toPrecision(4))}`).join(", ") : m.error ?? m.status;
+                parts.push(`- ${m.label}${m.id === run.best_model_id ? " (best)" : ""}: ${scores}`);
+              }
+              parts.push(...run.warnings.slice(0, 5).map((w) => `Warning: ${w}`));
+            }
+            return { text: parts.join("\n"), dataset_id: project.kind === "tabular" ? project.dataset_id : null, project: latest.current ?? project };
+          },
+        }
+      : null,
   );
 
   if (missing)

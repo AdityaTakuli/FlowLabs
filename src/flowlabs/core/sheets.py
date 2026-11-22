@@ -9,6 +9,7 @@ The app calculates the formulas (apps/web/src/sheets); the engine keeps the work
 from __future__ import annotations
 
 import base64
+import binascii
 import datetime as dt
 import math
 import re
@@ -283,7 +284,10 @@ def export_file(ws: Workspace, name: str, data_base64: str) -> dict[str, Any]:
     stem = re.sub(r"[^\w. -]+", "_", (name or "workbook").strip())[:120].strip(" ._") or "workbook"
     if not stem.lower().endswith((".xlsx", ".csv")):
         raise UserError("only .xlsx and .csv files can be saved here")
-    data = base64.b64decode(data_base64)
+    try:
+        data = base64.b64decode(data_base64, validate=True)
+    except (binascii.Error, ValueError, TypeError) as error:
+        raise UserError("the file did not arrive whole; save it again") from error
     if len(data) > 200 * 1024 * 1024:
         raise UserError("the file is over 200 MB")
     folder = ws.exports / "sheets"

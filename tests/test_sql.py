@@ -404,3 +404,20 @@ def test_ask_ai_sends_the_schema_and_returns_sql(engine, monkeypatch, tmp_path):
     assert "C00001" not in prompt  # no examples from ID-like columns
     assert "use the table data" in asked["messages"][0]["content"]
     assert engine.call("ai.configure", {"key": ""})["configured"] is False
+
+
+def test_the_ai_panel_rpc(engine, monkeypatch):
+    from flowlabs.core import ai
+
+    seen = {}
+
+    def fake(provider, key, model, base_url, messages, schema=None, max_tokens=0):
+        seen["messages"] = messages
+        return json.dumps({"message": "Hello.", "actions": []})
+
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    engine.call("ai.configure", {"key": "gsk_" + "a" * 40})
+    monkeypatch.setattr(ai, "_ask", fake)
+    answer = engine.call("ai.chat", {"messages": [{"role": "user", "content": "hi"}], "view": "Home"})
+    assert answer["message"] == "Hello." and answer["provider"] == "Groq"
+    assert "Current view: Home" in seen["messages"][0]["content"]

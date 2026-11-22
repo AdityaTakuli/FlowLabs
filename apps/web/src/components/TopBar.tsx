@@ -1,6 +1,8 @@
 import { motion } from "motion/react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useApp } from "../context";
+import type { AiStatus } from "../types";
+import { AI_CHANGED, useAiPanel } from "./AiPanel";
 import { androidBridge } from "../engine/engine";
 import { Icon } from "./Icon";
 import { UpdateButton } from "./Updates";
@@ -79,6 +81,34 @@ function ThemeButton() {
   );
 }
 
+/** Opens and closes the AI panel (Ctrl+L), with a dot when an AI is connected. Desktop only: the
+    browser version cannot reach AI providers. */
+function AiButton() {
+  const { engine } = useApp();
+  const panel = useAiPanel();
+  const [status, setStatus] = useState<AiStatus | null>(null);
+  const desktop = engine.kind !== "browser";
+  useEffect(() => {
+    if (!desktop) return;
+    const load = () => engine.call<AiStatus>("ai.status").then(setStatus, () => setStatus(null));
+    void load();
+    window.addEventListener(AI_CHANGED, load);
+    return () => window.removeEventListener(AI_CHANGED, load);
+  }, [engine, desktop]);
+  if (!desktop || !status || !panel) return null;
+  return (
+    <button
+      className={`ghost small ai-button ${panel.open ? "active" : ""}`}
+      onClick={() => panel.setOpen((open) => !open)}
+      aria-pressed={panel.open}
+      title={`${panel.open ? "Close" : "Open"} the AI panel (Ctrl+L)${status.configured ? `. It uses ${status.provider_label} (${status.model}).` : ""}`}
+    >
+      <Icon name="sparkles" size={13} /> AI
+      <span className={`dot ${status.configured ? "ok" : ""}`} aria-label={status.configured ? "connected" : "not connected"} />
+    </button>
+  );
+}
+
 /** Opens the guide at the topic for the page you are on. */
 function HelpButton({ topic }: { topic: string }) {
   const { openGuide } = useApp();
@@ -100,6 +130,7 @@ export function TopBar({ children, actions, onHome, help }: { children?: ReactNo
       <span className="spacer" />
       {actions}
       <UpdateButton />
+      <AiButton />
       <EngineChip />
       {help && <HelpButton topic={help} />}
       <ThemeButton />

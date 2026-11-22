@@ -26,7 +26,7 @@ from typing import Any
 
 from flowlabs import __version__
 
-from . import datasets, plugins, sources, sql, vault
+from . import ai_project, datasets, plugins, sources, sql, vault
 from .util import UserError
 from .workspace import Workspace
 
@@ -317,12 +317,13 @@ def _http_error(provider: Provider, error: urllib.error.HTTPError) -> UserError:
     return UserError(f"{provider.label} answered {error.code}: {detail or error.reason}")
 
 
-def _ask_openai(provider: Provider, key: str | None, model: str, url: str, messages: list[dict[str, str]]) -> str:
+def _ask_openai(provider: Provider, key: str | None, model: str, url: str, messages: list[dict[str, str]],
+                max_tokens: int = 900) -> str:  # fmt: skip
     body: dict[str, Any] = {"model": model, "messages": messages, "response_format": {"type": "json_object"}}
     if provider.id == "openai":
-        body["max_completion_tokens"] = 4000  # GPT-5 models think first; they take no temperature
+        body["max_completion_tokens"] = max(4000, max_tokens * 2)  # GPT-5 models think first; no temperature
     else:
-        body.update(max_tokens=900, temperature=0.1)
+        body.update(max_tokens=max_tokens, temperature=0.1)
     headers = {"Content-Type": "application/json", "User-Agent": f"FlowLabs/{__version__}"}
     if key:
         headers["Authorization"] = f"Bearer {key}"
@@ -351,7 +352,8 @@ def _ask_openai(provider: Provider, key: str | None, model: str, url: str, messa
         raise UserError(f"{provider.label} sent an answer FlowLabs could not read.") from error
 
 
-def _ask_claude(key: str, model: str, system: str, prompt: str) -> str:
+def _ask_claude(key: str, model: str, system: str, messages: list[dict[str, str]],
+                schema: dict[str, Any] = ANSWER_SCHEMA, think: bool = False) -> str:  # fmt: skip
     """Claude through Anthropic's SDK, with its answer held to the JSON shape FlowLabs reads."""
     try:
         import anthropic
@@ -359,8 +361,10 @@ def _ask_claude(key: str, model: str, system: str, prompt: str) -> str:
         raise UserError("Claude needs the anthropic package. Install it in Ask AI's settings.") from error
     client = anthropic.Anthropic(api_key=key, timeout=CLAUDE_TIMEOUT_S, max_retries=1)
     params: dict[str, Any] = {"model": model, "max_tokens": 16000, "system": system,
-                              "messages": [{"role": "user", "content": prompt}],
-                              "output_config": {"format": {"type": "json_schema", "schema": ANSWER_SCHEMA}}}  # fmt: skip
+                              "messages": messages,
+                              "output_config": {"format": {"type": "json_schema", "schema": schema}}}  # fmt: skip
+    if think:  # a conversation about the user's work: Claude decides how much to think
+        params["thinking"] = {"type": "adaptive"}
     try:
         if model in CLAUDE_FALLBACKS:  # a declined request is taken over by another Claude model
             response: Any = client.beta.messages.create(
@@ -385,10 +389,14 @@ def _ask_claude(key: str, model: str, system: str, prompt: str) -> str:
     return next((block.text for block in response.content if block.type == "text"), "")
 
 
-def _ask(provider: Provider, key: str | None, model: str, base_url: str, messages: list[dict[str, str]]) -> str:
+def _ask(provider: Provider, key: str | None, model: str, base_url: str, messages: list[dict[str, str]],
+         schema: dict[str, Any] = ANSWER_SCHEMA, max_tokens: int = 900) -> str:  # fmt: skip
+    """``messages`` starts with the system prompt, then the conversation."""
     if provider.api == "anthropic":
-        return _ask_claude(str(key), model, messages[0]["content"], messages[1]["content"])
-    return _ask_openai(provider, key, model, _endpoint(provider, base_url), messages)
+        return _ask_claude(
+            str(key), model, messages[0]["content"], messages[1:], schema, think=schema is not ANSWER_SCHEMA
+        )
+    return _ask_openai(provider, key, model, _endpoint(provider, base_url), messages, max_tokens)
 
 
 def _get_json(url: str, key: str | None, timeout: float) -> Any:
@@ -463,9 +471,30 @@ def install_sdk(on_line: Any) -> int:
     return plugins.install(list(ANTHROPIC_PACKAGES), on_line)
 
 
-def write_sql(ws: Workspace, question: str, connection_id: str | None = None, dataset_id: str | None = None,
-              current: str = "", error: str | None = None) -> dict[str, Any]:  # fmt: skip
-    """Plain English to SQL: {"sql", "explanation", "model"}."""
+def _parse_answer(answer: str) -> dict[str, Any]:
+    """The model's {"sql", "explanation"}; from fenced JSON, a ```sql block, or a bare SELECT/WITH."""
+    text = answer.strip()
+    try:
+        parsed = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", text))
+        if isinstance(parsed, dict):
+            return parsed
+    except ValueError:
+        pass
+    found = re.search(r"```(?:sql)?\s*(.+?)```", text, re.S | re.I)
+    if found:
+        return {"sql": found.group(1).strip(), "explanation": ""}
+    # a bare query: SELECT ... FROM, WITH name AS (, or a SELECT that starts a line ("with" and
+    # "select" alone are ordinary words: "I cannot help with that" is not SQL)
+    for pattern in (r"(?is)\b(with\s+\w+\s+as\s*\(.*)$", r"(?is)\b(select\s.+?\bfrom\b.*)$",
+                    r"(?im)(?:^|:\s*)(select\s+\S.*)$"):  # fmt: skip
+        bare = re.search(pattern, text)
+        if bare:
+            return {"sql": bare.group(1).strip(), "explanation": ""}
+    return {"sql": "", "explanation": ""}
+
+
+def _usable(ws: Workspace) -> tuple[Provider, str | None]:
+    """The chosen provider and its key, or a plain message saying what is missing."""
     if sys.platform == "emscripten":
         raise UserError("Ask AI needs the desktop app or an engine: the browser version cannot reach AI providers.")
     provider = _provider(ws)
@@ -477,6 +506,13 @@ def write_sql(ws: Workspace, question: str, connection_id: str | None = None, da
         raise UserError(f"Add a {provider.label} API key first.")
     elif _needs_package(provider):
         raise UserError("Claude needs the anthropic package. Install it in Ask AI's settings.")
+    return provider, key
+
+
+def write_sql(ws: Workspace, question: str, connection_id: str | None = None, dataset_id: str | None = None,
+              current: str = "", error: str | None = None) -> dict[str, Any]:  # fmt: skip
+    """Plain English to SQL: {"sql", "explanation", "model"}."""
+    provider, key = _usable(ws)
     question = question.strip()
     if not question and not error:
         raise UserError("Ask a question first.")
@@ -490,15 +526,237 @@ def write_sql(ws: Workspace, question: str, connection_id: str | None = None, da
     answer = _ask(provider, key, model, _base_url(ws, provider),
                   [{"role": "system", "content": SYSTEM.format(dialect=dialect, default_table=default)},
                    {"role": "user", "content": prompt}])  # fmt: skip
-    try:
-        parsed = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", answer.strip()))
-    except ValueError:
-        found = re.search(r"```(?:sql)?\s*(.+?)```", answer, re.S)
-        parsed = {"sql": found.group(1) if found else "", "explanation": ""}
+    parsed = _parse_answer(answer)
     query = str(parsed.get("sql") or "").strip()
+    if not query and not str(parsed.get("explanation") or "").strip():
+        said = " ".join(answer.split())[:200]
+        raise UserError(
+            f"{model} answered without SQL"
+            + (f": {said}" if said else ", with an empty reply")
+            + ". Ask again, or try another model."
+        )
     return {
         "sql": query,
         "explanation": str(parsed.get("explanation") or "").strip(),
         "model": model,
         "provider": provider.label,
     }
+
+
+# ---------------------------------------------------------------------------------------- chat
+# The AI panel: a conversation beside the page, like a code editor's assistant. The page says what
+# is open (the query and its last result, or the sheet and the selected cells) and what the
+# assistant may change; the answer is a message plus actions the page applies, each one undoable.
+
+CHAT_TURNS = 16  # the last messages sent again with each question
+CHAT_CHARS = 6000  # of one message
+CONTEXT_CHARS = 12000  # of what the page shows
+MAX_CELLS = 2000  # one answer writes at most this many cells
+ACTION_KINDS = ("sql", "cells", "project")
+
+CHAT_SYSTEM = """You are the assistant inside FlowLabs, a desktop app for data: a SQL editor for datasets and databases, \
+Sheets (spreadsheets with Excel's formulas), and no-code machine learning projects. You sit in a panel beside what \
+the user is working on and you can change it for them.
+
+Answer with JSON only: {{"message": "...", "actions": [...]}}.
+- message: your reply in Markdown. Short and plain, for someone who may not be technical. When you change something, \
+say in one or two sentences what you changed and why. Never paste the SQL or cell values again in the message: the \
+actions show them.
+- actions: the changes to make, or [] when you only answer. Each action has every field: \
+{{"type": "sql", "cells" or "project", "sql": "", "run": false, "sheet": "", "start": "", "values": [], \
+"change": "", "stage": "", "op": "", "item": "", "params_json": "", "target": "", "metric": ""}}; fill the ones \
+its type uses and leave the others empty.
+{abilities}
+Current view: {view}
+{context}"""
+
+ABILITIES = {
+    "sql": """- "sql" replaces the query in the editor with "sql": the whole query, ready to run, in the {dialect} \
+dialect, using only the tables and columns listed. Quote names with spaces or capitals with double quotes. Set "run" \
+to true to run it at once (for reading; set it to false when the query changes or deletes data, so the user runs it \
+themselves). Keep the user's other statements when they ask for a small change.""",
+    "cells": """- "cells" writes into the open workbook: "sheet" is the sheet's name ("" for the one on screen; a new \
+name adds a sheet), "start" the top-left cell such as "B2", and "values" the rows of cells as text, as typed in \
+Excel: numbers, text, or formulas starting with "=" (SUM, AVERAGE, XLOOKUP, IF, FILTER, SORT and Excel's other \
+functions work). Write formulas rather than computed numbers when the result depends on other cells. "" leaves a \
+cell empty. Never overwrite cells that have content unless the user asks.""",
+    "project": """- "project" changes the machine learning project, the same way the user would on its Pipeline page. \
+"change" is one of: "add_step" ("op" = a step id from the lists below; it goes at the end of its stage), \
+"add_model" ("op" = a model id from the list below), "update" ("item" = the id of an existing step or model; \
+"params_json" holds only the settings to change, and may also hold "enabled": true/false and, for models, \
+"tune": "off", "quick" or "thorough"), "remove" ("item" = its id), "settings" ("target" = a column to predict \
+and/or "metric" = one of the metrics listed) and "train" (train every enabled model; put it last). "params_json" \
+is a JSON object as text, such as "{{\"n_estimators\": 400}}", using only the setting names listed for that step \
+or model; leave settings out to keep their defaults. Use real column names from the data. Prefer a few changes \
+that answer the request over rebuilding the whole pipeline, and say what each change is for.""",
+}
+
+ACTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "type": {"type": "string", "enum": list(ACTION_KINDS)},
+        "sql": {"type": "string"},
+        "run": {"type": "boolean"},
+        "sheet": {"type": "string"},
+        "start": {"type": "string"},
+        "values": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
+        "change": {"type": "string"},
+        "stage": {"type": "string"},
+        "op": {"type": "string"},
+        "item": {"type": "string"},
+        "params_json": {"type": "string"},
+        "target": {"type": "string"},
+        "metric": {"type": "string"},
+    },
+    "required": [
+        "type",
+        "sql",
+        "run",
+        "sheet",
+        "start",
+        "values",
+        "change",
+        "stage",
+        "op",
+        "item",
+        "params_json",
+        "target",
+        "metric",
+    ],  # fmt: skip
+    "additionalProperties": False,
+}
+CHAT_SCHEMA = {
+    "type": "object",
+    "properties": {"message": {"type": "string"}, "actions": {"type": "array", "items": ACTION_SCHEMA}},
+    "required": ["message", "actions"],
+    "additionalProperties": False,
+}
+
+
+def _turns(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """The conversation as the APIs take it: user first, then turns that alternate, each trimmed."""
+    turns: list[dict[str, str]] = []
+    for item in messages[-CHAT_TURNS:]:
+        role = "assistant" if item.get("role") == "assistant" else "user"
+        text = str(item.get("content") or "").strip()[:CHAT_CHARS]
+        if not text:
+            continue
+        if turns and turns[-1]["role"] == role:
+            turns[-1]["content"] += "\n\n" + text
+        else:
+            turns.append({"role": role, "content": text})
+    while turns and turns[0]["role"] != "user":
+        turns.pop(0)
+    if not turns or turns[-1]["role"] != "user":
+        raise UserError("Ask something first.")
+    return turns
+
+
+def _json_object(text: str) -> dict[str, Any] | None:
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
+    for candidate in (text, text[text.find("{") : text.rfind("}") + 1] if "{" in text else ""):
+        try:
+            parsed = json.loads(candidate)
+        except ValueError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def _cell_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "TRUE" if value else "FALSE"
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def _actions(raw: Any, can: set[str]) -> list[dict[str, Any]]:
+    """Only the actions this page can apply, each in a shape it can trust."""
+    found: list[dict[str, Any]] = []
+    cells = 0
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict) or item.get("type") not in can or item.get("type") == "project":
+            continue
+        if item["type"] == "sql":
+            query = str(item.get("sql") or "").strip()
+            if query:
+                found.append({"type": "sql", "sql": query, "run": bool(item.get("run"))})
+            continue
+        start = str(item.get("start") or "").replace("$", "").strip().upper()
+        rows = item.get("values")
+        if not re.fullmatch(r"[A-Z]{1,3}[1-9][0-9]{0,6}", start) or not isinstance(rows, list):
+            continue
+        rows = [[_cell_text(v) for v in (row if isinstance(row, list) else [row])] for row in rows]
+        rows = [row for row in rows if row] or []
+        size = sum(len(row) for row in rows)
+        if not size or cells + size > MAX_CELLS:
+            continue
+        cells += size
+        found.append(
+            {"type": "cells", "sheet": str(item.get("sheet") or "").strip()[:31], "start": start, "values": rows}
+        )
+    return found
+
+
+def _parse_chat(answer: str, can: set[str], project: dict[str, Any] | None = None,
+                packages: dict[str, Any] | None = None) -> dict[str, Any]:  # fmt: skip
+    """The model's {"message", "actions"}; a reply in plain text is the message, and a ```sql block
+    in it is the query to put in the editor."""
+    parsed = _json_object(answer)
+    if parsed is not None and ("message" in parsed or "actions" in parsed):
+        found = _actions(parsed.get("actions"), can)
+        if "project" in can:
+            found += ai_project.actions(parsed.get("actions"), project, packages or {})
+        return {"message": str(parsed.get("message") or "").strip(), "actions": found}
+    text = answer.strip()
+    actions: list[dict[str, Any]] = []
+    if "sql" in can:
+        fenced = re.search(r"```sql\s*(.+?)```", text, re.S | re.I)
+        if fenced:
+            actions.append({"type": "sql", "sql": fenced.group(1).strip(), "run": False})
+            text = (text[: fenced.start()] + text[fenced.end() :]).strip()
+    return {"message": text, "actions": actions}
+
+
+def chat(ws: Workspace, messages: list[dict[str, Any]], view: str = "", context: str = "",
+         can: list[str] | None = None, dataset_id: str | None = None,
+         connection_id: str | None = None, project: dict[str, Any] | None = None,
+         packages: dict[str, Any] | None = None) -> dict[str, Any]:  # fmt: skip
+    """One turn of the AI panel: {"message", "actions", "model", "provider"}."""
+    provider, key = _usable(ws)
+    turns = _turns(messages)
+    abilities = {kind for kind in (can or []) if kind in ACTION_KINDS}
+    if not isinstance(project, dict):
+        project = None
+        abilities.discard("project")
+    parts = [context.strip()[:CONTEXT_CHARS]] if context.strip() else []
+    if project is not None and "project" in abilities:
+        parts.append(ai_project.describe(project, packages or {}))
+    dialect = "DuckDB (like PostgreSQL)"
+    if dataset_id or connection_id or "sql" in abilities:
+        try:
+            tables, dialect = schema(ws, connection_id, dataset_id)
+        except Exception as error:  # noqa: BLE001 - a database that is down: the chat still works
+            tables = f"(the tables could not be listed: {error})"
+        if tables:
+            parts.append("Tables:\n" + tables)
+            if dataset_id and not connection_id:
+                parts.append(f"The table {sql.PROJECT_TABLE} is this project's data: use it for 'my data'.")
+    told = "\n".join(ABILITIES[kind].format(dialect=dialect) for kind in ACTION_KINDS if kind in abilities)
+    if not told:
+        told = "- Nothing on this page can be changed from here: answer in the message, and keep actions []."
+    system = CHAT_SYSTEM.format(abilities=told, view=view.strip()[:200] or "the home page", context="\n\n".join(parts))
+    model = _model(ws, provider)
+    answer = _ask(provider, key, model, _base_url(ws, provider), [{"role": "system", "content": system}, *turns],
+                  schema=CHAT_SCHEMA, max_tokens=4000)  # fmt: skip
+    reply = _parse_chat(answer, abilities, project, packages)
+    if not reply["message"] and not reply["actions"]:
+        said = " ".join(answer.split())[:200]
+        raise UserError(
+            f"{model} sent an empty answer" + (f": {said}" if said else "") + ". Ask again, or try another model."
+        )
+    return {**reply, "model": model, "provider": provider.label}

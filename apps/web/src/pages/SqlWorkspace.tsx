@@ -10,6 +10,7 @@ import { Modal, Notice, Spinner } from "../components/ui";
 import { EngineError } from "../engine/engine";
 import { ConnectionDialog } from "../components/ConnectionDialog";
 import { AiSettings } from "../components/AiSettings";
+import { AI_CHANGED, useAiTarget } from "../components/AiPanel";
 import type { AiStatus, DatasetMeta, DbConnection, DbOverview, SourceKind, SqlResult, SqlTable } from "../types";
 import type { ProjectApi } from "./ProjectPage";
 import { QueryTab, type QueryTabState } from "./db/QueryTab";
@@ -202,6 +203,13 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
       engine.call<AiStatus>("ai.status").then(setAi, () => setAi(null));
     }
   }, [engine, fail, inBrowser, loadTables]);
+  // Set up from the top bar's AI button while this page is open
+  useEffect(() => {
+    if (inBrowser) return;
+    const reload = () => engine.call<AiStatus>("ai.status").then(setAi, () => undefined);
+    window.addEventListener(AI_CHANGED, reload);
+    return () => window.removeEventListener(AI_CHANGED, reload);
+  }, [engine, inBrowser]);
 
   const storage = kinds.find((k) => k.id === connection?.kind)?.engine === "storage";
   useEffect(() => {
@@ -269,6 +277,31 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
       setRunning(false);
     }
   }, [engine, running, source, datasetId]);
+
+  // The simple editor (cloud storage, DuckDB files) talks to the AI panel itself; the full query
+  // tab does that on its own.
+  useAiTarget(
+    full || inBrowser
+      ? null
+      : {
+          label: `${connection?.name ?? api.project.name} query`,
+          view: `SQL editor on ${connection ? `${connection.name} (${connection.kind_label})` : "this project's data (DuckDB)"}`,
+          can: ["sql"],
+          context: () => {
+            const parts = [`The query in the editor:\n\`\`\`sql\n${latest.current.slice(0, 6000) || "-- empty"}\n\`\`\``];
+            if (error) parts.push(`Its last run failed: ${error.message}`);
+            if (result?.columns.length) parts.push(`It returned ${result.rows.length} rows with columns ${result.columns.join(", ")}.`);
+            return { text: parts.join("\n"), dataset_id: datasetId, connection_id: source === LOCAL || storage ? null : source };
+          },
+          apply: (action) => {
+            if (action.type !== "sql") return {};
+            const before = latest.current;
+            setQuery(action.sql);
+            if (action.run) void run(action.sql);
+            return { note: action.run ? "Put in the editor and run." : "Put in the editor.", undo: () => setQuery(before) };
+          },
+        },
+  );
 
   /** Plain English (or a failed query) to SQL, then run it. */
   const ask = async (fix = false) => {
@@ -641,6 +674,7 @@ export function SqlWorkspace({ api, seed }: { api: ProjectApi; seed?: string | n
           onSaved={(next) => {
             setAi(next);
             setAiOpen(false);
+            window.dispatchEvent(new Event(AI_CHANGED));
           }}
         />
       )}

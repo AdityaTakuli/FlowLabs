@@ -128,7 +128,9 @@ def _install_driver(engine: Engine, p: dict[str, Any]) -> Any:
 
     source = sources.get(_p(p, "kind"))
     ssh = p.get("extra") == "ssh"  # paramiko, for connecting through SSH
-    packages, modules = (list(tunnel.PACKAGES), list(tunnel.MODULES)) if ssh else (list(source.packages), list(source.modules))
+    packages, modules = (
+        (list(tunnel.PACKAGES), list(tunnel.MODULES)) if ssh else (list(source.packages), list(source.modules))
+    )
     if not packages:
         raise UserError(f"{source.label} needs nothing installed")
     job_id = new_id("i")
@@ -172,8 +174,13 @@ def _cancel(engine: Engine, p: dict[str, Any]) -> Any:
 
 def _restore(engine: Engine, p: dict[str, Any]) -> Any:
     path = str(backup.stored_upload(engine.ws, _p(p, "path")))  # checked before the task starts
-    return backup.start(lambda task: backup.restore(engine.ws, task, _p(p, "connection_id"), _p(p, "database"), path,
-                                                    p.get("options") or {}), engine.emit, engine.spawn)
+    return backup.start(
+        lambda task: backup.restore(
+            engine.ws, task, _p(p, "connection_id"), _p(p, "database"), path, p.get("options") or {}
+        ),
+        engine.emit,
+        engine.spawn,
+    )
 
 
 def _cursor(p: dict[str, Any]) -> int | None:
@@ -205,7 +212,7 @@ METHODS: dict[str, Callable[[Engine, dict[str, Any]], Any]] = {
     "datasets.delete": lambda e, p: datasets.delete_dataset(e.ws, _p(p, "dataset_id")),
     "datasets.rename": lambda e, p: datasets.rename_dataset(e.ws, _p(p, "dataset_id"), _p(p, "name")),
     "datasets.choose_sheet": lambda e, p: datasets.choose_sheet(
-        e.ws, _p(p, "dataset_id"), _p(p, "sheet"), int(p.get("header_row") or 1)
+        e.ws, _p(p, "dataset_id"), _p(p, "sheet"), p.get("header_row", 1)
     ),
     "datasets.export": lambda e, p: datasets.export(e.ws, _p(p, "dataset_id"), _p(p, "format")),
     # workbooks (spreadsheets); the app calculates them, the engine keeps them (sheets.py)
@@ -250,6 +257,10 @@ METHODS: dict[str, Callable[[Engine, dict[str, Any]], Any]] = {
     "ai.install": lambda e, p: _install_ai(e),
     "ai.models": lambda e, p: ai.models(e.ws, _p(p, "provider"), p.get("base_url"), p.get("key")),
     "ai.detect": lambda e, p: ai.detect(),
+    "ai.chat": lambda e, p: ai.chat(e.ws, list(p.get("messages") or []), str(p.get("view") or ""),
+                                    str(p.get("context") or ""), list(p.get("can") or []), p.get("dataset_id"),
+                                    p.get("connection_id"), p.get("project"),
+                                    env.packages() if p.get("project") else None),
     "ai.sql": lambda e, p: ai.write_sql(e.ws, str(p.get("question") or ""), p.get("connection_id"), p.get("dataset_id"),
                                         str(p.get("sql") or ""), p.get("error")),
     "sql.kinds": lambda e, p: sql.kinds(),

@@ -202,3 +202,91 @@ def test_live_azure_container(ws, tmp_path):
     assert {f["name"] for f in inner["files"]} == {"feb.parquet", "jan.parquet"}
     result = sql.run(ws, f"select sum(amount) as total from {inner['all_files_sql']}", connection_id=saved["id"])
     assert result["rows"][0] == [35.0]
+
+
+# ------------------------------------------------------------------------- found by breaking it
+
+
+@pytest.mark.parametrize(
+    ("name", "content", "message"),
+    [
+        ("broken.xlsx", b"not a zip at all", "could not open this Excel file"),
+        ("empty.csv", b"", "the file is empty"),
+        ("old.xls", b"\xd0\xcf\x11\xe0" + b"\0" * 600, "could not open this Excel file"),
+    ],
+)
+def test_unreadable_files_are_explained(ws, tmp_path, name, content, message):
+    path = tmp_path / name
+    path.write_bytes(content)
+    with pytest.raises(UserError, match=message):
+        datasets.import_file(ws, path)
+    assert not any(ws.datasets.iterdir()) if ws.datasets.exists() else True  # nothing half-imported
+
+
+def test_header_row_mistakes(ws, book):
+    with pytest.raises(UserError, match="fewer than 500 rows"):
+        datasets.choose_sheet(ws, book["id"], "Report", header_row=500)
+    with pytest.raises(UserError, match="a number from 1 to 1000"):
+        datasets.choose_sheet(ws, book["id"], "Report", header_row="abc")
+
+
+def test_a_dataset_in_use_keeps_its_sheet_for_its_projects(ws, book):
+    datasets.choose_sheet(ws, book["id"], "Report", header_row=3)
+    project = projects.new_project(ws, book["id"], target="big")
+    projects.save(ws, project)
+    other = datasets.choose_sheet(ws, book["id"], "Report", header_row=1)
+    assert other["id"] != book["id"] and other["name"] == "sales (Report)" and other["header_row"] == 1
+    kept = datasets.get_meta(ws, book["id"])
+    assert kept["header_row"] == 3 and "big" in datasets.load_frame(ws, book["id"]).columns
+    # the same choice again changes nothing
+    assert datasets.choose_sheet(ws, other["id"], "Report", header_row=1)["id"] == other["id"]
+
+
+def test_browse_keeps_brackets_and_quotes(tmp_path):
+    import duckdb
+
+    folder = tmp_path / "bucket" / "it's [2026] & co*"
+    folder.mkdir(parents=True)
+    pd.DataFrame({"x": [1, 2]}).to_parquet(folder / "o'neil [v1].parquet")
+    pd.DataFrame({"x": [3]}).to_parquet(folder / "plain.parquet")
+    connection = duckdb.connect()
+    top = sources.browse_at(connection, f"{(tmp_path / 'bucket').as_posix()}/")
+    assert [f["name"] for f in top["folders"]] == ["it's [2026] & co*"]
+    inner = sources.browse_at(connection, f"{folder.as_posix()}/")
+    files = {f["name"]: f for f in inner["files"]}
+    assert set(files) == {"o'neil [v1].parquet", "plain.parquet"}
+    assert files["o'neil [v1].parquet"]["size"] == (folder / "o'neil [v1].parquet").stat().st_size
+    assert connection.sql(
+        f"select count(*) from {files[chr(111) + chr(39) + 'neil [v1].parquet']['sql']}"
+    ).fetchall() == [(2,)]
+    assert connection.sql(f"select sum(x) from {inner['all_files_sql']}").fetchall() == [(6,)]
+
+
+def test_storage_errors_in_plain_words():
+    assert sql._storage_error(
+        "IO Error: Could not connect to server error for HTTP GET to 'http://10.0.0.9:9000/b/'"
+    ) == ("Could not reach 10.0.0.9:9000. Check the address (endpoint), and that you are online.")
+    assert "refused the request" in sql._storage_error("HTTP Error: 403 (Forbidden) for 'https://b.s3.amazonaws.com/x'")
+
+
+def test_the_header_row_is_found(ws, tmp_path):
+    path = tmp_path / "found.xlsx"
+    table = pd.DataFrame({"region": ["n", "s"] * 5, "units": range(10), "won": ["yes", "no"] * 5})
+    with pd.ExcelWriter(path) as writer:
+        pd.DataFrame([["Quarterly report"], ["made by finance"]]).to_excel(
+            writer, sheet_name="Titled", index=False, header=False
+        )
+        table.to_excel(writer, sheet_name="Titled", index=False, startrow=3)
+        table.to_excel(writer, sheet_name="Plain", index=False)
+        pd.DataFrame({"region": ["n", "s"], 2024: [1, 2], 2025: [3, 4]}).to_excel(
+            writer, sheet_name="Years", index=False
+        )
+    assert datasets.guess_header_row(path, "Titled") == 4
+    assert datasets.guess_header_row(path, "Plain") == 1
+    assert datasets.guess_header_row(path, "Years") == 1  # numbers as column names: keep row 1
+    meta = datasets.import_file(ws, path)
+    assert meta["sheet"] == "Titled" and meta["header_row"] == 4 and meta["rows"] == 10
+    assert list(datasets.load_frame(ws, meta["id"]).columns) == ["region", "units", "won"]
+    # another sheet: its own header row is found again
+    plain = datasets.choose_sheet(ws, meta["id"], "Plain", header_row=None)
+    assert plain["header_row"] == 1 and plain["rows"] == 10

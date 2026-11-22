@@ -112,3 +112,20 @@ outlined in red. Warnings (orange) still let you train.
 Every step and model has a **Python** view next to **Settings**: the code it runs, with your
 settings. **Edit as code** turns it into a code step you can change line by line. See
 [Code steps](guide:code).
+
+## The AI panel in a project
+
+Open the **AI panel** (the **AI** button in the top bar, or **Ctrl+L**) and describe a change. It
+sees the target, the metric, each step and model with its settings, and the last results, and it
+uses the same steps and models as the **Add** menus:
+
+- *drop the ID column*, *fill missing ages with the median*: adds a step at the end of its stage;
+- *try extra trees with 400 trees*, *add the models that suit my data*: adds models;
+- *turn off the baseline*, *tune the random forest*: changes a model or a step;
+- *predict price instead*, *rank models by accuracy*: sets the target or the metric;
+- *… and train*: starts training once the other changes are made.
+
+Each change appears in the panel with what it set, and with **Undo**, which takes back that change
+only: steps you added by hand afterwards stay. Settings a step does not have are left out and named
+in the panel, and anything the AI names that does not exist (a step, a model, a column ID) is not
+applied. Code steps are not changed from the panel: edit them in their **Python** view.

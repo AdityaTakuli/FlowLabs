@@ -1,6 +1,7 @@
 // A query tab: an editor with its own database session, results, messages, plans and history.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../context";
+import { useAiTarget } from "../../components/AiPanel";
 import { EngineError } from "../../engine/engine";
 import { CodeEditor } from "../../components/LazyCodeEditor";
 import { Icon } from "../../components/Icon";
@@ -252,6 +253,35 @@ export function QueryTab({ tab, overview, onChange, onDatasetSaved, insert, repl
     if (replace.run) void execute(true, replace.text);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [replace]);
+
+  // The AI panel sees this query, its last run (columns and row counts, never the rows) and the
+  // tables, and puts its query in the editor: run at once when it only reads.
+  const local = tab.connection_id === "local";
+  useAiTarget({
+    label: tab.title,
+    view: `SQL editor on ${local ? "this project's data and datasets (DuckDB)" : `${overview?.name ?? "a database"} (${overview?.server ?? flavor ?? "SQL"})`}`,
+    can: ["sql"],
+    suggestions: run?.error ? ["Fix the error", "Explain the error in plain words"] : ["Explain this query", "Show the 10 largest rows", "Count rows per category"],
+    context: () => {
+      const parts = [`The query in the editor:\n\`\`\`sql\n${sql.slice(0, 6000) || "-- empty"}\n\`\`\``];
+      if (!local && database) parts.push(`Database: ${database}${schemaName && schemaName !== database ? `, schema ${schemaName}` : ""}.`);
+      if (overview?.read_only || session?.read_only) parts.push("This connection is read-only: only queries that read work.");
+      if (run?.error) parts.push(`Its last run failed on line ${run.error.line}: ${run.error.message}`);
+      for (const r of run?.results ?? []) {
+        if (r.columns) parts.push(`A statement returned ${r.rows?.length ?? 0}${r.truncated ? "+" : ""} rows with columns ${r.columns.map((c, i) => `${c} ${r.types?.[i] ?? ""}`.trim()).join(", ")}.`);
+        else if (r.message) parts.push(`A statement said: ${r.message}`);
+      }
+      return { text: parts.join("\n"), dataset_id: local ? database : null, connection_id: local ? null : tab.connection_id };
+    },
+    apply: (action) => {
+      if (action.type !== "sql") return {};
+      const before = sql;
+      setSql(action.sql);
+      place.current = { from: 0, to: 0, head: 0 };
+      if (action.run) void execute(true, action.sql);
+      return { note: action.run ? "Put in the editor and run." : "Put in the editor.", undo: () => setSql(before) };
+    },
+  });
 
   const results = useMemo(() => run?.results.filter((r) => r.columns) ?? [], [run]);
   const shown = view.kind === "result" ? results[view.index] : undefined;

@@ -11,6 +11,7 @@ import { formatValue } from "../engine/format";
 import { DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, type Sheet, type Workbook } from "../engine/workbook";
 import { useApp } from "../../context";
 import { Icon } from "../../components/Icon";
+import { useAiTarget } from "../../components/AiPanel";
 import { applyStyle, autoSum, currentRegion, describeArea, fillFrom, fullCols, fullRows, jump, shiftSelection, sortArea, statusOf, toggleAbsolute, toggleStyle } from "./commands";
 import { cellRect, HEADER_H, HEADER_W, hit, makeLayout } from "./layout";
 import { draw, fitHeight, fitWidth, readTheme, REF_COLORS, type Overlay, type Selection, type Theme } from "./render";
@@ -305,6 +306,68 @@ export const Spreadsheet = memo(function Spreadsheet({ wb, extra, onSaveDataset,
     }
     scroll.current = { x: 0, y: 0 };
   }, [sheetUid, sel]);
+
+  // ------------------------------------------------------------------------ the AI panel
+  // It sees the sheet's names, its first rows and the selected cells (as typed: formulas with =),
+  // and writes cells as one undoable step.
+  useAiTarget({
+    label: fileName ? `${sheet.name} of ${fileName}` : sheet.name,
+    view: `Sheets, a spreadsheet: the workbook "${fileName ?? "untitled"}", sheet "${sheet.name}"`,
+    can: ["cells"],
+    suggestions: ["Add a total row under the numbers", "Explain the formulas in my selection", "Make a summary of this sheet on a new sheet"],
+    context: () => {
+      const used = wb.bounds(sheet);
+      const grid = (area: { r1: number; c1: number; r2: number; c2: number }) => {
+        const lines: string[] = [];
+        for (let r = area.r1; r <= area.r2; r++) {
+          const cells: string[] = [];
+          for (let c = area.c1; c <= area.c2; c++) {
+            const text = wb.editText(sheet, r, c);
+            if (text !== "") cells.push(`${cellName(r, c)}=${JSON.stringify(text.slice(0, 80))}`);
+          }
+          if (cells.length) lines.push(cells.join("  "));
+        }
+        return lines.join("\n");
+      };
+      const parts = [
+        `Sheets in the workbook: ${wb.sheets.map((s) => (s.uid === sheet.uid ? `"${s.name}" (on screen)` : `"${s.name}"`)).join(", ")}.`,
+        used.rows && used.cols ? `"${sheet.name}" uses A1:${cellName(used.rows - 1, used.cols - 1)} (${used.rows} rows, ${used.cols} columns).` : `"${sheet.name}" is empty.`,
+      ];
+      const top = Math.min(used.rows, 8);
+      if (top) parts.push(`Its first rows (cell="content", formulas start with =):\n${grid({ r1: 0, c1: 0, r2: top - 1, c2: Math.min(used.cols, 26) - 1 })}`);
+      if (used.rows > top) parts.push(`Its last row:\n${grid({ r1: used.rows - 1, c1: 0, r2: used.rows - 1, c2: Math.min(used.cols, 26) - 1 })}`);
+      const picked = normal(sel.ranges[sel.ranges.length - 1] ?? { r1: sel.active.row, c1: sel.active.col, r2: sel.active.row, c2: sel.active.col });
+      const size = (picked.r2 - picked.r1 + 1) * (picked.c2 - picked.c1 + 1);
+      parts.push(`Selected: ${cellName(picked.r1, picked.c1)}${size > 1 ? `:${cellName(picked.r2, picked.c2)}` : ""} (active cell ${cellName(sel.active.row, sel.active.col)}).`);
+      if (size > 1 && size <= 400 && picked.r2 >= top) parts.push(`The selected cells:\n${grid(picked) || "(empty)"}`);
+      return { text: parts.join("\n") };
+    },
+    apply: (action) => {
+      if (action.type !== "cells") return {};
+      const start = parseArea(action.start);
+      if (!start) throw new Error(`${action.start} is not a cell.`);
+      let target = action.sheet ? wb.sheetByName(action.sheet) : sheet;
+      const label = "AI edit";
+      wb.transact(label, () => {
+        if (!target) target = wb.addSheet(action.sheet);
+        action.values.forEach((row, r) =>
+          row.forEach((text, c) => {
+            if (text !== "" && start.r1 + r < MAX_ROWS && start.c1 + c < MAX_COLS) wb.setInput(target!, start.r1 + r, start.c1 + c, text);
+          }),
+        );
+      });
+      const area = { r1: start.r1, c1: start.c1, r2: start.r1 + action.values.length - 1, c2: start.c1 + Math.max(1, ...action.values.map((row) => row.length)) - 1 };
+      if (target!.uid !== sheet.uid) switchSheet(target!.uid);
+      else selectArea(area);
+      const errors = action.values.flatMap((row, r) => row.map((_, c) => wb.display(target!, start.r1 + r, start.c1 + c).text)).filter((t) => /^#[A-Z/0]+[!?]?$/.test(t));
+      return {
+        note: errors.length ? `Some cells show ${[...new Set(errors)].join(", ")}. Ask the AI to fix them.` : undefined,
+        undo: () => {
+          if (wb.canUndo() === label) wb.undo();
+        },
+      };
+    },
+  });
 
   // ------------------------------------------------------------------------ editing
   const startEdit = (text: string, mode: Edit["mode"], from: Edit["from"] = "cell") => {

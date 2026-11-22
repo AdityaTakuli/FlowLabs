@@ -476,16 +476,22 @@ def file_format(path: str) -> str | None:
     return "csv"
 
 
-def reader(path: str) -> str:
-    """The SQL that reads one file (or a glob of same-format files): read_parquet('s3://...') and friends."""
-    many = "*" in path
+def glob_escape(path: str) -> str:
+    """A path DuckDB takes literally: [, ], * and ? are pattern characters in file names it reads."""
+    return "".join(f"[{c}]" if c in "[]*?" else c for c in path)
+
+
+def reader(path: str, pattern: bool = False) -> str:
+    """The SQL that reads one file, or with ``pattern`` every file a glob matches (columns matched by
+    name): read_parquet('s3://...') and friends. A single file's name is escaped, so brackets are kept."""
     fmt = file_format(path.replace("*", "x")) or "csv"
-    union = ", union_by_name = true" if many else ""
+    target = _quote(path if pattern else glob_escape(path))
+    union = ", union_by_name = true" if pattern else ""
     if fmt == "parquet":
-        return f"read_parquet({_quote(path)}{union})"
+        return f"read_parquet({target}{union})"
     if fmt == "json":
-        return f"read_json_auto({_quote(path)}{union})"
-    return f"read_csv_auto({_quote(path)}{union})"
+        return f"read_json_auto({target}{union})"
+    return f"read_csv_auto({target}{union})"
 
 
 BROWSE_LIMIT = 5000
@@ -495,9 +501,9 @@ SIZED_FILES = 300
 def browse_at(connection: Any, base: str, limit: int = BROWSE_LIMIT) -> dict[str, Any]:
     """One folder of a bucket (``base`` ends in /): its sub-folders and files with size and date.
     One recursive listing finds both; sizes come from DuckDB's read_blob, which does not read contents."""
+    listing = _quote(glob_escape(base) + "**")
     names = [
-        str(r[0])
-        for r in connection.execute(f"select file from glob({_quote(base + '**')}) limit {int(limit) + 1}").fetchall()
+        str(r[0]) for r in connection.execute(f"select file from glob({listing}) limit {int(limit) + 1}").fetchall()
     ]
     truncated = len(names) > limit
     names = names[:limit]
@@ -514,7 +520,7 @@ def browse_at(connection: Any, base: str, limit: int = BROWSE_LIMIT) -> dict[str
     details: dict[str, tuple[Any, Any]] = {}
     sized = direct[:SIZED_FILES]
     if sized:
-        listing = "[" + ", ".join(_quote(f) for f in sized) + "]"
+        listing = "[" + ", ".join(_quote(glob_escape(f)) for f in sized) + "]"
         try:
             for filename, size, modified in connection.execute(
                 f"select filename, size, last_modified from read_blob({listing})"
@@ -533,7 +539,11 @@ def browse_at(connection: Any, base: str, limit: int = BROWSE_LIMIT) -> dict[str
     # every readable file has the same ending (.parquet, .csv.gz...): one query reads them all
     readable = [f["name"].lower() for f in files if f["format"]]
     endings = {next((e for e in sorted(STORAGE_FILES, key=len, reverse=True) if n.endswith(e)), "") for n in readable}
-    together = reader(base + "*" + endings.pop()) if len(readable) > 1 and len(endings) == 1 else None
+    together = (
+        reader(glob_escape(base) + "*" + endings.pop(), pattern=True)
+        if len(readable) > 1 and len(endings) == 1
+        else None
+    )
     return {"base": base, "folders": [{"name": n, "files": c} for n, c in sorted(folders.items(), key=lambda kv: kv[0].lower())],
             "files": files, "truncated": truncated, "all_files_sql": together}  # fmt: skip
 

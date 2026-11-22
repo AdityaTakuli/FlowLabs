@@ -67,6 +67,26 @@ def _sniff_separator(sample: str) -> str:
 
 def read_table(path: Path, sheet: str | None = None, header_row: int = 1) -> pd.DataFrame:
     """One table from a file. Excel: ``sheet`` (the first when None), headers on ``header_row`` (1 = top)."""
+    try:
+        return _read_table(path, sheet, header_row)
+    except UserError:
+        raise
+    except pd.errors.EmptyDataError as error:
+        raise UserError("the file is empty: it has no columns") from error
+    except ValueError as error:
+        if "header=" in str(error) and sheet is not None:
+            raise UserError(f"the sheet {sheet} has fewer than {header_row} rows") from error
+        raise UserError(f"could not read this {path.suffix or ''} file: {_first_line(error)}") from error
+    except (zipfile.BadZipFile, pd.errors.ParserError, UnicodeError, OSError, KeyError, TypeError) as error:
+        raise UserError(f"could not read this {path.suffix or ''} file: {_first_line(error)}") from error
+
+
+def _first_line(error: Exception) -> str:
+    text = str(error).strip().splitlines()
+    return (text[0] if text else type(error).__name__)[:200]
+
+
+def _read_table(path: Path, sheet: str | None, header_row: int) -> pd.DataFrame:
     suffix = path.suffix.lower()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -116,7 +136,10 @@ def excel_sheets(path: Path) -> list[dict[str, Any]]:
             raise UserError("reading Excel files needs the openpyxl package in this engine") from error
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            book = openpyxl.load_workbook(path, read_only=True, data_only=True)
+            try:
+                book = openpyxl.load_workbook(path, read_only=True, data_only=True)
+            except Exception as error:  # noqa: BLE001 - not a workbook: a zip of something else, or damaged
+                raise UserError(f"could not open this Excel file: {_first_line(error)}") from error
         try:
             listed = []
             for sheet in book.worksheets:
@@ -135,6 +158,8 @@ def excel_sheets(path: Path) -> list[dict[str, Any]]:
         names = pd.ExcelFile(path).sheet_names
     except ImportError as error:
         raise UserError("reading .xls files needs the xlrd package in this engine") from error
+    except Exception as error:  # noqa: BLE001 - damaged, or not really an Excel file
+        raise UserError(f"could not open this Excel file: {_first_line(error)}") from error
     return [{"name": str(n), "rows": None, "columns": None, "hidden": False} for n in names]
 
 
@@ -217,13 +242,42 @@ def _write_meta(ws: Workspace, dataset_id: str, meta: dict[str, Any]) -> dict[st
     return meta
 
 
+def guess_header_row(path: Path, sheet: str) -> int:
+    """The row an Excel sheet's column names are on: the first row of text that is about as wide as
+    the table under it. Titles and notes above a table (one or two cells) are skipped; 1 otherwise."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            raw = pd.read_excel(path, sheet_name=sheet, header=None, nrows=30)
+    except Exception:  # noqa: BLE001 - unreadable here: the normal read reports it
+        return 1
+    if raw.empty:
+        return 1
+    counts = raw.notna().sum(axis=1)
+    widest = int(counts.max())
+    for index, count in enumerate(counts):
+        values = raw.iloc[index].dropna()
+        if count >= max(2, -(-widest * 6 // 10)) and all(isinstance(v, str) and v.strip() for v in values):
+            return index + 1
+        if count >= max(2, widest - 1) and not all(isinstance(v, str) for v in values):
+            break  # data starts with no header row of text above it: keep row 1
+    return 1
+
+
 def _usable(frame: pd.DataFrame) -> bool:
     return not frame.empty and len(frame.columns) >= 2
 
 
 def _table_meta(
-    ws: Workspace, dataset_id: str, name: str, file: str, source: str, sheet: str | None = None, header_row: int = 1
+    ws: Workspace,
+    dataset_id: str,
+    name: str,
+    file: str,
+    source: str,
+    sheet: str | None = None,
+    header_row: int | None = None,
 ) -> dict[str, Any]:
+    """``header_row`` None: found by guess_header_row (Excel), else 1."""
     folder = ws.datasets / dataset_id
     path = folder / file
     extra: dict[str, Any] = {}
@@ -234,17 +288,20 @@ def _table_meta(
             for candidate in sorted(sheets, key=lambda s: bool(s["hidden"])):
                 if candidate["rows"] == 0:
                     continue
-                attempt = _tidy(read_table(path, candidate["name"], header_row))
+                row = header_row or guess_header_row(path, candidate["name"])
+                attempt = _tidy(read_table(path, candidate["name"], row))
                 if _usable(attempt):
-                    frame, sheet = attempt, candidate["name"]
+                    frame, sheet, header_row = attempt, candidate["name"], row
                     break
             if frame is None:
                 raise UserError("none of the sheets holds a table with at least two columns and one row")
         else:
+            header_row = header_row or guess_header_row(path, sheet)
             frame = _tidy(read_table(path, sheet, header_row))
         extra = {"sheet": sheet, "sheets": sheets, "header_row": header_row}
     else:
         frame = _tidy(read_table(path))
+    header_row = header_row or 1
     if not _usable(frame):
         where = (
             f"the sheet {sheet}" + (f" with headers on row {header_row}" if header_row > 1 else "")
@@ -257,19 +314,50 @@ def _table_meta(
             **extra}  # fmt: skip
 
 
-def choose_sheet(ws: Workspace, dataset_id: str, sheet: str, header_row: int = 1) -> dict[str, Any]:
-    """Read another sheet of an imported Excel file, or take the headers from a lower row."""
+def _used_by(ws: Workspace, dataset_id: str) -> list[str]:
+    """Names of the projects trained on a dataset."""
+    names = []
+    for path in ws.projects.glob("*.json"):
+        try:
+            project = ws.read_json(path)
+        except (ValueError, OSError):
+            continue
+        if project.get("dataset_id") == dataset_id:
+            names.append(str(project.get("name") or project.get("id")))
+    return names
+
+
+def choose_sheet(ws: Workspace, dataset_id: str, sheet: str, header_row: Any = 1) -> dict[str, Any]:
+    """Read another sheet of an imported Excel file, or take the headers from a lower row. When
+    projects already use the dataset, they keep their table: the choice goes to a copy, returned."""
     meta = get_meta(ws, dataset_id)
     if Path(meta.get("file", "")).suffix.lower() not in EXCEL:
         raise UserError("only Excel datasets have sheets")
-    header_row = int(header_row)
-    if not 1 <= header_row <= 1000:
-        raise UserError("the header row is a number from 1 to 1000")
     names = [s["name"] for s in meta.get("sheets") or excel_sheets(ws.datasets / dataset_id / meta["file"])]
     if sheet not in names:
         raise UserError(f"the file has no sheet called {sheet}")
-    fresh = _table_meta(ws, dataset_id, meta["name"], meta["file"], meta.get("source", ""), sheet, header_row)
-    return _write_meta(ws, dataset_id, {**fresh, "created": meta.get("created", fresh["created"])})
+    if header_row is None or header_row == "":  # another sheet: find its header row again
+        header_row = guess_header_row(ws.datasets / dataset_id / meta["file"], sheet)
+    try:
+        header_row = int(header_row)
+    except (TypeError, ValueError) as error:
+        raise UserError("the header row is a number from 1 to 1000") from error
+    if not 1 <= header_row <= 1000:
+        raise UserError("the header row is a number from 1 to 1000")
+    if sheet == meta.get("sheet") and header_row == int(meta.get("header_row") or 1):
+        return meta
+    target_id, name = dataset_id, meta["name"]
+    if _used_by(ws, dataset_id):
+        target_id, name = new_id("d"), f"{meta['name']} ({sheet})"
+        shutil.copytree(ws.datasets / dataset_id, ws.datasets / target_id)
+    try:
+        fresh = _table_meta(ws, target_id, name, meta["file"], meta.get("source", ""), sheet, header_row)
+    except Exception:
+        if target_id != dataset_id:
+            shutil.rmtree(ws.datasets / target_id, ignore_errors=True)
+        raise
+    created = meta.get("created", fresh["created"]) if target_id == dataset_id else fresh["created"]
+    return _write_meta(ws, target_id, {**fresh, "created": created})
 
 
 def export(ws: Workspace, dataset_id: str, fmt: str) -> dict[str, Any]:

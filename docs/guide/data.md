@@ -26,8 +26,12 @@ FlowLabs reads the first sheet that holds a table: a sheet with one column of no
 one, is skipped. When the file has more than one sheet, **Set up the project** shows a **Sheet**
 list with each sheet's size; pick another and the preview, columns and target follow it.
 
-Reports often put a title or a few notes above the table. Set **Column names on row** to the row
-the column names are on (for example 3), and the rows above it are left out.
+Reports often put a title or a few notes above the table. FlowLabs finds the row with the column
+names by itself (the first row of text as wide as the table), and shows it in **Column names on
+row**. If it guessed wrong, set the right row, and the rows above it are left out.
+
+When other projects already use the dataset, picking another sheet or row makes a copy (named after
+the sheet), so those projects keep their table.
 
 Training, SQL, Sheets and exports all use the sheet and row you chose. An exported project gets
 that table as `data.csv`, so its `train.py` reads the same rows.

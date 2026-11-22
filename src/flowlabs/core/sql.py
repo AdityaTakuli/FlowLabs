@@ -600,7 +600,7 @@ def connection_tables(ws: Workspace, connection_id: str) -> list[dict[str, Any]]
         try:
             return sources.list_files(live, source, values)
         except Exception as error:  # noqa: BLE001
-            raise UserError(_tidy_message(str(error))[:400]) from error
+            raise UserError(_storage_error(str(error))) from error
         finally:
             live.close()
     if source.engine == "duckdb":
@@ -638,6 +638,21 @@ def connection_tables(ws: Workspace, connection_id: str) -> list[dict[str, Any]]
         engine.dispose()
 
 
+def _storage_error(message: str) -> str:
+    """DuckDB's storage errors in plain words; the original detail stays at the end."""
+    text = _tidy_message(message)
+    lower = text.lower()
+    host = re.search(r"https?://([^/'\s]+)", text)
+    where = host.group(1) if host else "the storage"
+    if "could not connect" in lower or "could not resolve" in lower or "timed out" in lower:
+        return f"Could not reach {where}. Check the address (endpoint), and that you are online."
+    if "403" in lower or "access denied" in lower or "forbidden" in lower or "authorization" in lower:
+        return f"{where} refused the request: check the keys and that they may list and read this bucket. ({text[:200]})"
+    if "404" in lower or "nosuchbucket" in lower or "does not exist" in lower:
+        return f"{where} has no such bucket or container. ({text[:200]})"
+    return text[:400]
+
+
 def storage_browse(ws: Workspace, connection_id: str, folder: str = "") -> dict[str, Any]:
     """One folder of a cloud storage connection: sub-folders, and files with the SQL that reads them."""
     connection = _get_connection(ws, connection_id)
@@ -651,7 +666,7 @@ def storage_browse(ws: Workspace, connection_id: str, folder: str = "") -> dict[
     except UserError:
         raise
     except Exception as error:  # noqa: BLE001
-        raise UserError(_tidy_message(str(error))[:400]) from error
+        raise UserError(_storage_error(str(error))) from error
     finally:
         live.close()
 

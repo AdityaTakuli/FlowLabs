@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppContext, type AppState, type Toast } from "./context";
 import { androidBridge, BrowserEngine, chooseEngine, EngineError, type Engine } from "./engine/engine";
+import { AiPanelProvider } from "./components/AiPanel";
 import { EngineDialog } from "./components/EngineDialog";
 import { Intro } from "./components/Intro";
 import { LogoMark } from "./components/TopBar";
@@ -198,6 +199,7 @@ export function App() {
     <>
       {state ? (
         <AppContext.Provider value={state}>
+          <AiPanelProvider>
           {route.page === "home" ? (
             <Home open={(id) => navigate({ page: "project", id, tab: "data" })} />
           ) : route.page === "chart" ? (
@@ -223,6 +225,7 @@ export function App() {
               goHome={() => navigate({ page: "home" })}
             />
           )}
+          </AiPanelProvider>
           {engineOpen && <EngineDialog onClose={() => setEngineOpen(false)} onSwitch={(next) => void switchEngine(next).then(() => navigate({ page: "home" }))} />}
         </AppContext.Provider>
       ) : (

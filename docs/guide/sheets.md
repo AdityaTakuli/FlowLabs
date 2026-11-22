@@ -153,6 +153,15 @@ Select a table (or a cell inside one) and choose **Save as dataset**. The first 
 columns; the values are saved as they show, with formulas giving their results and dates kept as
 dates. In a project's **Analyze → Sheet**, FlowLabs then offers to use it as the project's data.
 
+## Ask the AI
+
+Open the AI panel with **Ctrl+L** or the **AI** button in the top bar and describe what you want:
+*add a total under the numbers*, *a column with each row's share*, *explain the formulas I selected*,
+*summarize this sheet on a new sheet*. It writes the values and formulas into the cells and selects
+them; **Undo** in the panel (or Ctrl+Z) takes the change back. It sees the sheet's names, its first
+rows, its last row and the cells you select. See
+[the AI panel](guide:sql#the-ai-panel) for setting up a provider.
+
 ## Keyboard shortcuts
 
 | Keys | Does |
@@ -172,3 +181,4 @@ dates. In a project's **Analyze → Sheet**, FlowLabs then offers to use it as t
 | F9 | Calculate everything again |
 | Ctrl+O, Ctrl+N | Import a file, a new workbook |
 | Ctrl+F1 | Hide or show the toolbar |
+| Ctrl+L | Open the AI panel |

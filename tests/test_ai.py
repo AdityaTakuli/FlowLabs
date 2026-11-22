@@ -293,3 +293,149 @@ def test_detect_local_gateways(monkeypatch):
         up.close()
     assert found["freellmapi"] == {"running": True, "needs_key": True, "url": up.url + "/v1"}
     assert found["omniroute"]["running"] is False
+
+
+def test_answers_that_are_not_json(ws, churn_id):
+    assert ai._parse_answer("Sure! Here you go:\n```sql\nselect 1\n```") == {"sql": "select 1", "explanation": ""}
+    assert ai._parse_answer("Try: SELECT count(*) FROM data")["sql"] == "SELECT count(*) FROM data"
+    assert ai._parse_answer("with t as (select 1) select * from t")["sql"].startswith("with t as")
+    assert ai._parse_answer("Answer:\nselect 42")["sql"] == "select 42"
+    for prose in ("I cannot help with that.", "You could select the best plan yourself.", "Done with it"):
+        assert ai._parse_answer(prose)["sql"] == "", prose
+    assert ai._parse_answer('```json\n{"sql": "select 2", "explanation": "x"}\n```')["sql"] == "select 2"
+    fake = Fake([(200, chat("I cannot help with that."))])
+    try:
+        ai.configure(ws, provider="custom", base_url=fake.url, model="local")
+        with pytest.raises(UserError, match="answered without SQL: I cannot help with that"):
+            ai.write_sql(ws, "how many customers?", dataset_id=churn_id)
+    finally:
+        fake.close()
+
+
+# ------------------------------------------------------------------ the AI panel
+
+QUERY = {"type": "sql", "sql": "select plan_type, count(*) from data group by 1", "run": True,
+         "sheet": "", "start": "", "values": []}  # fmt: skip
+CELLS = {"type": "cells", "sql": "", "run": False, "sheet": "", "start": "d1",
+         "values": [["Total"], ["=SUM(B2:B10)"]]}  # fmt: skip
+
+
+def _custom(ws, fake):
+    ai.configure(ws, provider="custom", base_url=fake.url + "/v1", model="local")
+
+
+def test_a_question_about_a_query_gets_sql_to_put_in_the_editor(ws, churn_id):
+    reply = {"message": "Customers per plan.", "actions": [QUERY, CELLS]}
+    fake = Fake([(200, chat(json.dumps(reply)))])
+    try:
+        _custom(ws, fake)
+        answer = ai.chat(
+            ws,
+            [{"role": "user", "content": "customers per plan"}],
+            view="SQL editor",
+            context="Current query:\nselect * from data",
+            can=["sql"],
+            dataset_id=churn_id,
+        )
+    finally:
+        fake.close()
+    # the sheet edit is dropped: this page has no sheet
+    assert answer["message"] == "Customers per plan." and answer["actions"] == [
+        {"type": "sql", "sql": QUERY["sql"], "run": True}
+    ]
+    system, question = fake.requests[0]["body"]["messages"]
+    assert system["role"] == "system" and question == {"role": "user", "content": "customers per plan"}
+    text = system["content"]
+    assert "data (2000 rows)" in text and "select * from data" in text and "this project's data" in text
+    assert '"sql" replaces the query' in text and '"cells" writes' not in text and "DuckDB" in text
+    assert fake.requests[0]["body"]["max_tokens"] == 4000
+
+
+def test_a_sheet_gets_cells_and_the_conversation_goes_along(ws):
+    reply = {"message": "Added a total.", "actions": [CELLS, QUERY, {**CELLS, "start": "not a cell"}]}
+    fake = Fake([(200, chat(json.dumps(reply)))])
+    history = [
+        {"role": "assistant", "content": "Hi! How can I help?"},  # a greeting first: dropped
+        {"role": "user", "content": "what is in column B?"},
+        {"role": "assistant", "content": "Sales per month."},
+        {"role": "user", "content": "add a total"},
+        {"role": "user", "content": "in D"},  # two in a row are joined
+    ]
+    try:
+        _custom(ws, fake)
+        answer = ai.chat(ws, history, view="Sheet1 of Sales", context="A1: Month, B1: Sales", can=["cells"])
+    finally:
+        fake.close()
+    assert answer["actions"] == [{"type": "cells", "sheet": "", "start": "D1", "values": [["Total"], ["=SUM(B2:B10)"]]}]
+    sent = fake.requests[0]["body"]["messages"]
+    assert [m["role"] for m in sent] == ["system", "user", "assistant", "user"]
+    assert sent[-1]["content"] == "add a total\n\nin D"
+    assert "Tables:" not in sent[0]["content"] and '"cells" writes' in sent[0]["content"]
+
+
+def test_plain_text_answers_and_odd_values(ws):
+    parsed = ai._parse_chat("Here it is:\n```sql\nselect 1\n```\nIt counts.", {"sql"})
+    assert parsed == {
+        "message": "Here it is:\n\nIt counts.",
+        "actions": [{"type": "sql", "sql": "select 1", "run": False}],
+    }
+    assert ai._parse_chat("```sql\nselect 1\n```", set())["actions"] == []  # nothing to put it in
+    wrapped = (
+        'Sure: {"message": "ok", "actions": [{"type": "cells", "start": "$A$1", "values": [[1, 2.0, true, null]]}]}'
+    )
+    assert ai._parse_chat(wrapped, {"cells"})["actions"][0] == {
+        "type": "cells", "sheet": "", "start": "A1", "values": [["1", "2", "TRUE", ""]]
+    }  # fmt: skip
+    too_many = {"type": "cells", "start": "A1", "values": [["x"] * 100] * 30}
+    assert ai._actions([too_many], {"cells"}) == []
+
+
+def test_mistakes(ws):
+    with pytest.raises(UserError, match="Add a Groq API key"):
+        ai.chat(ws, [{"role": "user", "content": "hi"}])
+    fake = Fake([(200, chat(json.dumps({"message": "", "actions": []})))])
+    try:
+        _custom(ws, fake)
+        with pytest.raises(UserError, match="Ask something first"):
+            ai.chat(ws, [{"role": "assistant", "content": "hello"}])
+        with pytest.raises(UserError, match="empty answer"):
+            ai.chat(ws, [{"role": "user", "content": "hi"}])
+    finally:
+        fake.close()
+
+
+def test_a_database_that_is_down_does_not_stop_the_chat(ws, monkeypatch):
+    def down(*args):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(ai, "schema", down)
+    fake = Fake([(200, chat(json.dumps({"message": "It is down.", "actions": []})))])
+    try:
+        _custom(ws, fake)
+        answer = ai.chat(ws, [{"role": "user", "content": "why?"}], can=["sql"], connection_id="c1")
+    finally:
+        fake.close()
+    assert answer["message"] == "It is down."
+    assert "could not be listed: connection refused" in fake.requests[0]["body"]["messages"][0]["content"]
+
+
+@pytest.mark.skipif(not HAS_ANTHROPIC, reason="the anthropic package is not installed")
+def test_claude_holds_the_conversation_to_the_answer_shape(ws, churn_id, monkeypatch):
+    fake = Fake([(200, _claude_reply(json.dumps({"message": "Done.", "actions": [QUERY]})))])
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", fake.url)
+    try:
+        ai.configure(ws, provider="anthropic", key="sk-ant-" + "k" * 40)
+        answer = ai.chat(
+            ws,
+            [{"role": "user", "content": "per plan"}, {"role": "assistant", "content": "Which?"},
+             {"role": "user", "content": "all"}],
+            can=["sql"],
+            dataset_id=churn_id,
+        )  # fmt: skip
+    finally:
+        fake.close()
+    assert answer["actions"][0]["sql"] == QUERY["sql"]
+    body = fake.requests[0]["body"]
+    assert [m["role"] for m in body["messages"]] == ["user", "assistant", "user"]
+    assert "FlowLabs" in body["system"] and body["thinking"] == {"type": "adaptive"}
+    assert body["output_config"]["format"]["schema"]["required"] == ["message", "actions"]

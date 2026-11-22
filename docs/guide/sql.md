@@ -80,8 +80,38 @@ explains what it returns. Check the query, and change it as you like.
 When a query fails, **Fix with AI** sends the query and the error message, and gets back a
 corrected query.
 
-**Set up:** the first time, click **Set up Ask AI** (later, the gear beside it), pick who writes the
-SQL, and paste that provider's key:
+## The AI panel
+
+For more than one question, open the **AI panel**: the **AI** button in the top bar, or **Ctrl+L**
+(also Ctrl+Alt+I). It docks on the right of every page, like the assistant in a code editor, and
+remembers the conversation as you move between pages. Drag its left edge to make it wider.
+
+The panel sees what is open on the left, and changes it for you:
+
+- **In a SQL editor** (a project's SQL, or a query on the Databases page) it sees the query, the
+  tables and columns, and the last run's error or columns. Ask *rows per region for 2024* or *fix
+  the error*, and its query goes into the editor and runs. A query that changes data (INSERT,
+  UPDATE, DELETE, CREATE…) goes into the editor without running: check it, then run it yourself.
+- **In Sheets** it sees the sheet's names, its first rows, its last row and the cells you select.
+  Ask *add a total under the numbers* or *a column with each item's share*, and it writes the
+  values and formulas into the cells, selected so you see them. Cells that show an error such as
+  #DIV/0! are pointed out, so you can ask it to fix them.
+- **In a project** it knows the target, the metric, every step and model with its settings, and the
+  last results, and it changes the pipeline the way you would on the Pipeline page: it adds, changes
+  or removes steps and models, turns them on or off, sets tuning, the target or the metric, and
+  starts training. Ask *drop the ID column*, *try extra trees with more trees and turn off the
+  baseline*, or *add the models that fit my data and train them*. Each change shows what it set;
+  a setting the step does not have is left out and named. See [The AI panel in a
+  project](guide:pipeline#the-ai-panel-in-a-project).
+
+Every change has **Undo** in the panel (in Sheets, Ctrl+Z works too). Turn off **Apply changes
+automatically** to see each change first and apply it with **Put in editor** or **Apply**. The line
+above the message box says what the panel is working on.
+
+## Set up Ask AI
+
+The first time, click **Set up Ask AI** (later, the gear beside it, or the provider's name at the top
+of the AI panel), pick who writes the SQL, and paste that provider's key:
 
 | Provider | Key | Notes |
 | --- | --- | --- |
@@ -113,7 +143,10 @@ not let other apps use a chat plan. Use an API key, or GitHub Models for a Copil
 - up to three common values of each category column, so the model spells categories right.
 
 Columns where almost every value is different (IDs, names, emails) send no examples. Rows of data
-are never sent.
+from your tables are never sent. The AI panel also sends your messages and what the page shows: the
+query and its error, the names of the columns a query returned, in Sheets the first rows, the
+last row and the cells you select (up to 400), and in a project its steps, models and their settings,
+and the last training's scores. Python you wrote in code steps is not sent.
 
 Ask AI needs the desktop app or an engine. The browser version cannot reach AI providers.
 
