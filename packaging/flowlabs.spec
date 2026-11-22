@@ -27,7 +27,7 @@ datas = [
 EXTENSIONS = ROOT / "build" / "duckdb_extensions"
 if EXTENSIONS.is_dir():
     datas += [(str(f), str(Path("duckdb_extensions") / f.parent.relative_to(EXTENSIONS)))
-              for f in EXTENSIONS.rglob("*.duckdb_extension")]  # fmt: skip
+              for f in EXTENSIONS.rglob("*.duckdb_extension.gz")]  # fmt: skip
 
 hiddenimports = [
     "uvicorn.lifespan.on",

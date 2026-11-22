@@ -15,6 +15,9 @@ Secret fields (passwords, keys, tokens) are kept by vault.py, never in connectio
 
 from __future__ import annotations
 
+import gzip
+import os
+import shutil
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -411,8 +414,30 @@ def bundled_extension(name: str) -> str | None:
     if not getattr(sys, "frozen", False):
         return None
     folder = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "duckdb_extensions"
-    found = next(folder.glob(f"**/{name}.duckdb_extension"), None) if folder.is_dir() else None
-    return str(found) if found else None
+    return unpacked_extension(folder, name)
+
+
+def unpacked_extension(folder: Path, name: str, cache: Path | None = None) -> str | None:
+    """The extension file in ``folder``. Builds ship it gzipped (macOS signing rejects the raw file):
+    it is unpacked once into ~/.flowlabs/duckdb_extensions/<version>/<platform>/, since the app's
+    own folder may be read-only."""
+    if not folder.is_dir():
+        return None
+    plain = next(folder.glob(f"**/{name}.duckdb_extension"), None)
+    if plain is not None:
+        return str(plain)
+    packed = next(folder.glob(f"**/{name}.duckdb_extension.gz"), None)
+    if packed is None:
+        return None
+    home = cache or Path(os.environ.get("FLOWLABS_HOME", Path.home() / ".flowlabs")) / "duckdb_extensions"
+    target = home / packed.parent.relative_to(folder) / packed.name[: -len(".gz")]
+    if not target.is_file() or target.stat().st_mtime < packed.stat().st_mtime:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        partial = target.with_name(f"{target.name}.{os.getpid()}.part")
+        with gzip.open(packed, "rb") as source, partial.open("wb") as out:
+            shutil.copyfileobj(source, out)
+        os.replace(partial, target)
+    return str(target)
 
 
 def prepare_storage(connection: Any, source: Source, values: dict[str, Any], secrets: dict[str, str]) -> None:

@@ -112,7 +112,15 @@ def fetch_duckdb_extensions() -> None:
     for name in DUCKDB_EXTENSIONS:
         connection.execute(f"INSTALL {name}")
     connection.close()
-    print("DuckDB extensions:", ", ".join(sorted(p.name for p in folder.rglob("*.duckdb_extension"))), flush=True)
+    # Shipped gzipped: DuckDB appends metadata after the Mach-O code, so macOS codesign rejects the
+    # raw files when PyInstaller signs binaries it finds among the data. The app unpacks them on use.
+    import gzip
+
+    for extension in folder.rglob("*.duckdb_extension"):
+        with extension.open("rb") as raw, gzip.open(f"{extension}.gz", "wb", compresslevel=6) as packed:
+            shutil.copyfileobj(raw, packed)
+        extension.unlink()
+    print("DuckDB extensions:", ", ".join(sorted(p.name for p in folder.rglob("*.duckdb_extension.gz"))), flush=True)
 
 
 def build_bundle(web: bool) -> None:
