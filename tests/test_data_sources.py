@@ -7,6 +7,7 @@ Live cloud storage: set FLOWLABS_TEST_AZURITE to an Azurite blob endpoint (for e
 from __future__ import annotations
 
 import os
+import sys
 import zipfile
 from pathlib import Path
 
@@ -245,13 +246,15 @@ def test_a_dataset_in_use_keeps_its_sheet_for_its_projects(ws, book):
 def test_browse_keeps_brackets_and_quotes(tmp_path):
     import duckdb
 
-    folder = tmp_path / "bucket" / "it's [2026] & co*"
+    # "*" is a glob character worth testing, but Windows does not allow it in a file name
+    name = "it's [2026] & co" + ("" if sys.platform == "win32" else "*")
+    folder = tmp_path / "bucket" / name
     folder.mkdir(parents=True)
     pd.DataFrame({"x": [1, 2]}).to_parquet(folder / "o'neil [v1].parquet")
     pd.DataFrame({"x": [3]}).to_parquet(folder / "plain.parquet")
     connection = duckdb.connect()
     top = sources.browse_at(connection, f"{(tmp_path / 'bucket').as_posix()}/")
-    assert [f["name"] for f in top["folders"]] == ["it's [2026] & co*"]
+    assert [f["name"] for f in top["folders"]] == [name]
     inner = sources.browse_at(connection, f"{folder.as_posix()}/")
     files = {f["name"]: f for f in inner["files"]}
     assert set(files) == {"o'neil [v1].parquet", "plain.parquet"}
